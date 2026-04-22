@@ -1,0 +1,116 @@
+portfolios:
+  clean:
+    symbols: [AUDUSD, EURJPY, EURUSD, USDJPY]
+    portfolio_cap: 2
+  middle:
+    symbols: [AUDUSD, EURJPY, EURUSD, GBPUSD, USDJPY]
+    portfolio_cap: 3
+  capacity:
+    symbols: [AUDUSD, EURJPY, EURUSD, GBPJPY, GBPUSD, USDJPY]
+    portfolio_cap: 5
+  baseline_6_symbol:
+    symbols: [AUDUSD, EURJPY, EURUSD, GBPJPY, GBPUSD, USDJPY]
+    portfolio_cap: 6
+
+cb_variants:
+  - name: cb_off
+    enabled: false
+    base_equity_R: 100.0
+
+  - name: cb_current_8pct_then_ratchet
+    enabled: true
+    base_equity_R: 100.0
+    trigger_pct: 0.08
+    recovery_buffer: 0.97
+    next_trigger_pct: 0.92
+    first_trigger_from_peak: true
+
+  - name: cb_doc_097_092
+    enabled: true
+    base_equity_R: 100.0
+    trigger_pct: 0.08
+    recovery_buffer: 0.97
+    next_trigger_pct: 0.92
+    first_trigger_from_peak: false
+
+  - name: cb_tighter_6pct
+    enabled: true
+    base_equity_R: 100.0
+    trigger_pct: 0.06
+    recovery_buffer: 0.98
+    next_trigger_pct: 0.94
+    first_trigger_from_peak: true
+
+  - name: cb_looser_10pct
+    enabled: true
+    base_equity_R: 100.0
+    trigger_pct: 0.10
+    recovery_buffer: 0.96
+    next_trigger_pct: 0.90
+    first_trigger_from_peak: true
+
+cb_session_rearm:
+  # CB pauses the current session block and re-arms at the configured next
+  # session label. This is portfolio-simulator behavior, not bot runtime code.
+  overnight: london
+  asian: london
+  london: ny
+  london_ny: ny
+  ny: asian
+
+highwind:
+  enabled: true
+  auto_recovery: true
+  size_mult:
+    NORMAL: 1.00
+    L1: 0.75
+    L2: 0.50
+    HALT: 0.00
+
+  AUDUSD:
+    window: 30
+    halt_threshold: 0.3662
+    l2_threshold: 0.3912
+    l1_threshold: 0.4065
+    seed_wins: 13
+    seed_losses: 17
+
+  EURJPY:
+    window: 30
+    halt_threshold: 0.3573
+    l2_threshold: 0.3823
+    l1_threshold: 0.3973
+    seed_wins: 12
+    seed_losses: 18
+
+  EURUSD:
+    window: 30
+    halt_threshold: 0.3508
+    l2_threshold: 0.3758
+    l1_threshold: 0.3995
+    seed_wins: 12
+    seed_losses: 18
+
+  GBPJPY:
+    window: 30
+    halt_threshold: 0.3576
+    l2_threshold: 0.3826
+    l1_threshold: 0.3976
+    seed_wins: 12
+    seed_losses: 18
+
+  GBPUSD:
+    window: 30
+    halt_threshold: 0.3700
+    l2_threshold: 0.3962
+    l1_threshold: 0.4212
+    seed_wins: 13
+    seed_losses: 17
+
+  USDJPY:
+    window: 30
+    halt_threshold: 0.3481
+    l2_threshold: 0.3731
+    l1_threshold: 0.3950
+    seed_wins: 12
+    seed_losses: 18
