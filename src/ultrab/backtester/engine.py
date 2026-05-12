@@ -608,7 +608,7 @@ class InstrumentEngine:
         cooldown_status: str,
     ) -> Optional[dict]:
         """Delegate to strategy.py to keep trigger logic separate."""
-        from backtester.strategy import evaluate_hypotheses
+        from ultrab.backtester.strategy import evaluate_hypotheses
         return evaluate_hypotheses(self, feature_row, context_row, cooldown_status)
 
     def _check_sl_tp(

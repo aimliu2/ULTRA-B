@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backtester.engine import InstrumentEngine, Trade
+    from ultrab.backtester.engine import InstrumentEngine, Trade
 
 # Output directory
 _LOG_DIR = Path(__file__).parent.parent / 'studies-trade-logs'

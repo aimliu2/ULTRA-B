@@ -14,7 +14,7 @@ import yaml
 def find_repo_root() -> Path:
     here = Path(__file__).resolve()
     for parent in [here.parent, *here.parents]:
-        if (parent / "portfolio-analysis").is_dir() and (parent / "backtester").is_dir():
+        if (parent / "src" / "ultrab").is_dir():
             return parent
     return Path.cwd()
 
@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 try:
-    from backtester.ledger_portfolio import (  # type: ignore  # noqa: E402
+    from ultrab.backtester.ledger_portfolio import (  # type: ignore  # noqa: E402
         load_candidate_ledgers,
         loss_cluster_profile,
         profit_factor,
@@ -43,7 +43,7 @@ DEFAULT_ANALYSIS_DIR = ROOT / "portfolio-analysis"
 DEFAULT_REGISTRY_PATH = DEFAULT_ANALYSIS_DIR / "candidate_registry.csv"
 DEFAULT_LEDGER_DIR = DEFAULT_ANALYSIS_DIR / "candidate_ledgers"
 DEFAULT_RESULTS_DIR = DEFAULT_ANALYSIS_DIR / "results"
-DEFAULT_FUNNEL_CONFIG_PATH = ROOT / "backtester" / "funnel.yaml"
+DEFAULT_FUNNEL_CONFIG_PATH = ROOT / "funnel.yaml"
 
 
 @dataclass(frozen=True)

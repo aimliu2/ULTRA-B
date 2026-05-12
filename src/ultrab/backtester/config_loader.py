@@ -1,4 +1,4 @@
-"""Config loading helpers for the SystemC backtester."""
+"""Config loading helpers for the SystemC ultrab.backtester."""
 
 from __future__ import annotations
 

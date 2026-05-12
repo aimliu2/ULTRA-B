@@ -14,13 +14,13 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
-from backtester.cursor import (
+from ultrab.backtester.cursor import (
     _ContextRow,
     _REQUIRED_FEATURE_COLS,
     _has_nan_features,
 )
-from backtester.features import compute_regime
-from backtester.strategy import resolve_sl_tp
+from ultrab.backtester.features import compute_regime
+from ultrab.backtester.strategy import resolve_sl_tp
 
 
 @dataclass

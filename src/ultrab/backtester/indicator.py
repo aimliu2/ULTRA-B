@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Tuple
 
-from backtester.numba_kernels import (
+from ultrab.backtester.numba_kernels import (
     atr_kernel,
     ema_kernel,
     rsi_kernel,

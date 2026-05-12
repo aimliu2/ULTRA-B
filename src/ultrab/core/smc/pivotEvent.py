@@ -1,0 +1,327 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Literal
+
+import pandas as pd
+
+
+PivotMode = Literal["conservative", "aggressive"]
+PivotSide = Literal[1, -1]
+
+
+@dataclass
+class PivotEvent:
+    event_code: str
+    event_name: str
+    event_group: str
+    tier: str
+    event_timestamp: pd.Timestamp
+    pivot_timestamp: pd.Timestamp
+    pivot_price: float
+    pivot_side: PivotSide
+    mode: PivotMode
+    survival_bars: int
+    source_tier: str | None = None
+    source_event_code: str | None = None
+    previous_same_side_timestamp: pd.Timestamp | None = None
+    previous_same_side_price: float | None = None
+    confirmation_timestamp: pd.Timestamp | None = None
+    confirmation_event_timestamp: pd.Timestamp | None = None
+    confirmation_price: float | None = None
+    relation: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        payload = {
+            "eventCode": self.event_code,
+            "eventName": self.event_name,
+            "eventGroup": self.event_group,
+            "tier": self.tier,
+            "eventTimestamp": self.event_timestamp,
+            "pivotTimestamp": self.pivot_timestamp,
+            "pivotPrice": self.pivot_price,
+            "pivotSide": self.pivot_side,
+            "mode": self.mode,
+            "survivalBars": self.survival_bars,
+        }
+        if self.source_tier is not None:
+            payload["sourceTier"] = self.source_tier
+        if self.source_event_code is not None:
+            payload["sourceEventCode"] = self.source_event_code
+        if self.previous_same_side_timestamp is not None:
+            payload["previousSameSideTimestamp"] = self.previous_same_side_timestamp
+        if self.previous_same_side_price is not None:
+            payload["previousSameSidePrice"] = self.previous_same_side_price
+        if self.confirmation_timestamp is not None:
+            payload["confirmationTimestamp"] = self.confirmation_timestamp
+        if self.confirmation_event_timestamp is not None:
+            payload["confirmationEventTimestamp"] = self.confirmation_event_timestamp
+        if self.confirmation_price is not None:
+            payload["confirmationPrice"] = self.confirmation_price
+        if self.relation is not None:
+            payload["relation"] = self.relation
+        return payload
+
+
+@dataclass
+class _Candidate:
+    side: PivotSide
+    price: float
+    timestamp: pd.Timestamp
+    age: int = 0
+    broken: bool = False
+
+
+class PivotEventEngine:
+    """
+    Pivot engine based on tiered compression.
+
+    A candle high/low becomes STR when it remains unbroken for N future candles.
+    ITR compresses confirmed STR extremes.
+    LTR compresses confirmed ITR extremes.
+    """
+
+    def __init__(self, config: dict[str, Any] | None = None) -> None:
+        cfg = config or {}
+        self.mode: PivotMode = str(cfg.get("mode", "conservative")).strip().lower().rstrip(".")  # type: ignore[assignment]
+        if self.mode not in {"conservative", "aggressive"}:
+            raise ValueError(f"Unsupported pivot event mode: {self.mode}")
+
+        self.str_bars = int(cfg.get("str_bars", cfg.get("survival_bars", 1)))
+        if self.str_bars < 1:
+            raise ValueError("str_bars must be >= 1")
+
+        compute = cfg.get("compute", cfg.get("tiers", {}))
+        self.str_enabled = bool(compute.get("str", True))
+        self.itr_enabled = self.str_enabled and bool(compute.get("itr", False))
+        self.ltr_enabled = self.itr_enabled and bool(compute.get("ltr", False))
+
+        self._candidates: list[_Candidate] = []
+        self._last_confirmed_side: PivotSide | None = None
+        self._last_str_high: PivotEvent | None = None
+        self._last_str_low: PivotEvent | None = None
+        self._last_itr_side: PivotSide | None = None
+        self._last_itr_high: PivotEvent | None = None
+        self._last_itr_low: PivotEvent | None = None
+        self._last_ltr_side: PivotSide | None = None
+
+    def on_bar(self, row: pd.Series) -> list[PivotEvent]:
+        ts = row.name
+        open_price = float(row["open"])
+        high = float(row["high"])
+        low = float(row["low"])
+        close = float(row["close"])
+
+        emitted: list[PivotEvent] = []
+        survivors: list[_Candidate] = []
+        eligible: list[_Candidate] = []
+
+        for candidate in self._candidates:
+            if self._breaks_candidate(candidate, open_price, high, low, close):
+                continue
+
+            candidate.age += 1
+            if candidate.age >= self.str_bars:
+                eligible.append(candidate)
+                continue
+
+            survivors.append(candidate)
+
+        selected = self._select_eligible_candidate(eligible)
+        if selected is not None:
+            str_event = self._event_from_candidate(selected, ts)
+            if self.str_enabled:
+                emitted.append(str_event)
+            itr_event = self._itr_event_from_str(str_event) if self.itr_enabled else None
+            if self.itr_enabled and itr_event is not None and self._itr_side_is_expected(itr_event.pivot_side):
+                emitted.append(itr_event)
+                self._last_itr_side = itr_event.pivot_side
+                ltr_event = self._ltr_event_from_itr(itr_event) if self.ltr_enabled else None
+                if ltr_event is not None and self._ltr_side_is_expected(ltr_event.pivot_side):
+                    emitted.append(ltr_event)
+                    self._last_ltr_side = ltr_event.pivot_side
+                self._remember_itr_event(itr_event)
+            self._remember_str_event(str_event)
+            self._last_confirmed_side = selected.side
+
+        survivors.append(_Candidate(side=1, price=high, timestamp=ts))
+        survivors.append(_Candidate(side=-1, price=low, timestamp=ts))
+        self._candidates = survivors
+
+        return emitted
+
+    def _breaks_candidate(
+        self,
+        candidate: _Candidate,
+        open_price: float,
+        high: float,
+        low: float,
+        close: float,
+    ) -> bool:
+        if self.mode == "aggressive":
+            if candidate.side == 1:
+                return high > candidate.price
+            return low < candidate.price
+
+        body_high = max(open_price, close)
+        body_low = min(open_price, close)
+        if candidate.side == 1:
+            return body_high > candidate.price
+        return body_low < candidate.price
+
+    def _select_eligible_candidate(self, candidates: list[_Candidate]) -> _Candidate | None:
+        expected_side = self._expected_side()
+        eligible = [candidate for candidate in candidates if candidate.side == expected_side]
+        if not eligible:
+            return None
+
+        if expected_side == 1:
+            return max(eligible, key=lambda candidate: candidate.price)
+        return min(eligible, key=lambda candidate: candidate.price)
+
+    def _expected_side(self) -> PivotSide:
+        if self._last_confirmed_side == 1:
+            return -1
+        return 1
+
+    def _event_from_candidate(self, candidate: _Candidate, event_ts: pd.Timestamp) -> PivotEvent:
+        if candidate.side == 1:
+            return PivotEvent(
+                event_code="PE01",
+                event_name="strHighConfirmed",
+                event_group="PE",
+                tier="str",
+                event_timestamp=event_ts,
+                pivot_timestamp=candidate.timestamp,
+                pivot_price=candidate.price,
+                pivot_side=1,
+                mode=self.mode,
+                survival_bars=self.str_bars,
+            )
+
+        return PivotEvent(
+            event_code="PE02",
+            event_name="strLowConfirmed",
+            event_group="PE",
+            tier="str",
+            event_timestamp=event_ts,
+            pivot_timestamp=candidate.timestamp,
+            pivot_price=candidate.price,
+            pivot_side=-1,
+            mode=self.mode,
+            survival_bars=self.str_bars,
+        )
+
+    def _itr_event_from_str(self, str_event: PivotEvent) -> PivotEvent | None:
+        if str_event.pivot_side == 1:
+            extreme = self._last_str_high
+            if extreme is None or str_event.pivot_price >= extreme.pivot_price:
+                return None
+            return PivotEvent(
+                event_code="PE03",
+                event_name="itrHighConfirmed",
+                event_group="PE",
+                tier="itr",
+                event_timestamp=str_event.event_timestamp,
+                pivot_timestamp=extreme.pivot_timestamp,
+                pivot_price=extreme.pivot_price,
+                pivot_side=1,
+                mode=self.mode,
+                survival_bars=self.str_bars,
+                source_tier="str",
+                source_event_code=str_event.event_code,
+                confirmation_timestamp=str_event.pivot_timestamp,
+                confirmation_event_timestamp=str_event.event_timestamp,
+                confirmation_price=str_event.pivot_price,
+                relation="lower_high",
+            )
+
+        extreme = self._last_str_low
+        if extreme is None or str_event.pivot_price <= extreme.pivot_price:
+            return None
+        return PivotEvent(
+            event_code="PE04",
+            event_name="itrLowConfirmed",
+            event_group="PE",
+            tier="itr",
+            event_timestamp=str_event.event_timestamp,
+            pivot_timestamp=extreme.pivot_timestamp,
+            pivot_price=extreme.pivot_price,
+            pivot_side=-1,
+            mode=self.mode,
+            survival_bars=self.str_bars,
+            source_tier="str",
+            source_event_code=str_event.event_code,
+            confirmation_timestamp=str_event.pivot_timestamp,
+            confirmation_event_timestamp=str_event.event_timestamp,
+            confirmation_price=str_event.pivot_price,
+            relation="higher_low",
+        )
+
+    def _itr_side_is_expected(self, side: PivotSide) -> bool:
+        if self._last_itr_side is None:
+            return True
+        return side != self._last_itr_side
+
+    def _ltr_event_from_itr(self, itr_event: PivotEvent) -> PivotEvent | None:
+        if itr_event.pivot_side == 1:
+            extreme = self._last_itr_high
+            if extreme is None or itr_event.pivot_price >= extreme.pivot_price:
+                return None
+            return PivotEvent(
+                event_code="PE05",
+                event_name="ltrHighConfirmed",
+                event_group="PE",
+                tier="ltr",
+                event_timestamp=itr_event.event_timestamp,
+                pivot_timestamp=extreme.pivot_timestamp,
+                pivot_price=extreme.pivot_price,
+                pivot_side=1,
+                mode=self.mode,
+                survival_bars=self.str_bars,
+                source_tier="itr",
+                source_event_code=itr_event.event_code,
+                confirmation_timestamp=itr_event.pivot_timestamp,
+                confirmation_event_timestamp=itr_event.event_timestamp,
+                confirmation_price=itr_event.pivot_price,
+                relation="lower_high",
+            )
+
+        extreme = self._last_itr_low
+        if extreme is None or itr_event.pivot_price <= extreme.pivot_price:
+            return None
+        return PivotEvent(
+            event_code="PE06",
+            event_name="ltrLowConfirmed",
+            event_group="PE",
+            tier="ltr",
+            event_timestamp=itr_event.event_timestamp,
+            pivot_timestamp=extreme.pivot_timestamp,
+            pivot_price=extreme.pivot_price,
+            pivot_side=-1,
+            mode=self.mode,
+            survival_bars=self.str_bars,
+            source_tier="itr",
+            source_event_code=itr_event.event_code,
+            confirmation_timestamp=itr_event.pivot_timestamp,
+            confirmation_event_timestamp=itr_event.event_timestamp,
+            confirmation_price=itr_event.pivot_price,
+            relation="higher_low",
+        )
+
+    def _ltr_side_is_expected(self, side: PivotSide) -> bool:
+        if self._last_ltr_side is None:
+            return True
+        return side != self._last_ltr_side
+
+    def _remember_str_event(self, str_event: PivotEvent) -> None:
+        if str_event.pivot_side == 1:
+            self._last_str_high = str_event
+            return
+        self._last_str_low = str_event
+
+    def _remember_itr_event(self, itr_event: PivotEvent) -> None:
+        if itr_event.pivot_side == 1:
+            self._last_itr_high = itr_event
+            return
+        self._last_itr_low = itr_event

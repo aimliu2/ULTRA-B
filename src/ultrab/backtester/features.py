@@ -25,8 +25,9 @@ import pandas as pd
 from pathlib import Path
 from typing import Optional
 
-from backtester.indicator import ema, atr, rsi, supertrend
-from backtester.numba_kernels import st_stable_kernel, st_step_count_kernel
+from ultrab.backtester.indicator import ema, atr, rsi, supertrend
+from ultrab.backtester.numba_kernels import st_stable_kernel, st_step_count_kernel
+from ultrab.core.market_data import prepare_ohlcv
 
 # Session boundaries (UTC hours, half-open [start, end))
 # Matches the YAML session definitions used across all instruments.
@@ -41,43 +42,6 @@ _SESSION_BOUNDARIES = [
 # SuperTrend default params
 _ST_PERIOD = 12
 _ST_MULT   = 3.0
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-def prepare_ohlcv(
-    df: pd.DataFrame,
-    bar_duration: str | pd.Timedelta,
-    timestamp_col: str = 'timestamp',
-) -> pd.DataFrame:
-    """
-    Normalise raw OHLCV data to the engine's bar-close timestamp convention.
-
-    SystemC raw parquet files store `timestamp` as the bar OPEN time. The
-    forward engine makes decisions only after a bar closes, so the DataFrame
-    index and `avail_time` must be bar close time: timestamp + bar_duration.
-    """
-    out = df.copy()
-
-    if timestamp_col in out.columns:
-        open_time = pd.to_datetime(out[timestamp_col], utc=True)
-        out = out.drop(columns=[timestamp_col])
-    elif isinstance(out.index, pd.DatetimeIndex):
-        open_time = pd.to_datetime(out.index, utc=True)
-    else:
-        raise ValueError(
-            f"Expected a `{timestamp_col}` column or DatetimeIndex with bar-open times."
-        )
-
-    out.index = open_time + pd.Timedelta(bar_duration)
-    out.index.name = 'bar_close_time'
-
-    if 'volume' not in out.columns and 'tick_vol' in out.columns:
-        out = out.rename(columns={'tick_vol': 'volume'})
-
-    return out.sort_index()
 
 
 def build_features(

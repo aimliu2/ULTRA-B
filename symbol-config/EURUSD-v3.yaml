@@ -1,0 +1,11 @@
+symbol: EURUSD
+version: v3
+
+# ── chart display ─────────────────────────────────────────────────────────────
+# Notebook-only — the engine never reads these.
+chart:
+  st_plot: none          # none | line | band
+
+# ── marking engine ────────────────────────────────────────────────────────────
+marking:
+  str_bars: 5            # odd N ∈ [3,5,7,9,11,13] — STR swing lookback window

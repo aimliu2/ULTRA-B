@@ -1,7 +1,14 @@
+# other ignores
+.DS_Store
+.claude
+ln-notes
+ln-data
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
 *$py.class
+
 
 # C extensions
 *.so
@@ -135,6 +142,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
+src/.env
 .env
 .envrc
 .venv

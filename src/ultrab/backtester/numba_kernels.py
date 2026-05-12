@@ -1,4 +1,4 @@
-"""Numba-accelerated numeric kernels for the backtester."""
+"""Numba-accelerated numeric kernels for the ultrab.backtester."""
 
 from __future__ import annotations
 

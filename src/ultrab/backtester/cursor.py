@@ -22,12 +22,12 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Callable, TYPE_CHECKING
 
-from backtester.strategy import resolve_sl_tp
-from backtester.features import compute_regime
+from ultrab.backtester.strategy import resolve_sl_tp
+from ultrab.backtester.features import compute_regime
 
 if TYPE_CHECKING:
-    from backtester.engine import InstrumentEngine, Trade
-    from backtester.ledger_trade import TradeLedger
+    from ultrab.backtester.engine import InstrumentEngine, Trade
+    from ultrab.backtester.ledger_trade import TradeLedger
 
 # Context columns attached by align() with 'ctx_' prefix
 _CTX_PREFIX = 'ctx_'

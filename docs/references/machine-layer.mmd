@@ -1,0 +1,18 @@
+flowchart TB
+    subgraph Live["Live / Replay-Time Decision Path"]
+        A["Bars"] --> B["Events"]
+        B --> C["Context"]
+        C --> D["Hypothesis"]
+        D --> E["Trigger"]
+        E --> F["Trade"]
+        F --> G["Outcome / Null Case Log"]
+    end
+
+    subgraph Offline["Offline Learning Path"]
+        G --> I["Review Dataset"]
+        I --> J["Rule Tuning / Feature Design / ML Later"]
+        J --> K["Next Strategy Version"]
+    end
+
+    K -. "manual/versioned update" .-> B
+

@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backtester.engine import InstrumentEngine
+    from ultrab.backtester.engine import InstrumentEngine
 
 # ---------------------------------------------------------------------------
 # Hypothesis classification — shared across Policy 2 and Policy 3

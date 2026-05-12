@@ -1,0 +1,2081 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SystemC Replay</title>
+    <script
+      type="text/javascript"
+      src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"
+    ></script>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: Inter, Arial, sans-serif;
+        background: #0f1220;
+        color: #e7eaf3;
+      }
+      .page {
+        padding: 20px 20px 5px;
+      }
+      .header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 16px;
+        margin-bottom: 16px;
+        flex-wrap: wrap;
+      }
+      .title {
+        font-size: 20px;
+        font-weight: 600;
+      }
+      .controls {
+        display: flex;
+        gap: 12px;
+        align-items: end;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 13px;
+      }
+      .field input, .field button {
+        font: inherit;
+      }
+      .field input,
+      .field select {
+        background: #171b2c;
+        color: #e7eaf3;
+        border: 1px solid #2c334a;
+        border-radius: 6px;
+        padding: 8px 10px;
+        min-width: 220px;
+      }
+      .buttons {
+        display: flex;
+        gap: 8px;
+      }
+      button {
+        background: #1f2840;
+        color: #e7eaf3;
+        border: 1px solid #2c334a;
+        border-radius: 6px;
+        padding: 8px 12px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: default;
+      }
+      .icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+      }
+      .icon-btn img {
+        width: 18px;
+        height: 18px;
+        display: block;
+        filter: brightness(0) saturate(100%) invert(92%) sepia(8%) saturate(256%) hue-rotate(187deg) brightness(103%) contrast(93%);
+      }
+      .status {
+        color: #a8b0c3;
+        font-size: 13px;
+        margin-bottom: 8px;
+      }
+      .panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        gap: 16px;
+      }
+      .chart-wrap {
+        position: relative;
+        min-width: 0;
+      }
+      .chart-stack {
+        display: grid;
+        grid-template-rows: 1fr;
+        gap: 12px;
+        height: calc(100vh - 250px);
+      }
+      .chart-stack.is-dual {
+        grid-template-rows: 1fr 1fr;
+      }
+      .chart-pane {
+        position: relative;
+        min-height: 0;
+        border: 1px solid #242b42;
+        border-radius: 6px;
+        overflow: hidden;
+        background: #0f1220;
+      }
+      .chart-canvas {
+        width: 100%;
+        height: 100%;
+      }
+      .pane-label {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 20;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0;
+        color: #a8b0c3;
+        background: rgba(19, 23, 41, 0.78);
+        border: 1px solid #2c334a;
+        border-radius: 6px;
+        padding: 4px 8px;
+      }
+      .chart-tools {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+        z-index: 20;
+        display: flex;
+        gap: 8px;
+      }
+      .chart-tool-btn {
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(19, 23, 41, 0.78);
+      }
+      .chart-tool-btn img {
+        width: 18px;
+        height: 18px;
+        display: block;
+        filter: brightness(0) saturate(100%) invert(92%) sepia(8%) saturate(256%) hue-rotate(187deg) brightness(103%) contrast(93%);
+      }
+      .chart-tool-btn.is-active {
+        border-color: #66bb6a;
+        box-shadow: 0 0 0 1px rgba(102, 187, 106, 0.45);
+      }
+      .is-hidden {
+        display: none !important;
+      }
+      .rewind-guide {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 1px;
+        background: rgba(102, 187, 106, 0.85);
+        display: none;
+        pointer-events: none;
+        z-index: 15;
+      }
+      .events {
+        display: none;
+        background: #131729;
+        border: 1px solid #242b42;
+        border-radius: 6px;
+        padding: 12px;
+        max-height: calc(100vh - 250px);
+        overflow: auto;
+      }
+      .hypothesis-side {
+        background: #131729;
+        border: 1px solid #242b42;
+        border-radius: 6px;
+        padding: 12px;
+        max-height: calc(100vh - 250px);
+        overflow: auto;
+      }
+      .hypothesis-title {
+        font-size: 14px;
+        color: #a8b0c3;
+        margin-bottom: 10px;
+      }
+      .ctx-empty {
+        color: #7f889f;
+        font-size: 12px;
+        padding: 16px 0;
+        text-align: center;
+      }
+      .ctx-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 12px;
+        padding: 4px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.05);
+      }
+      .ctx-row:last-child { border-bottom: 0; }
+      .ctx-label {
+        color: #7f889f;
+        flex-shrink: 0;
+      }
+      .ctx-value {
+        color: #e7eaf3;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .ctx-placeholder-val {
+        color: #3a4260;
+      }
+      .ctx-zone-item {
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        font-size: 12px;
+      }
+      .ctx-zone-item:last-child { border-bottom: 0; }
+      .ctx-zone-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 3px;
+      }
+      .ctx-zone-dir {
+        font-weight: 700;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+      }
+      .ctx-zone-dir.demand { color: #66bb6a; }
+      .ctx-zone-dir.supply { color: #ef5350; }
+      .ctx-zone-state {
+        font-size: 10px;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      .ctx-zone-state.watching { background: rgba(255,255,255,0.07); color: #a8b0c3; }
+      .ctx-zone-state.tapped   { background: rgba(255,193,7,0.15);   color: #ffc107; }
+      /* structure bias / phase badges */
+      .str-bias {
+        font-weight: 700; font-size: 11px; letter-spacing: 0.06em;
+        padding: 1px 6px; border-radius: 4px; text-transform: uppercase;
+      }
+      .str-bias.bullish  { background: rgba(102,187,106,0.15); color: #66bb6a; }
+      .str-bias.bearish  { background: rgba(239,83,80,0.15);   color: #ef5350; }
+      .str-bias.neutral  { background: rgba(255,255,255,0.07); color: #7f889f; }
+      .str-phase {
+        font-size: 10px; padding: 1px 5px; border-radius: 4px;
+        font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+      }
+      .str-phase.open                  { background: rgba(66,165,245,0.15);  color: #42a5f5; }
+      .str-phase.pullback_confirmed    { background: rgba(255,193,7,0.15);   color: #ffc107; }
+      .str-phase.neutral               { background: rgba(255,255,255,0.07); color: #7f889f; }
+      .str-pd {
+        font-weight: 600; font-size: 11px; padding: 1px 6px; border-radius: 4px;
+      }
+      .str-pd.premium  { background: rgba(239,83,80,0.12);   color: #ef9a9a; }
+      .str-pd.discount { background: rgba(102,187,106,0.12); color: #a5d6a7; }
+      .str-pd.mid      { background: rgba(255,255,255,0.07); color: #a8b0c3; }
+      .hyp-phase {
+        font-weight: 800; font-size: 12px; letter-spacing: 0.08em;
+        padding: 2px 7px; border-radius: 5px; text-transform: uppercase;
+      }
+      .hyp-phase.e { background: rgba(66,165,245,0.16); color: #64b5f6; }
+      .hyp-phase.d { background: rgba(255,167,38,0.16); color: #ffa726; }
+      .hyp-phase.c { background: rgba(171,71,188,0.16); color: #ce93d8; }
+      .hyp-phase.b { background: rgba(102,187,106,0.16); color: #a5d6a7; }
+      .hyp-phase.none { background: rgba(255,255,255,0.07); color: #7f889f; }
+      .hyp-status {
+        font-size: 10px; padding: 1px 5px; border-radius: 4px;
+        font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+      }
+      .hyp-status.watching { background: rgba(255,255,255,0.07); color: #a8b0c3; }
+      .hyp-status.armed { background: rgba(102,187,106,0.15); color: #a5d6a7; }
+      .hyp-status.invalidated { background: rgba(239,83,80,0.15); color: #ef9a9a; }
+      .hyp-status.fired, .hyp-status.missed { background: rgba(255,193,7,0.15); color: #ffe082; }
+      .hyp-entry {
+        font-size: 10px; padding: 1px 5px; border-radius: 4px;
+        font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+        background: rgba(255,255,255,0.07); color: #a8b0c3;
+      }
+      .str-sc {
+        font-size: 10px; padding: 1px 5px; border-radius: 4px;
+        background: rgba(255,255,255,0.05); color: #a8b0c3;
+        font-family: monospace;
+      }
+      .str-sc.choach { background: rgba(255,167,38,0.15); color: #ffa726; }
+      .ctx-zone-detail {
+        color: #a8b0c3;
+        font-variant-numeric: tabular-nums;
+      }
+      .ctx-zone-dist {
+        color: #7f889f;
+        font-size: 11px;
+      }
+      .ctx-section {
+        margin-top: 16px;
+        background: #131729;
+        border: 1px solid #242b42;
+        border-radius: 6px;
+        padding: 12px;
+      }
+      .ctx-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+      .ctx-section-title {
+        font-size: 14px;
+        color: #a8b0c3;
+      }
+      .ctx-section-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      .ctx-section-col {
+        background: #0f1220;
+        border: 1px solid #242b42;
+        border-radius: 6px;
+        padding: 10px 12px;
+        height: 600px;
+        overflow-y: auto;
+      }
+      .ctx-section-col-title {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #7f889f;
+        margin-bottom: 10px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #242b42;
+      }
+      .ctx-structure-block {
+        padding: 8px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+      }
+      .ctx-structure-block:first-child {
+        padding-top: 0;
+      }
+      .ctx-structure-block:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+      .ctx-structure-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: #7f889f;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
+      }
+      .events-title {
+        font-size: 14px;
+        color: #a8b0c3;
+      }
+      .events-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+      .copy-btn {
+        width: 34px;
+        height: 34px;
+        padding: 0;
+      }
+      .copy-btn img {
+        width: 16px;
+        height: 16px;
+        display: block;
+        margin: 0 auto;
+        filter: brightness(0) saturate(100%) invert(92%) sepia(8%) saturate(256%) hue-rotate(187deg) brightness(103%) contrast(93%);
+      }
+      .event-row {
+        border-top: 1px solid rgba(255,255,255,0.08);
+        padding: 8px 0;
+        font-size: 12px;
+      }
+      .event-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+      .event-main {
+        font-weight: 600;
+        margin-bottom: 4px;
+      }
+      .tf-badge {
+        display: inline-block;
+        padding: 2px 6px;
+        border-radius: 6px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #0f1220;
+        margin-right: 6px;
+      }
+      .attribution {
+        margin-top: 10px;
+        color: #7f889f;
+        font-size: 11px;
+      }
+      .attribution a {
+        color: #9ab7ff;
+      }
+      .chart-tooltip {
+        position: absolute;
+        display: none;
+        pointer-events: none;
+        z-index: 10;
+        min-width: 148px;
+        background: rgba(19, 23, 41, {{ chart_meta.tooltip_opacity }});
+        border: 1px solid #2c334a;
+        border-radius: 6px;
+        padding: 8px 10px;
+        color: #e7eaf3;
+        font-size: 12px;
+        line-height: 1.4;
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.28);
+      }
+      .chart-tooltip-time {
+        color: #a8b0c3;
+        margin-bottom: 6px;
+      }
+      .chart-tooltip-grid {
+        display: grid;
+        grid-template-columns: auto auto;
+        gap: 2px 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="header">
+        <div class="title">SystemC Replay Boilerplate</div>
+      </div>
+      <div class="controls">
+        <div class="field">
+          <label for="modeSelect">Mode</label>
+          <select id="modeSelect">
+            <option value="single">Single</option>
+            <option value="dual">Dual</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="symbolSelect">Symbol</label>
+          <select id="symbolSelect"></select>
+        </div>
+        <div id="timeframeField" class="field">
+          <label for="timeframeSelect">Timeframe</label>
+          <select id="timeframeSelect"></select>
+        </div>
+        <div id="dualComboField" class="field is-hidden">
+          <label for="dualComboSelect">Dual Combo</label>
+          <select id="dualComboSelect"></select>
+        </div>
+        <div class="field">
+          <label for="startTime">Cursor start time (UTC)</label>
+          <input id="startTime" type="datetime-local">
+        </div>
+        <div class="buttons">
+          <button id="fetchBtn" class="icon-btn" type="button" title="Fetch" aria-label="Fetch">
+            <img src="/icons/fetch.svg" alt="Fetch">
+          </button>
+          <button id="stepBtn" class="icon-btn" type="button" title="Step" aria-label="Step" disabled>
+            <img src="/icons/step.svg" alt="Step">
+          </button>
+          <button id="playPauseBtn" class="icon-btn" type="button" title="Play" aria-label="Play" disabled>
+            <img src="/icons/playpause.svg" alt="Play / Pause">
+          </button>
+          <button id="resetBtn" class="icon-btn" type="button" title="Replay" aria-label="Replay" disabled>
+            <img src="/icons/replay.svg" alt="Replay">
+          </button>
+        </div>
+      </div>
+      <div id="status" class="status">Ready.</div>
+      <div class="panel">
+        <div class="chart-wrap">
+          <div id="chartStack" class="chart-stack">
+            <div id="topPane" class="chart-pane">
+              <div id="topPaneLabel" class="pane-label"></div>
+              <div class="chart-tools">
+                <button id="backBtn" class="chart-tool-btn is-hidden" type="button" title="Back 1" aria-label="Back 1">
+                  <img src="/icons/step.svg" alt="Back 1">
+                </button>
+                <button id="rewindPickBtn" class="chart-tool-btn" type="button" title="Rewind pick" aria-label="Rewind pick">
+                  <img src="/icons/rewind.svg" alt="Rewind pick">
+                </button>
+              </div>
+              <div id="topChart" class="chart-canvas"></div>
+              <div id="rewindGuide" class="rewind-guide"></div>
+              <div id="topChartTooltip" class="chart-tooltip"></div>
+            </div>
+            <div id="bottomPane" class="chart-pane is-hidden">
+              <div id="bottomPaneLabel" class="pane-label"></div>
+              <div id="bottomChart" class="chart-canvas"></div>
+              <div id="bottomRewindGuide" class="rewind-guide"></div>
+              <div id="bottomChartTooltip" class="chart-tooltip"></div>
+            </div>
+          </div>
+        </div>
+        <div class="hypothesis-side">
+          <div class="hypothesis-title">Hypothesis</div>
+          <div id="hypothesisPanel" class="ctx-empty">— no data —</div>
+        </div>
+      </div>
+
+      <div class="ctx-section">
+        <div class="ctx-section-header">
+          <div class="ctx-section-title">Context</div>
+          <button id="copyContextBtn" class="copy-btn" type="button" title="Copy All" aria-label="Copy All">
+            <img src="/icons/copy.svg" alt="Copy All">
+          </button>
+        </div>
+        <div class="ctx-section-grid">
+          <div class="ctx-section-col">
+            <div class="ctx-section-col-title">Snapshot</div>
+            <div id="ctxSnapshot" class="ctx-empty">— no data —</div>
+          </div>
+          <div class="ctx-section-col">
+            <div class="ctx-section-col-title">Levels</div>
+            <div id="ctxLevels" class="ctx-empty">— no data —</div>
+          </div>
+          <div class="ctx-section-col">
+            <div class="ctx-section-col-title">Zones</div>
+            <div id="ctxZones" class="ctx-empty">— no data —</div>
+          </div>
+          <div class="ctx-section-col">
+            <div class="ctx-section-col-title">Structure</div>
+            <div id="ctxStructure" class="ctx-empty">— no data —</div>
+          </div>
+          <div class="ctx-section-col events is-hidden">
+            <div class="events-header">
+              <div class="events-title">Event Log</div>
+              <button id="copyEventsBtn" class="copy-btn" type="button" title="Copy" aria-label="Copy">
+                <img src="/icons/copy.svg" alt="Copy">
+              </button>
+            </div>
+            <div id="eventLog"></div>
+          </div>
+        </div>
+        <div class="attribution">
+          Charting by <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView Lightweight Charts</a>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let sdZonesDisplayConfig = {{ chart_meta.sd_zones_display|tojson }};
+      let bootPayload = null;
+      let replaySessionId = null;
+      let playTimer = null;
+      let stepRequestInFlight = false;
+      let stepHoldDelayTimer = null;
+      let stepHoldRepeatTimer = null;
+      let suppressStepClick = false;
+      let chartInitialVisibleBars = {{ chart_meta.initial_visible_bars|tojson }};
+      let chartPaddingBars = {{ chart_meta.chart_padding_bars|tojson }};
+      let chartMarkerConfig = {{ chart_meta.chart_markers|tojson }};
+      let defaultMode = {{ chart_meta.default_mode|tojson }};
+      let defaultDualCombo = {{ chart_meta.default_dual_combo|tojson }};
+      let dualComboConfig = {{ chart_meta.dual_combos|tojson }};
+      let barColors = {{ chart_meta.bar_colors|tojson }};
+      let structurePdLinesConfig = {{ chart_meta.structure_pd_lines|tojson }};
+
+      function _hexOpacity(hex, opacity) {
+        if (!hex) return hex;
+        if (opacity === undefined || opacity === null || opacity >= 1) return hex;
+        const n = parseInt(hex.replace('#', ''), 16);
+        return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${opacity})`;
+      }
+
+      // Cascade: global → 201 → 301 → 401 → 501
+      // Higher layers overwrite only the fields they explicitly define (non-null).
+      function resolveBarColors(cfg) {
+        const LAYER_ORDER = ['201', '301', '401', '501'];
+        const merged = { bullish: {}, bearish: {} };
+        const base = cfg?.global ?? {};
+        for (const side of ['bullish', 'bearish']) {
+          Object.assign(merged[side], base[side] ?? {});
+        }
+        for (const key of LAYER_ORDER) {
+          const layer = cfg?.layers?.[key] ?? {};
+          for (const side of ['bullish', 'bearish']) {
+            const overrides = layer[side] ?? {};
+            for (const [prop, val] of Object.entries(overrides)) {
+              if (val !== null && val !== undefined) merged[side][prop] = val;
+            }
+          }
+        }
+        return merged;
+      }
+
+      const resolvedColors = resolveBarColors(barColors);
+
+      let symbolPayload = null;
+      let latestEvents = [];
+      let latestStatusSnapshot = null;
+      let rewindPickMode = false;
+      let currentSnapshotMode = "single";
+      // ── SD Zone canvas primitive ──────────────────────────────────────
+      class SDZoneRenderer {
+        constructor(primitive) { this._p = primitive; }
+
+        draw(target) {
+          const zones = this._p._zones;
+          if (!zones.length) return;
+          target.useBitmapCoordinateSpace((scope) => {
+            const ctx = scope.context;
+            const hr = scope.horizontalPixelRatio;
+            const vr = scope.verticalPixelRatio;
+            const W = scope.bitmapSize.width;
+
+            // Cap zone right edge at cursor position (don't bleed into unrevealed bars)
+            const cursorUnix = this._p._cursorUnix;
+            let xRight = W;
+            if (cursorUnix != null) {
+              const xCursorRaw = this._p._chart.timeScale().timeToCoordinate(cursorUnix);
+              if (xCursorRaw != null) xRight = Math.min(W, Math.round(xCursorRaw * hr));
+            }
+
+            for (const z of zones) {
+              const yH = this._p._series.priceToCoordinate(z.high);
+              const yL = this._p._series.priceToCoordinate(z.low);
+              const xRaw = this._p._chart.timeScale().timeToCoordinate(z.anchor_unix);
+              if (yH == null || yL == null || xRaw == null) continue;
+
+              const x  = Math.max(0, Math.round(xRaw * hr));
+              const yT = Math.round(yH * vr);
+              const yB = Math.round(yL * vr);
+              const rW = xRight - x;
+              const rH = yB - yT;
+              if (rW <= 0 || rH <= 0) continue;
+
+              const isDemand = z.direction === "demand";
+              const c = sdZoneColorsForRole(z.display_role || "single", this._p._colors);
+              ctx.fillStyle = z.in_zone
+                ? (isDemand ? c.demand_active_color : c.supply_active_color)
+                : (isDemand ? c.demand_color        : c.supply_color);
+              ctx.fillRect(x, yT, rW, rH);
+
+              ctx.strokeStyle = isDemand ? c.demand_border_color : c.supply_border_color;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.moveTo(x, yT + 0.5); ctx.lineTo(xRight, yT + 0.5);
+              ctx.moveTo(x, yB - 0.5); ctx.lineTo(xRight, yB - 0.5);
+              ctx.stroke();
+            }
+          });
+        }
+      }
+
+      class SDZonePaneView {
+        constructor(primitive) {
+          this._renderer = new SDZoneRenderer(primitive);
+        }
+        renderer() { return this._renderer; }
+        zOrder()   { return "bottom"; }
+      }
+
+      class SDZonePrimitive {
+        constructor() {
+          this._zones     = [];
+          this._colors    = {};
+          this._cursorUnix = null;
+          this._chart     = null;
+          this._series    = null;
+          this._view      = new SDZonePaneView(this);
+        }
+        attached({ chart, series }) { this._chart = chart; this._series = series; }
+        detached()          { this._chart = null; this._series = null; }
+        updateAllViews()    {}
+        paneViews()         { return [this._view]; }
+        setZones(zones, colors, cursorUnix) {
+          this._zones      = zones;
+          this._colors     = colors;
+          this._cursorUnix = cursorUnix ?? null;
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────
+
+      const paneStates = {
+        top: {
+          key: "top",
+          containerId: "topChart",
+          tooltipId: "topChartTooltip",
+          chart: null,
+          candleSeries: null,
+          resizeObserver: null,
+          markerPrimitive: null,
+          sdZonePrimitive: null,
+          pdLineSeries: null,
+          latestBars: [],
+          latestHoverUnix: null,
+          latestHoverPointX: null,
+          currentPricePrecision: 5,
+          timeframeLabel: "",
+          visibleLogicalRange: null,
+        },
+        bottom: {
+          key: "bottom",
+          containerId: "bottomChart",
+          tooltipId: "bottomChartTooltip",
+          chart: null,
+          candleSeries: null,
+          resizeObserver: null,
+          markerPrimitive: null,
+          sdZonePrimitive: null,
+          pdLineSeries: null,
+          latestBars: [],
+          latestHoverUnix: null,
+          latestHoverPointX: null,
+          currentPricePrecision: 5,
+          timeframeLabel: "",
+          visibleLogicalRange: null,
+        },
+      };
+      const TIMEFRAME_COLORS = {
+        "1D": "#b59410",
+        "4H": "#9C27B0",
+        "1H": "#66bb6a",
+        "15M": "#e4572e",
+        "5M": "#ff4235",
+        "1M": "#2196F3",
+      };
+
+      function toDatetimeLocal(isoString) {
+        if (!isoString) return "";
+        const date = new Date(isoString);
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(date.getUTCDate()).padStart(2, "0");
+        const hours = String(date.getUTCHours()).padStart(2, "0");
+        const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+        return `${year}-${month}-${day}T${hours}:${minutes}`;
+      }
+
+      function fromDatetimeLocal(value) {
+        if (!value) return null;
+        return `${value}:00Z`;
+      }
+
+      function formatTimestamp(isoString) {
+        const date = new Date(isoString);
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(date.getUTCDate()).padStart(2, "0");
+        const hours = String(date.getUTCHours()).padStart(2, "0");
+        const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+        return `${year}-${month}-${day} ${hours}:${minutes}`;
+      }
+
+      function monthDayLabel(date) {
+        return date.toLocaleString("en-US", {
+          timeZone: "UTC",
+          month: "short",
+          day: "2-digit",
+        });
+      }
+
+      function timeLabel(date) {
+        const hours = String(date.getUTCHours()).padStart(2, "0");
+        const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+        return `${hours}:${minutes}`;
+      }
+
+      function compactTickLabel(time, timeframeLabelValue) {
+        const unix = typeof time === "number"
+          ? time
+          : Date.UTC(time.year, time.month - 1, time.day) / 1000;
+        const date = new Date(unix * 1000);
+        const timeframe = String(timeframeLabelValue || "").toUpperCase();
+        if (timeframe === "1D" || timeframe === "4H") {
+          return monthDayLabel(date);
+        }
+        return timeLabel(date);
+      }
+
+      function decimalPlaces(value) {
+        const str = String(value);
+        if (!str.includes(".")) return 0;
+        return str.split(".")[1].replace(/0+$/, "").length;
+      }
+
+      function detectPricePrecision(bars) {
+        if (!bars.length) return 5;
+        let decimals = 0;
+        for (const bar of bars) {
+          decimals = Math.max(
+            decimals,
+            decimalPlaces(bar.open),
+            decimalPlaces(bar.high),
+            decimalPlaces(bar.low),
+            decimalPlaces(bar.close)
+          );
+        }
+        return Math.max(2, Math.min(6, decimals || 2));
+      }
+
+      function formatPrice(value, precision) {
+        return Number(value).toFixed(precision);
+      }
+
+      function timeframeColor(tf) {
+        return TIMEFRAME_COLORS[String(tf || "").toUpperCase()] || "#a8b0c3";
+      }
+
+      function timeframeBadgeHtml(tf) {
+        const safeTf = String(tf || "").toUpperCase();
+        return `<span class="tf-badge" style="background:${timeframeColor(safeTf)}">${safeTf}</span>`;
+      }
+
+      function toChartData(bars, fvgTimes = null) {
+        return bars.map((bar) => {
+          const t = Math.floor(new Date(bar.time).getTime() / 1000);
+          const isUp = bar.close >= bar.open;
+          const side = isUp ? 'bullish' : 'bearish';
+          const point = { time: t, open: bar.open, high: bar.high, low: bar.low, close: bar.close };
+          if (fvgTimes && fvgTimes.has(t)) {
+            const cfg = resolvedColors[side];
+            point.color = _hexOpacity(cfg.body ?? (isUp ? '#26a69a' : '#ef5350'), 1.0);
+          }
+          return point;
+        });
+      }
+
+      function markerPositionForSide(side) {
+        return side === "high" ? "aboveBar" : "belowBar";
+      }
+
+      function markerPriorityKey(event) {
+        if (event.event_type === "candlestick") {
+          return "ce";
+        }
+        if (event.event_type === "bos" && event.tier === "str") {
+          return "str_bos";
+        }
+        return event.tier;
+      }
+
+      function fvgMarkerPosition(event) {
+        return event.fvg_type === "rally" ? "aboveBar" : "belowBar";
+      }
+
+      function buildPriorityMap(markerCfg) {
+        const priority = Array.isArray(markerCfg.priority) ? markerCfg.priority : [];
+        const map = new Map();
+        priority.forEach((key, index) => {
+          map.set(String(key), index);
+        });
+        return map;
+      }
+
+      function setRewindPickMode(active) {
+        rewindPickMode = active;
+        const btn = document.getElementById("rewindPickBtn");
+        btn.classList.toggle("is-active", active);
+        updateRewindGuide();
+      }
+
+      function updateRewindGuide() {
+        const guideBindings = [
+          { paneKey: "top", guideId: "rewindGuide" },
+          { paneKey: "bottom", guideId: "bottomRewindGuide" },
+        ];
+        for (const binding of guideBindings) {
+          const guide = document.getElementById(binding.guideId);
+          const pane = paneStates[binding.paneKey];
+          const container = document.getElementById(pane.containerId);
+          const paneVisible = binding.paneKey === "top" || currentSnapshotMode === "dual";
+          if (!guide || !paneVisible || !rewindPickMode || pane.latestHoverPointX == null || !container) {
+            if (guide) {
+              guide.style.display = "none";
+            }
+            continue;
+          }
+          guide.style.display = "block";
+          guide.style.left = `${Math.max(0, Math.min(container.clientWidth, pane.latestHoverPointX))}px`;
+        }
+      }
+
+      function nearestBarTimeFromHover(paneKey) {
+        const pane = paneStates[paneKey];
+        if (!pane.latestBars.length || pane.latestHoverUnix == null) {
+          return null;
+        }
+
+        let nearest = pane.latestBars[0];
+        let bestDelta = Math.abs(Math.floor(new Date(nearest.time).getTime() / 1000) - pane.latestHoverUnix);
+        for (const bar of pane.latestBars) {
+          const barUnix = Math.floor(new Date(bar.time).getTime() / 1000);
+          const delta = Math.abs(barUnix - pane.latestHoverUnix);
+          if (delta < bestDelta) {
+            nearest = bar;
+            bestDelta = delta;
+          }
+        }
+        return nearest.time;
+      }
+
+      function buildSeriesMarkers(events, bars) {
+        const markerCfg = chartMarkerConfig || {};
+        if (!markerCfg.enabled) {
+          return [];
+        }
+
+        const tiers = markerCfg.tiers || {};
+        const collisionPolicy = markerCfg.collision_policy || "priority_hide";
+        const priorityMap = buildPriorityMap(markerCfg);
+        const visibleTimes = new Set(
+          (bars || []).map((bar) => Math.floor(new Date(bar.time).getTime() / 1000))
+        );
+        const candidates = events
+          .filter((event) => visibleTimes.has(Math.floor(new Date(event.anchor_ts).getTime() / 1000)))
+          .filter((event) => event.display_chart_markers !== false)
+          .filter((event) => event.event_type !== "fvg" || event.display_chart_markers)
+          .filter((event) => {
+            if (event.event_type === "fvg") {
+              return true;
+            }
+            const tierKey = markerPriorityKey(event);
+            const tierCfg = tiers[tierKey] || tiers[event.tier] || {};
+            return tierCfg.enabled !== false;
+          })
+          .map((event) => {
+            if (event.event_type === "fvg") {
+              return {
+                event,
+                time: Math.floor(new Date(event.anchor_ts).getTime() / 1000),
+                position: fvgMarkerPosition(event),
+                color: "#7f889f",
+                shape: "circle",
+                text: event.event_code === "CE02" ? "F" : "",
+              };
+            }
+            const tierKey = markerPriorityKey(event);
+            const tierCfg = tiers[tierKey] || tiers[event.tier] || {};
+            return {
+              event,
+              time: Math.floor(new Date(event.anchor_ts).getTime() / 1000),
+              position: markerPositionForSide(event.side),
+              color: tierCfg.color || "#FAFAFA",
+              shape: tierCfg.shape || "circle",
+              text: tierCfg.text || "",
+            };
+          });
+
+        if (collisionPolicy !== "priority_hide") {
+          return candidates.map(({ event, ...marker }) => marker);
+        }
+
+        const deduped = new Map();
+        for (const candidate of candidates) {
+          const key = `${candidate.time}:${candidate.position}`;
+          const incomingKey = markerPriorityKey(candidate.event);
+          const incomingRank = priorityMap.has(incomingKey)
+            ? priorityMap.get(incomingKey)
+            : Number.MAX_SAFE_INTEGER;
+          const existing = deduped.get(key);
+          if (!existing) {
+            deduped.set(key, { candidate, rank: incomingRank });
+            continue;
+          }
+
+          if (incomingRank < existing.rank) {
+            deduped.set(key, { candidate, rank: incomingRank });
+          }
+        }
+
+        return [...deduped.values()].map(({ candidate }) => {
+          const { event, ...marker } = candidate;
+          return marker;
+        });
+      }
+
+      function updateContextPanels(snapshot) {
+        const zones = snapshot.zones || [];
+        const prec  = paneStates.top.currentPricePrecision || 5;
+        const isDual = snapshot.mode === "dual";
+        const structureItems = isDual
+          ? [
+              { role: "LTF", timeframe: snapshot.lower_tf, structure: snapshot.lower_structure || null },
+              { role: "HTF", timeframe: snapshot.higher_tf, structure: snapshot.higher_structure || null },
+            ]
+          : [
+              { role: "TF", timeframe: snapshot.timeframe, structure: snapshot.structure || null },
+            ];
+        const hyp   = snapshot.hypothesis || null;
+
+        // ── helpers ───────────────────────────────────────────────────
+        const ph  = (label) => `<span class="ctx-placeholder-val">${label}</span>`;
+        const fmt = (v) => v != null ? v.toFixed(prec) : ph("—");
+        const structureLabel = (item) => [item.role, item.timeframe].filter(Boolean).join(" ");
+        const structureBiasHtml = (st) => {
+          if (!st) return ph("—");
+          return `<span class="str-bias ${st.bias}">${st.bias}</span>`;
+        };
+        const structurePhaseHtml = (st) => {
+          if (!st) return ph("—");
+          const phaseKey = st.phase || "neutral";
+          return `<span class="str-phase ${phaseKey}">${phaseKey.replaceAll("_", " ")}</span>`;
+        };
+        const structurePdHtml = (st) => {
+          if (!st) return ph("—");
+          if (st.pd_value_pct != null) {
+            const pdClass = st.pd_value_pct > 55 ? "premium" : st.pd_value_pct < 45 ? "discount" : "mid";
+            const pdLabel = st.pd_value_pct > 55 ? "premium" : st.pd_value_pct < 45 ? "discount" : "mid";
+            const rangePosition = st.range_position_pct != null
+              ? ` · pos ${Number(st.range_position_pct).toFixed(1)}%`
+              : "";
+            return `<span class="str-pd ${pdClass}">${Number(st.pd_value_pct).toFixed(1)}% · ${pdLabel}${rangePosition}</span>`;
+          }
+          if (st.pd_pct != null) {
+            const pdClass = st.pd_pct > 55 ? "premium" : st.pd_pct < 45 ? "discount" : "mid";
+            const pdLabel = st.pd_pct > 55 ? "premium" : st.pd_pct < 45 ? "discount" : "mid";
+            return `<span class="str-pd ${pdClass}">${Number(st.pd_pct).toFixed(1)}% · ${pdLabel}</span>`;
+          }
+          return st.bias !== "neutral" ? ph("tracing…") : ph("—");
+        };
+        const structureTierHtml = (st) => st && st.tier ? st.tier.toUpperCase() : ph("—");
+
+        // ── Snapshot ──────────────────────────────────────────────────
+        const supply  = zones.filter((z) => z.direction === "supply");
+        const demand  = zones.filter((z) => z.direction === "demand");
+        const tappedS = supply.filter((z) => z.in_zone).length;
+        const tappedD = demand.filter((z) => z.in_zone).length;
+
+        const structureSnapshotRows = structureItems.map((item) => {
+          const label = structureLabel(item);
+          const st = item.structure;
+          return `
+            <div class="ctx-row"><span class="ctx-label">${label} bias</span><span class="ctx-value">${structureBiasHtml(st)}</span></div>
+            <div class="ctx-row"><span class="ctx-label">${label} tier</span><span class="ctx-value">${structureTierHtml(st)}</span></div>
+            <div class="ctx-row"><span class="ctx-label">${label} phase</span><span class="ctx-value">${structurePhaseHtml(st)}</span></div>
+            <div class="ctx-row"><span class="ctx-label">${label} P/D</span><span class="ctx-value">${structurePdHtml(st)}</span></div>
+          `;
+        }).join("");
+
+        document.getElementById("ctxSnapshot").innerHTML = `
+          ${structureSnapshotRows}
+          <div class="ctx-row"><span class="ctx-label">supply zones</span><span class="ctx-value">${supply.length} active · ${tappedS} tapped</span></div>
+          <div class="ctx-row"><span class="ctx-label">demand zones</span><span class="ctx-value">${demand.length} active · ${tappedD} tapped</span></div>
+        `;
+
+        // ── Levels ────────────────────────────────────────────────────
+        document.getElementById("ctxLevels").innerHTML =
+          `<div class="ctx-empty">— not yet —</div>`;
+
+        // ── Hypothesis ────────────────────────────────────────────────
+        if (!hyp) {
+          document.getElementById("hypothesisPanel").innerHTML =
+            `<div class="ctx-empty">— waiting for classifier —</div>`;
+        } else {
+          const phase = String(hyp.phase || "none").toLowerCase();
+          const phaseHtml = `<span class="hyp-phase ${phase}">${String(hyp.phase || "none").toUpperCase()}</span>`;
+          const status = String(hyp.status || "watching").toLowerCase();
+          const statusHtml = `<span class="hyp-status ${status}">${String(hyp.status || "watching").replaceAll("_", " ")}</span>`;
+          const direction = String(hyp.direction || "none");
+          const entryPolicy = `<span class="hyp-entry">${String(hyp.entry_policy || "wait").replaceAll("_", " ")}</span>`;
+          const selectedPoi = hyp.poi_id || "—";
+          const debug = hyp.debug_facts || {};
+          const activeExtreme = debug.active_phase_e_extreme_price != null
+            ? Number(debug.active_phase_e_extreme_price).toFixed(prec)
+            : "—";
+          const reaction = debug.reaction_confirmed === true
+            ? "confirmed"
+            : debug.reaction_warning === true
+              ? "warning"
+              : "none";
+          document.getElementById("hypothesisPanel").innerHTML = `
+            <div class="ctx-row"><span class="ctx-label">phase</span><span class="ctx-value">${phaseHtml}</span></div>
+            <div class="ctx-row"><span class="ctx-label">status</span><span class="ctx-value">${statusHtml}</span></div>
+            <div class="ctx-row"><span class="ctx-label">direction</span><span class="ctx-value">${direction}</span></div>
+            <div class="ctx-row"><span class="ctx-label">selected POI</span><span class="ctx-value">${selectedPoi}</span></div>
+            <div class="ctx-row"><span class="ctx-label">entry policy</span><span class="ctx-value">${entryPolicy}</span></div>
+            <div class="ctx-row"><span class="ctx-label">reason</span><span class="ctx-value">${hyp.reason || "—"}</span></div>
+            <div class="ctx-row"><span class="ctx-label">required</span><span class="ctx-value">${(hyp.required_evidence || []).join(", ") || "—"}</span></div>
+            <div class="ctx-row"><span class="ctx-label">E extreme</span><span class="ctx-value">${activeExtreme}</span></div>
+            <div class="ctx-row"><span class="ctx-label">reaction</span><span class="ctx-value">${reaction}</span></div>
+          `;
+        }
+
+        // ── Zones ─────────────────────────────────────────────────────
+        if (!zones.length) {
+          document.getElementById("ctxZones").innerHTML =
+            `<div class="ctx-empty">— no active zones —</div>`;
+        } else {
+          const sorted = [...zones].sort((a, b) => Math.abs(a.distance) - Math.abs(b.distance));
+          document.getElementById("ctxZones").innerHTML = sorted.map((z) => {
+            const dirClass  = z.direction;
+            const dirLabel  = z.direction.toUpperCase();
+            const stateLabel = z.in_zone ? "TAPPED" : "WATCHING";
+            const stateClass = z.in_zone ? "tapped" : "watching";
+            const distSign   = z.direction === "supply" ? "above" : "below";
+            return `
+              <div class="ctx-zone-item">
+                <div class="ctx-zone-header">
+                  <span class="ctx-zone-dir ${dirClass}">${dirLabel}</span>
+                  <span class="tf-badge" style="background:${timeframeColor(z.timeframe)}">${z.timeframe}</span>
+                  <span class="ctx-zone-state ${stateClass}">${stateLabel}</span>
+                </div>
+                <div class="ctx-zone-detail">${z.high.toFixed(prec)} – ${z.low.toFixed(prec)}</div>
+                <div class="ctx-zone-dist">${distSign} · dist ${Math.abs(z.distance).toFixed(prec)}</div>
+              </div>`;
+          }).join("");
+        }
+
+        // ── Structure ─────────────────────────────────────────────────
+        const structureHtml = structureItems.map((item) => {
+          const st = item.structure;
+          const heading = structureLabel(item);
+          if (!st || st.bias === "neutral") {
+            return `
+              <div class="ctx-structure-block">
+                <div class="ctx-structure-heading"><span>${heading}</span>${structureTierHtml(st)}</div>
+                <div class="ctx-empty">— waiting for first BoS —</div>
+              </div>`;
+          }
+
+          const highVal = fmt(st.range_high);
+          const lowVal = fmt(st.range_low);
+          const confirmedBy = st.confirmed_by ? st.confirmed_by.replaceAll("_", " ") : "tracing";
+          let scHtml = ph("none");
+          if (st.last_sc) {
+            const sc = st.last_sc;
+            const scClass = sc.choach ? "choach" : "";
+            const choachTag = sc.choach ? ` <span style="color:#ffa726;font-size:10px">ChoCh</span>` : "";
+            scHtml = `<span class="str-sc ${scClass}">${sc.eventCode}</span>${choachTag}`;
+          }
+
+          return `
+            <div class="ctx-structure-block">
+              <div class="ctx-structure-heading"><span>${heading}</span>${structureTierHtml(st)}</div>
+              <div class="ctx-row"><span class="ctx-label">bias</span><span class="ctx-value">${structureBiasHtml(st)}</span></div>
+              <div class="ctx-row"><span class="ctx-label">phase</span><span class="ctx-value">${structurePhaseHtml(st)}</span></div>
+              <div class="ctx-row"><span class="ctx-label">P/D position</span><span class="ctx-value">${structurePdHtml(st)}</span></div>
+              <div class="ctx-row"><span class="ctx-label">range high</span><span class="ctx-value">${highVal}</span></div>
+              <div class="ctx-row"><span class="ctx-label">range low</span><span class="ctx-value">${lowVal}</span></div>
+              <div class="ctx-row"><span class="ctx-label">P/D midpoint</span><span class="ctx-value">${fmt(st.pd_midpoint)}</span></div>
+              <div class="ctx-row"><span class="ctx-label">confirmed by</span><span class="ctx-value">${confirmedBy}</span></div>
+              <div class="ctx-row"><span class="ctx-label">last SC</span><span class="ctx-value">${scHtml}</span></div>
+            </div>`;
+        }).join("");
+        document.getElementById("ctxStructure").innerHTML = structureHtml || `<div class="ctx-empty">— waiting for first BoS —</div>`;
+      }
+
+      function renderZonesForPane(paneKey, zones, cursorUnix, options = {}) {
+        const pane = paneStates[paneKey];
+        if (!pane || !pane.candleSeries) return;
+        if (!pane.sdZonePrimitive) {
+          pane.sdZonePrimitive = new SDZonePrimitive();
+          pane.candleSeries.attachPrimitive(pane.sdZonePrimitive);
+        }
+        const visible = sdZonesDisplayConfig.chart_visible !== false;
+        const paneZones = visible ? sdZonesForPane(paneKey, zones || [], options) : [];
+        pane.sdZonePrimitive.setZones(paneZones, sdZonesDisplayConfig, cursorUnix);
+      }
+
+      function sdZoneDualDisplay() {
+        const display = String((sdZonesDisplayConfig || {}).dual_display || "both").trim().toLowerCase();
+        return ["lower", "higher", "both", "projected"].includes(display) ? display : "both";
+      }
+
+      function withSdZoneRole(zone, role) {
+        return { ...zone, display_role: role };
+      }
+
+      function sdZonesForPane(paneKey, zones, options = {}) {
+        if (currentSnapshotMode !== "dual") {
+          const pane = paneStates[paneKey];
+          return zones
+            .filter((z) => z.timeframe === pane.timeframeLabel)
+            .map((z) => withSdZoneRole(z, "single"));
+        }
+
+        const display = sdZoneDualDisplay();
+        const lowerTf = options.lowerTf;
+        const higherTf = options.higherTf;
+
+        if (paneKey === "top") {
+          if (display === "higher") return [];
+          const lowerZones = zones
+            .filter((z) => z.timeframe === lowerTf)
+            .map((z) => withSdZoneRole(z, "lower"));
+          if (display !== "projected") return lowerZones;
+          const projectedZones = zones
+            .filter((z) => z.timeframe === higherTf)
+            .map((z) => withSdZoneRole(z, "projected"));
+          return lowerZones.concat(projectedZones);
+        }
+
+        if (display === "lower") return [];
+        return zones
+          .filter((z) => z.timeframe === higherTf)
+          .map((z) => withSdZoneRole(z, "higher"));
+      }
+
+      function sdZoneColorsForRole(role, config = sdZonesDisplayConfig) {
+        const cfg = config || {};
+        const roleCfg = cfg[role] || {};
+        const fallback = {
+          demand_color: "rgba(102,187,106,0.12)",
+          demand_active_color: "rgba(102,187,106,0.28)",
+          demand_border_color: "rgba(102,187,106,0.55)",
+          supply_color: "rgba(239,83,80,0.12)",
+          supply_active_color: "rgba(239,83,80,0.28)",
+          supply_border_color: "rgba(239,83,80,0.55)",
+        };
+        const resolved = {};
+        for (const key of Object.keys(fallback)) {
+          resolved[key] = roleCfg[key] || cfg[key] || fallback[key];
+        }
+        return resolved;
+      }
+
+      // ── P/D range lines ───────────────────────────────────────────────
+      function ensureStructurePdLines(paneKey) {
+        const pane = paneStates[paneKey];
+        if (!pane.chart || pane.pdLineSeries) return;
+        // Skip if no config (structure disabled)
+        if (!structurePdLinesConfig || !Object.keys(structurePdLinesConfig).length) return;
+
+        const cfg = structurePdLinesConfig;
+        function mkSeries(styleCfg, overrides = {}) {
+          return pane.chart.addSeries(LightweightCharts.LineSeries, {
+            color:                  (styleCfg && styleCfg.color)      || "#888",
+            lineStyle:              overrides.lineStyle ?? ((styleCfg && styleCfg.line_style != null) ? styleCfg.line_style : 0),
+            lineWidth:              (styleCfg && styleCfg.line_width)  || 1,
+            priceLineVisible:       false,
+            lastValueVisible:       false,
+            crosshairMarkerVisible: false,
+          });
+        }
+        function mkLineSet(overrides = {}) {
+          return {
+            range_high: mkSeries(cfg.range_high || cfg.anchor_high, overrides),
+            range_low:  mkSeries(cfg.range_low || cfg.anchor_low, overrides),
+            midpoint:   mkSeries(cfg.midpoint, overrides),
+          };
+        }
+        pane.pdLineSeries = {
+          native: mkLineSet(),
+          projected: mkLineSet(),
+        };
+      }
+
+      function updateStructurePdLines(paneKey, structure, options = {}) {
+        ensureStructurePdLines(paneKey);
+        const pane = paneStates[paneKey];
+        if (!pane.pdLineSeries) return;
+
+        const role = options.role || "native";
+        const sl  = pane.pdLineSeries[role] || pane.pdLineSeries.native;
+        const cfg = structurePdLinesConfig || {};
+        const forcedLineStyle = options.lineStyle;
+
+        function clearAll() { Object.values(sl).forEach((s) => s.setData([])); }
+
+        if (!structure || structure.bias === "neutral" || !pane.latestBars.length) {
+          clearAll();
+          return;
+        }
+
+        const lastBar = pane.latestBars[pane.latestBars.length - 1];
+        const endUnix = Math.floor(new Date(lastBar.time).getTime() / 1000);
+
+        function isoToUnix(iso) {
+          return iso ? Math.floor(new Date(iso).getTime() / 1000) : null;
+        }
+
+        function setFlat(series, startUnix, price) {
+          if (startUnix === null || price === null || price === undefined) {
+            series.setData([]);
+            return;
+          }
+          if (startUnix >= endUnix) {
+            series.setData([{ time: endUnix, value: price }]);
+          } else {
+            series.setData([{ time: startUnix, value: price }, { time: endUnix, value: price }]);
+          }
+        }
+
+        const bullishColor = (cfg.range_low  && cfg.range_low.color)  || "#26a69a";
+        const bearishColor = (cfg.range_high && cfg.range_high.color) || "#ef5350";
+        const rangeColor = structure.bias === "bearish" ? bearishColor : bullishColor;
+        const highStyle = (cfg.range_high && cfg.range_high.line_style != null) ? cfg.range_high.line_style : 0;
+        const lowStyle = (cfg.range_low && cfg.range_low.line_style != null) ? cfg.range_low.line_style : 0;
+        const midStyle = (cfg.midpoint && cfg.midpoint.line_style != null) ? cfg.midpoint.line_style : 2;
+        sl.range_high.applyOptions({ color: rangeColor, lineStyle: forcedLineStyle ?? highStyle });
+        sl.range_low.applyOptions({ color: rangeColor, lineStyle: forcedLineStyle ?? lowStyle });
+        sl.midpoint.applyOptions({ lineStyle: forcedLineStyle ?? midStyle });
+
+        const phaseUnix = isoToUnix(structure.phase_start_ts);
+        const rhUnix    = isoToUnix(structure.range_high_ts);
+        const rlUnix    = isoToUnix(structure.range_low_ts);
+
+        if (structure.range_high !== null) {
+          setFlat(sl.range_high, rhUnix ?? phaseUnix, structure.range_high);
+        } else {
+          sl.range_high.setData([]);
+        }
+
+        if (structure.range_low !== null) {
+          setFlat(sl.range_low, rlUnix ?? phaseUnix, structure.range_low);
+        } else {
+          sl.range_low.setData([]);
+        }
+
+        // P/D midpoint — dashed line
+        if (cfg.show_midpoint && structure.pd_midpoint !== null) {
+          setFlat(sl.midpoint, phaseUnix, structure.pd_midpoint);
+        } else {
+          sl.midpoint.setData([]);
+        }
+      }
+
+      function clearStructurePdLines(paneKey, role = "native") {
+        ensureStructurePdLines(paneKey);
+        const pane = paneStates[paneKey];
+        const sl = pane.pdLineSeries && (pane.pdLineSeries[role] || pane.pdLineSeries.native);
+        if (!sl) return;
+        Object.values(sl).forEach((s) => s.setData([]));
+      }
+      // ─────────────────────────────────────────────────────────────────
+
+      function renderMarkersForPane(paneKey, events, bars) {
+        const pane = paneStates[paneKey];
+        if (!pane || !pane.candleSeries) {
+          return;
+        }
+
+        const markers = buildSeriesMarkers(events, bars);
+
+        if (typeof pane.candleSeries.setMarkers === "function") {
+          pane.candleSeries.setMarkers(markers);
+          return;
+        }
+
+        if (pane.markerPrimitive && typeof pane.markerPrimitive.setMarkers === "function") {
+          pane.markerPrimitive.setMarkers(markers);
+          return;
+        }
+
+        if (typeof LightweightCharts.createSeriesMarkers === "function") {
+          pane.markerPrimitive = LightweightCharts.createSeriesMarkers(pane.candleSeries, markers);
+        }
+      }
+
+      function zoomValueForPane(paneKey) {
+        const pane = paneStates[paneKey];
+        const range = pane ? pane.visibleLogicalRange : null;
+        if (!range) {
+          return null;
+        }
+        return Math.max(0, range.to - range.from);
+      }
+
+      function singleModeZoomLabel() {
+        if (currentSnapshotMode !== "single") {
+          return "";
+        }
+        const zoomValue = zoomValueForPane("top");
+        if (zoomValue == null) {
+          return "";
+        }
+        return ` · zoom: ${zoomValue.toFixed(1)} bars`;
+      }
+
+      function refreshStatus() {
+        if (!latestStatusSnapshot) {
+          return;
+        }
+        const snapshot = latestStatusSnapshot;
+        const isDual = snapshot.mode === "dual";
+        const cursor = snapshot.cursor_time ? formatTimestamp(snapshot.cursor_time) : "before start";
+        const next = snapshot.next_time ? formatTimestamp(snapshot.next_time) : "done";
+        const modeLabel = isDual ? `${snapshot.lower_tf} / ${snapshot.higher_tf}` : snapshot.timeframe;
+        setStatus(`mode: ${modeLabel} · cursor: ${cursor} · next: ${next} · bars known: ${snapshot.bar_count}${singleModeZoomLabel()}`);
+      }
+
+      function updateTooltipForPane(paneKey, param) {
+        const pane = paneStates[paneKey];
+        if (!pane || !pane.chart) return;
+        const chartTooltip = document.getElementById(pane.tooltipId);
+        if (!chartTooltip) return;
+        if (param && param.time) {
+          pane.latestHoverUnix = Number(param.time);
+        }
+        if (param && param.point) {
+          pane.latestHoverPointX = param.point.x;
+        }
+        updateRewindGuide();
+
+        const container = document.getElementById(pane.containerId);
+        if (
+          !param.point ||
+          !param.time ||
+          param.point.x < 0 ||
+          param.point.y < 0 ||
+          param.point.x > container.clientWidth ||
+          param.point.y > container.clientHeight
+        ) {
+          chartTooltip.style.display = "none";
+          return;
+        }
+
+        const data = param.seriesData.get(pane.candleSeries);
+        if (!data) {
+          chartTooltip.style.display = "none";
+          return;
+        }
+
+        const dateIso = new Date(param.time * 1000).toISOString();
+        const priceData = data.open !== undefined ? data : data.value !== undefined ? null : null;
+        if (!priceData) {
+          chartTooltip.style.display = "none";
+          return;
+        }
+
+        const isBullish = priceData.close >= priceData.open;
+        const rows = isBullish
+          ? [
+              ["H", formatPrice(priceData.high, pane.currentPricePrecision)],
+              ["C", formatPrice(priceData.close, pane.currentPricePrecision)],
+              ["O", formatPrice(priceData.open, pane.currentPricePrecision)],
+              ["L", formatPrice(priceData.low, pane.currentPricePrecision)],
+            ]
+          : [
+              ["H", formatPrice(priceData.high, pane.currentPricePrecision)],
+              ["O", formatPrice(priceData.open, pane.currentPricePrecision)],
+              ["C", formatPrice(priceData.close, pane.currentPricePrecision)],
+              ["L", formatPrice(priceData.low, pane.currentPricePrecision)],
+            ];
+        const rowsHtml = rows
+          .map(([label, value]) => `<div>${label}</div><div>${value}</div>`)
+          .join("");
+
+        chartTooltip.innerHTML = `
+          <div class="chart-tooltip-time">${formatTimestamp(dateIso)}</div>
+          <div class="chart-tooltip-grid">${rowsHtml}</div>
+        `;
+        chartTooltip.style.display = "block";
+
+        const tooltipWidth = chartTooltip.offsetWidth;
+        const tooltipHeight = chartTooltip.offsetHeight;
+        const margin = 12;
+        let left = param.point.x + margin;
+        let top = param.point.y + margin;
+
+        if (left + tooltipWidth > container.clientWidth) {
+          left = param.point.x - tooltipWidth - margin;
+        }
+        if (top + tooltipHeight > container.clientHeight) {
+          top = param.point.y - tooltipHeight - margin;
+        }
+
+        chartTooltip.style.left = `${Math.max(0, left)}px`;
+        chartTooltip.style.top = `${Math.max(0, top)}px`;
+      }
+
+      function createLightweightChart(paneKey) {
+        const pane = paneStates[paneKey];
+        if (pane.chart) {
+          return;
+        }
+
+        const container = document.getElementById(pane.containerId);
+        pane.chart = LightweightCharts.createChart(container, {
+          width: container.clientWidth,
+          height: container.clientHeight,
+          layout: {
+            background: { type: "solid", color: "#0f1220" },
+            textColor: "#e7eaf3",
+          },
+          grid: {
+            vertLines: { color: "rgba(255,255,255,0.08)" },
+            horzLines: { color: "rgba(255,255,255,0.08)" },
+          },
+          rightPriceScale: {
+            borderColor: "rgba(255,255,255,0.12)",
+          },
+          timeScale: {
+            borderColor: "rgba(255,255,255,0.12)",
+            timeVisible: true,
+            secondsVisible: false,
+            rightOffset: chartPaddingBars,
+            ticksVisible: true,
+            tickMarkFormatter: (time) => compactTickLabel(time, pane.timeframeLabel),
+          },
+          crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+            vertLine: {
+              labelVisible: true,
+              color: "rgba(155, 125, 255, 0.45)",
+            },
+            horzLine: {
+              labelVisible: true,
+              color: "rgba(155, 125, 255, 0.45)",
+            },
+          },
+          handleScroll: {
+            mouseWheel: true,
+            pressedMouseMove: true,
+            horzTouchDrag: true,
+            vertTouchDrag: false,
+          },
+          handleScale: {
+            axisPressedMouseMove: true,
+            mouseWheel: true,
+            pinch: true,
+          },
+        });
+
+        pane.candleSeries = pane.chart.addSeries(LightweightCharts.CandlestickSeries, {
+          upColor:        _hexOpacity(resolvedColors.bullish.body   ?? "#26a69a", resolvedColors.bullish.body_opacity),
+          downColor:      _hexOpacity(resolvedColors.bearish.body   ?? "#ef5350", resolvedColors.bearish.body_opacity),
+          borderVisible:  !!(resolvedColors.bullish.border || resolvedColors.bearish.border),
+          borderUpColor:  _hexOpacity(resolvedColors.bullish.border ?? "#26a69a", resolvedColors.bullish.border_opacity),
+          borderDownColor:_hexOpacity(resolvedColors.bearish.border ?? "#ef5350", resolvedColors.bearish.border_opacity),
+          wickUpColor:    _hexOpacity(resolvedColors.bullish.wick   ?? "#26a69a", resolvedColors.bullish.wick_opacity),
+          wickDownColor:  _hexOpacity(resolvedColors.bearish.wick   ?? "#ef5350", resolvedColors.bearish.wick_opacity),
+          priceFormat: {
+            type: "price",
+            precision: pane.currentPricePrecision,
+            minMove: 1 / (10 ** pane.currentPricePrecision),
+          },
+        });
+
+        pane.chart.subscribeCrosshairMove((param) => updateTooltipForPane(paneKey, param));
+        pane.chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+          pane.visibleLogicalRange = range;
+          if (paneKey === "top") {
+            refreshStatus();
+          }
+        });
+
+        pane.resizeObserver = new ResizeObserver((entries) => {
+          const entry = entries[0];
+          if (!entry || !pane.chart) return;
+          const { width, height } = entry.contentRect;
+          pane.chart.applyOptions({ width, height });
+        });
+        pane.resizeObserver.observe(container);
+      }
+
+      function renderChartPane(paneKey, bars, options = {}) {
+        createLightweightChart(paneKey);
+        const pane = paneStates[paneKey];
+        pane.latestBars = [...bars];
+        pane.timeframeLabel = options.timeframe || pane.timeframeLabel;
+        const preserveViewport = options.preserveViewport !== false;
+        const existingRange = preserveViewport && pane.chart
+          ? pane.chart.timeScale().getVisibleLogicalRange()
+          : null;
+        pane.currentPricePrecision = detectPricePrecision(bars);
+        pane.candleSeries.applyOptions({
+          priceFormat: {
+            type: "price",
+            precision: pane.currentPricePrecision,
+            minMove: 1 / (10 ** pane.currentPricePrecision),
+          },
+        });
+        const events = options.events || [];
+        const fvgTimes = new Set(
+          events
+            .filter((e) => e.event_code === "CE02" && e.anchor_ts)
+            .map((e) => Math.floor(new Date(e.anchor_ts).getTime() / 1000))
+        );
+        const data = toChartData(bars, fvgTimes.size ? fvgTimes : null);
+        pane.candleSeries.setData(data);
+        const chartTooltip = document.getElementById(pane.tooltipId);
+        if (chartTooltip) {
+          chartTooltip.style.display = "none";
+        }
+
+        if (!data.length) {
+          return;
+        }
+
+        if (existingRange) {
+          pane.chart.timeScale().setVisibleLogicalRange(existingRange);
+          pane.visibleLogicalRange = existingRange;
+          return;
+        }
+
+        const to = data.length - 1 + chartPaddingBars;
+        const from = Math.max(0, to - chartInitialVisibleBars);
+        pane.visibleLogicalRange = { from, to };
+        pane.chart.timeScale().setVisibleLogicalRange(pane.visibleLogicalRange);
+      }
+
+      function renderEvents(events) {
+        const logEvents = events.filter((event) => event.display_event_log !== false);
+        latestEvents = [...logEvents];
+        const root = document.getElementById("eventLog");
+        if (!logEvents.length) {
+          root.innerHTML = "<div class=\"event-row\">No events yet.</div>";
+          return;
+        }
+
+        const html = [...logEvents].reverse().map((event) => `
+          <div class="event-row">
+            <div class="event-main">${timeframeBadgeHtml(event.tf)}${event.bar_event} · ${event.tier.toUpperCase()} · ${event.side}</div>
+            <div>decision: ${formatTimestamp(event.decision_ts)}</div>
+            ${event.event_type === "fvg"
+              ? event.event_code === "CE02"
+                ? `
+                  <div>bar2: ${formatTimestamp(event.anchor_ts)} · type: ${event.fvg_type}</div>
+                  <div>high: ${event.gap_top.toFixed(5)} · low: ${event.gap_bottom.toFixed(5)} · size: ${event.gap_size.toFixed(5)}</div>
+                `
+                : `
+                  <div>type: ${event.fvg_type} · sub: ${event.sub_type} · bar2 close: ${event.bar2_close.toFixed(5)}</div>
+                `
+              : event.event_type === "bos"
+              ? `
+                <div>pivot: ${formatTimestamp(event.anchor_ts)} · ${event.price.toFixed(5)} · ${event.side}</div>
+                <div>level: ${formatTimestamp(event.level_ts)} · ${event.level_price.toFixed(5)} · ${event.level_side}</div>
+              `
+              : `
+                <div>pivot: ${formatTimestamp(event.anchor_ts)}</div>
+                <div>price: ${event.price.toFixed(5)}</div>
+              `
+            }
+          </div>
+        `).join("");
+        root.innerHTML = html;
+      }
+
+      function eventsToClipboardText(events) {
+        if (!events.length) {
+          return "No events yet.";
+        }
+
+        return [...events].reverse().map((event) => {
+          if (event.event_type === "fvg") {
+            const lines = [
+              `{tf:'${String(event.tf || "").toUpperCase()}'} ${event.bar_event} · CE · ${event.fvg_type}`,
+              `decision: ${formatTimestamp(event.decision_ts)}`,
+            ];
+            if (event.event_code === "CE02") {
+              lines.push(`gap: ${event.gap_bottom.toFixed(5)} → ${event.gap_top.toFixed(5)} · size: ${event.gap_size.toFixed(5)}`);
+            } else {
+              lines.push(`bar2 close: ${event.bar2_close.toFixed(5)} · sub: ${event.sub_type}`);
+            }
+            return lines.join("\n");
+          }
+
+          if (event.event_type === "bos") {
+            return [
+              `{tf:'${String(event.tf || "").toUpperCase()}'} ${event.bar_event} · ${event.tier.toUpperCase()} · ${event.side}`,
+              `decision: ${formatTimestamp(event.decision_ts)}`,
+              `pivot: ${formatTimestamp(event.anchor_ts)} · ${event.price.toFixed(5)} · ${event.side}`,
+              `level: ${formatTimestamp(event.level_ts)} · ${event.level_price.toFixed(5)} · ${event.level_side}`,
+            ].join("\n");
+          }
+
+          return [
+            `{tf:'${String(event.tf || "").toUpperCase()}'} ${event.bar_event} · ${event.tier.toUpperCase()} · ${event.side}`,
+            `decision: ${formatTimestamp(event.decision_ts)}`,
+            `pivot: ${formatTimestamp(event.anchor_ts)}`,
+            `price: ${event.price.toFixed(5)}`,
+          ].join("\n");
+        }).join("\n\n");
+      }
+
+      async function copyEventLog() {
+        const button = document.getElementById("copyEventsBtn");
+        const originalLabel = "Copy";
+        const text = eventsToClipboardText(latestEvents);
+
+        try {
+          await navigator.clipboard.writeText(text);
+          button.title = "Copied";
+          button.setAttribute("aria-label", "Copied");
+        } catch (error) {
+          button.title = "Copy failed";
+          button.setAttribute("aria-label", "Copy failed");
+        }
+
+        setTimeout(() => {
+          button.title = originalLabel;
+          button.setAttribute("aria-label", originalLabel);
+        }, 1200);
+      }
+
+      async function copyContextSection() {
+        const button = document.getElementById("copyContextBtn");
+        const sections = [
+          { label: "Snapshot",  id: "ctxSnapshot"  },
+          { label: "Hypothesis", id: "hypothesisPanel" },
+          { label: "Levels",    id: "ctxLevels"    },
+          { label: "Zones",     id: "ctxZones"     },
+          { label: "Structure", id: "ctxStructure" },
+        ];
+        const text = sections
+          .map((s) => `=== ${s.label} ===\n${document.getElementById(s.id).innerText.trim()}`)
+          .join("\n\n");
+        try {
+          await navigator.clipboard.writeText(text);
+          button.title = "Copied";
+          button.setAttribute("aria-label", "Copied");
+        } catch {
+          button.title = "Copy failed";
+          button.setAttribute("aria-label", "Copy failed");
+        }
+        setTimeout(() => {
+          button.title = "Copy All";
+          button.setAttribute("aria-label", "Copy All");
+        }, 1200);
+      }
+
+      function setStatus(text) {
+        document.getElementById("status").textContent = text;
+      }
+
+      function setReplayButtons(active) {
+        document.getElementById("stepBtn").disabled = !active;
+        document.getElementById("playPauseBtn").disabled = !active;
+        document.getElementById("resetBtn").disabled = !active;
+      }
+
+      function updatePlayPauseButton() {
+        const button = document.getElementById("playPauseBtn");
+        const label = playTimer ? "Pause" : "Play";
+        button.title = label;
+        button.setAttribute("aria-label", label);
+      }
+
+      function fillSymbolSelector(payload) {
+        symbolPayload = payload;
+        const select = document.getElementById("symbolSelect");
+        select.innerHTML = "";
+
+        for (const symbol of payload.symbols) {
+          const option = document.createElement("option");
+          option.value = symbol;
+          option.textContent = symbol;
+          option.selected = symbol === payload.default_symbol;
+          select.appendChild(option);
+        }
+      }
+
+      function fillTimeframeSelector(options, selectedValue) {
+        const select = document.getElementById("timeframeSelect");
+        select.innerHTML = "";
+
+        for (const optionData of options) {
+          const option = document.createElement("option");
+          option.value = optionData.value;
+          option.textContent = optionData.label;
+          option.selected = optionData.value === selectedValue;
+          select.appendChild(option);
+        }
+      }
+
+      function fillDualComboSelector(combos, selectedValue) {
+        const select = document.getElementById("dualComboSelect");
+        select.innerHTML = "";
+        for (const [key, combo] of Object.entries(combos || {})) {
+          const option = document.createElement("option");
+          option.value = key;
+          option.textContent = combo.label || `${combo.lower_tf} / ${combo.higher_tf}`;
+          option.selected = key === selectedValue;
+          select.appendChild(option);
+        }
+      }
+
+      function updateModeUi(modeValue) {
+        const isDual = modeValue === "dual";
+        document.getElementById("dualComboField").classList.toggle("is-hidden", !isDual);
+        document.getElementById("timeframeField").classList.toggle("is-hidden", isDual);
+        document.getElementById("timeframeSelect").disabled = isDual;
+      }
+
+      function setChartMode(modeValue, labels = {}) {
+        currentSnapshotMode = modeValue;
+        const isDual = modeValue === "dual";
+        document.getElementById("chartStack").classList.toggle("is-dual", isDual);
+        document.getElementById("bottomPane").classList.toggle("is-hidden", !isDual);
+        document.getElementById("topPaneLabel").textContent = isDual
+          ? `${labels.lower_tf || "Lower TF"} · ${labels.symbol || ""}`.trim()
+          : `${labels.timeframe || labels.lower_tf || "Replay"} · ${labels.symbol || ""}`.trim();
+        document.getElementById("bottomPaneLabel").textContent = isDual
+          ? `${labels.higher_tf || "Higher TF"} · ${labels.symbol || ""}`.trim()
+          : "";
+      }
+
+      async function refreshTimeframes(symbol, preferredTimeframe = null) {
+        const response = await fetch(`/api/timeframes?symbol=${encodeURIComponent(symbol)}`);
+        const payload = await response.json();
+        const available = payload.timeframes || [];
+        const selected = available.some((item) => item.value === preferredTimeframe)
+          ? preferredTimeframe
+          : (available[0]?.value || payload.default_timeframe);
+        fillTimeframeSelector(available, selected);
+        return payload;
+      }
+
+      function applySnapshot(snapshot, options = {}) {
+        latestStatusSnapshot = snapshot;
+        const preserveViewport = options.preserveViewport !== false;
+        const isDual = snapshot.mode === "dual";
+        const cursorUnix = snapshot.cursor_time
+          ? Math.floor(new Date(snapshot.cursor_time).getTime() / 1000)
+          : null;
+        if (isDual) {
+          setChartMode("dual", {
+            symbol: snapshot.symbol,
+            lower_tf: snapshot.lower_tf,
+            higher_tf: snapshot.higher_tf,
+          });
+          const lowerBars = snapshot.lower_bars || [];
+          const higherBars = snapshot.higher_bars || [];
+          const lowerEvents = (snapshot.events || []).filter((event) => event.tf === snapshot.lower_tf);
+          const higherEvents = (snapshot.events || []).filter((event) => event.tf === snapshot.higher_tf);
+          renderChartPane("top", lowerBars, { preserveViewport, timeframe: snapshot.lower_tf, events: lowerEvents });
+          renderMarkersForPane("top", lowerEvents, lowerBars);
+          renderZonesForPane("top", snapshot.zones, cursorUnix, { lowerTf: snapshot.lower_tf, higherTf: snapshot.higher_tf });
+          if (snapshot.projected_structure && snapshot.lower_structure) {
+            updateStructurePdLines("top", snapshot.lower_structure, { role: "native", lineStyle: 2 });
+            updateStructurePdLines("top", snapshot.projected_structure, { role: "projected" });
+          } else {
+            updateStructurePdLines("top", snapshot.projected_structure || snapshot.lower_structure || null, { role: "native" });
+            clearStructurePdLines("top", "projected");
+          }
+          renderChartPane("bottom", higherBars, { preserveViewport, timeframe: snapshot.higher_tf, events: higherEvents });
+          renderMarkersForPane("bottom", higherEvents, higherBars);
+          renderZonesForPane("bottom", snapshot.zones, cursorUnix, { lowerTf: snapshot.lower_tf, higherTf: snapshot.higher_tf });
+          updateStructurePdLines("bottom", snapshot.higher_structure || null, { role: "native" });
+          clearStructurePdLines("bottom", "projected");
+        } else {
+          setChartMode("single", {
+            symbol: snapshot.symbol,
+            timeframe: snapshot.timeframe,
+          });
+          renderChartPane("top", snapshot.bars, { preserveViewport, timeframe: snapshot.timeframe, events: snapshot.events });
+          renderMarkersForPane("top", snapshot.events, snapshot.bars);
+          renderZonesForPane("top", snapshot.zones, cursorUnix);
+          updateStructurePdLines("top", snapshot.structure || null, { role: "native" });
+          clearStructurePdLines("top", "projected");
+          updateStructurePdLines("bottom", null, { role: "native" });  // clear bottom in single mode
+          clearStructurePdLines("bottom", "projected");
+        }
+        renderEvents(snapshot.events);
+        updateContextPanels(snapshot);
+        refreshStatus();
+      }
+
+      async function loadBootstrap() {
+        const [barsResponse, symbolsResponse] = await Promise.all([
+          fetch("/api/bars"),
+          fetch("/api/symbols"),
+        ]);
+        bootPayload = await barsResponse.json();
+        const symbolsPayload = await symbolsResponse.json();
+        const bootMode = symbolsPayload.default_mode || defaultMode;
+        document.getElementById("modeSelect").value = bootMode;
+        fillSymbolSelector(symbolsPayload);
+        fillTimeframeSelector(symbolsPayload.timeframes || [], symbolsPayload.default_timeframe);
+        fillDualComboSelector(symbolsPayload.dual_combos || dualComboConfig, symbolsPayload.default_dual_combo || defaultDualCombo);
+        updateModeUi(bootMode);
+        document.getElementById("startTime").value = toDatetimeLocal(bootPayload.window_start_time);
+        document.getElementById("startTime").min = toDatetimeLocal(bootPayload.data_start_time);
+        document.getElementById("startTime").max = toDatetimeLocal(bootPayload.data_end_time);
+
+        if (bootMode === "dual") {
+          setStatus("loading default dual replay session...");
+          await createSession();
+          return;
+        }
+
+        setChartMode("single", { symbol: bootPayload.symbol, timeframe: bootPayload.timeframe });
+        renderChartPane("top", bootPayload.bars, { preserveViewport: false, timeframe: bootPayload.timeframe });
+        renderMarkersForPane("top", [], bootPayload.bars);
+        renderChartPane("bottom", [], { preserveViewport: false });
+        renderMarkersForPane("bottom", [], []);
+        renderEvents([]);
+        setStatus(
+          `window bars: ${bootPayload.window_bars} · latest loaded · data: ${formatTimestamp(bootPayload.data_start_time)} → ${formatTimestamp(bootPayload.data_end_time)}`
+        );
+      }
+
+      async function createSession() {
+        const mode = document.getElementById("modeSelect").value;
+        const startTime = fromDatetimeLocal(document.getElementById("startTime").value);
+        const symbol = document.getElementById("symbolSelect").value;
+        const timeframe = document.getElementById("timeframeSelect").value;
+        const dualCombo = document.getElementById("dualComboSelect").value;
+        const response = await fetch("/api/replay/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ start_time: startTime, symbol, timeframe, mode, dual_combo: dualCombo }),
+        });
+        const payload = await response.json();
+        replaySessionId = payload.metadata.session_id;
+        document.getElementById("startTime").min = toDatetimeLocal(payload.metadata.data_start_time);
+        document.getElementById("startTime").max = toDatetimeLocal(payload.metadata.data_end_time);
+        applySnapshot(payload.snapshot, { preserveViewport: false });
+        setReplayButtons(true);
+        updatePlayPauseButton();
+      }
+
+      async function stepOnce() {
+        if (!replaySessionId || stepRequestInFlight) return;
+        stepRequestInFlight = true;
+        try {
+          const response = await fetch(`/api/replay/${replaySessionId}/step`, { method: "POST" });
+          const payload = await response.json();
+          applySnapshot(payload.snapshot);
+          if (payload.step.done) {
+            stopPlay();
+            stopStepHold();
+          }
+        } finally {
+          stepRequestInFlight = false;
+        }
+      }
+
+      function stopStepHold() {
+        if (stepHoldDelayTimer) {
+          clearTimeout(stepHoldDelayTimer);
+          stepHoldDelayTimer = null;
+        }
+        if (stepHoldRepeatTimer) {
+          clearInterval(stepHoldRepeatTimer);
+          stepHoldRepeatTimer = null;
+        }
+      }
+
+      function installStepHoldRepeat() {
+        const button = document.getElementById("stepBtn");
+        const releaseEvents = ["pointerup", "pointercancel", "pointerleave", "lostpointercapture"];
+
+        button.addEventListener("pointerdown", (event) => {
+          if (event.button !== 0 || button.disabled || !replaySessionId) return;
+          event.preventDefault();
+          stopPlay();
+          stopStepHold();
+          suppressStepClick = true;
+          if (button.setPointerCapture) {
+            button.setPointerCapture(event.pointerId);
+          }
+          stepOnce();
+          stepHoldDelayTimer = setTimeout(() => {
+            stepHoldDelayTimer = null;
+            stepHoldRepeatTimer = setInterval(stepOnce, 180);
+          }, 320);
+        });
+
+        for (const eventName of releaseEvents) {
+          button.addEventListener(eventName, () => {
+            stopStepHold();
+            setTimeout(() => {
+              suppressStepClick = false;
+            }, 0);
+          });
+        }
+      }
+
+      function stopPlay() {
+        if (playTimer) {
+          clearInterval(playTimer);
+          playTimer = null;
+        }
+        updatePlayPauseButton();
+      }
+
+      function startPlay() {
+        if (!replaySessionId || playTimer) return;
+        playTimer = setInterval(stepOnce, 500);
+        updatePlayPauseButton();
+      }
+
+      function togglePlayPause() {
+        if (playTimer) {
+          stopPlay();
+          return;
+        }
+        startPlay();
+      }
+
+      async function resetReplay() {
+        if (!replaySessionId) return;
+        stopPlay();
+        stopStepHold();
+        const response = await fetch(`/api/replay/${replaySessionId}/reset`, { method: "POST" });
+        const payload = await response.json();
+        applySnapshot(payload.snapshot);
+      }
+
+      async function backOne() {
+        if (!replaySessionId) return;
+        stopPlay();
+        stopStepHold();
+        const response = await fetch(`/api/replay/${replaySessionId}/back`, { method: "POST" });
+        const payload = await response.json();
+        applySnapshot(payload.snapshot);
+      }
+
+      async function rewindToPickedBar(paneKey) {
+        if (!replaySessionId) return;
+        const targetTime = nearestBarTimeFromHover(paneKey);
+        if (!targetTime) return;
+        stopPlay();
+        stopStepHold();
+        const response = await fetch(`/api/replay/${replaySessionId}/rewind`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target_time: targetTime, step_before: true }),
+        });
+        const payload = await response.json();
+        applySnapshot(payload.snapshot);
+        setRewindPickMode(false);
+      }
+
+      document.getElementById("fetchBtn").addEventListener("click", async () => {
+        stopPlay();
+        stopStepHold();
+        await createSession();
+      });
+      document.getElementById("symbolSelect").addEventListener("change", async (event) => {
+        const select = event.target;
+        await refreshTimeframes(select.value);
+      });
+      document.getElementById("modeSelect").addEventListener("change", (event) => {
+        updateModeUi(event.target.value);
+      });
+      document.getElementById("stepBtn").addEventListener("click", (event) => {
+        if (suppressStepClick) {
+          event.preventDefault();
+          return;
+        }
+        stepOnce();
+      });
+      installStepHoldRepeat();
+      document.getElementById("playPauseBtn").addEventListener("click", togglePlayPause);
+      document.getElementById("resetBtn").addEventListener("click", resetReplay);
+      document.getElementById("copyEventsBtn").addEventListener("click", copyEventLog);
+      document.getElementById("copyContextBtn").addEventListener("click", copyContextSection);
+      document.getElementById("backBtn").addEventListener("click", backOne);
+      document.getElementById("rewindPickBtn").addEventListener("click", () => {
+        setRewindPickMode(!rewindPickMode);
+      });
+      document.getElementById("topChart").addEventListener("click", async () => {
+        if (!rewindPickMode) return;
+        await rewindToPickedBar("top");
+      });
+      document.getElementById("bottomChart").addEventListener("click", async () => {
+        if (!rewindPickMode || currentSnapshotMode !== "dual") return;
+        await rewindToPickedBar("bottom");
+      });
+
+      loadBootstrap();
+      updatePlayPauseButton();
+    </script>
+  </body>
+</html>

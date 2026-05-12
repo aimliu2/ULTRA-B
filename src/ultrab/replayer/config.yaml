@@ -1,0 +1,186 @@
+app:
+  host: 127.0.0.1
+  port: 5055
+  debug: false
+
+data:
+  # root: move to .env file
+  symbol: EURUSD
+  timeframe: 1d
+  window_bars: 500  # number of bars to load into memory for the replay, should be enough to cover the warmup bars and the replay duration without needing to load more bars from disk
+  mode: dual
+  dual_combo: 15m_4h
+
+dual_mode:
+  combos:
+    1h_1d:
+      lower_tf: 1h
+      higher_tf: 1d
+      label: 1H/1D
+    15m_4h:
+      lower_tf: 15m
+      higher_tf: 4h
+      label: 15m/4H
+    5m_1h:
+      lower_tf: 5m
+      higher_tf: 1h
+      label: 5m/1H
+    1m_15m:
+      lower_tf: 1m
+      higher_tf: 15m
+      label: 1m/15m
+
+replay:
+  event_log_enabled: true
+  bar_colors:
+    # Base colors — fallback when no layer overrides
+    global:
+      bullish:
+        body:           '#26a69a'
+        body_opacity:   0.2
+        border:         '#26a69a'
+        border_opacity: 1.0
+        wick:           '#26a69a'
+        wick_opacity:   1.0
+      bearish:
+        body:           '#ef5350'
+        body_opacity:   0.2
+        border:         '#ef5350'
+        border_opacity: 1.0
+        wick:           '#ef5350'
+        wick_opacity:   1.0
+
+    # Per-layer overrides — applied in order: 201 → 301 → 401 → 501
+    # Higher layers overrule lower ones. Omit or set null to inherit from below.
+    layers:
+      201:
+        bullish: {}
+        bearish: {}
+      301:
+        bullish: {}
+        bearish: {}
+      401:
+        bullish: {}
+        bearish: {}
+      501:
+        bullish: {}
+        bearish: {}
+  warmup_bars: 200            # number of bars to load before the replay start time, to provide context for indicators and markers
+  initial_visible_bars: 150   # number of bars visible when replay starts, can be increased with "show more bars" button
+  chart_padding_bars: 10      # number of bars to keep as padding on the right side of the chart, to prevent markers from being too close to the edge
+  tooltip_opacity: 0.5
+  chart_markers:
+    enabled: true
+    collision_policy: priority_hide
+    priority:
+      - ltr
+      - itr
+      - str
+    tiers:
+      str:
+        enabled: true
+        shape: circle
+        color: '#797980'
+        text: ''
+      itr:
+        enabled: true
+        shape: circle
+        color: '#FAFAFA'
+        text: 'I'
+      ltr:
+        enabled: true
+        shape: circle
+        color: '#2B63F7'
+        text: 'III'
+  shared_overlays:
+    supply_demand_block:
+      enabled: false
+      projection: higher_to_lower
+      duplicate_on_both_charts: true
+      style:
+        kind: box
+        fill_color: 'rgba(181, 148, 16, 0.12)'
+        border_color: '#b59410'
+        label_color: '#b59410'
+  marker_config:
+    sd_zones:
+      enabled: true
+      mode: pivot
+      max_zones_per_direction: 10
+      display:
+        chart_visible: true
+        dual_display: projected # lower | higher | both | projected
+        demand_color: "rgba(102,187,106,0.12)"
+        demand_active_color: "rgba(102,187,106,0.28)"
+        demand_border_color: "rgba(102,187,106,0.55)"
+        supply_color: "rgba(239,83,80,0.12)"
+        supply_active_color: "rgba(239,83,80,0.28)"
+        supply_border_color: "rgba(239,83,80,0.55)"
+        lower:
+          demand_color: "rgba(38,166,154,0.14)"
+          demand_active_color: "rgba(38,166,154,0.30)"
+          demand_border_color: "rgba(38,166,154,0.65)"
+          supply_color: "rgba(239,83,80,0.14)"
+          supply_active_color: "rgba(239,83,80,0.30)"
+          supply_border_color: "rgba(239,83,80,0.65)"
+        higher:
+          demand_color: "rgba(41,121,255,0.12)"
+          demand_active_color: "rgba(41,121,255,0.26)"
+          demand_border_color: "rgba(41,121,255,0.62)"
+          supply_color: "rgba(255,167,38,0.13)"
+          supply_active_color: "rgba(255,167,38,0.28)"
+          supply_border_color: "rgba(255,167,38,0.65)"
+        projected:
+          demand_color: "rgba(41,121,255,0.07)"
+          demand_active_color: "rgba(41,121,255,0.16)"
+          demand_border_color: "rgba(41,121,255,0.42)"
+          supply_color: "rgba(255,167,38,0.08)"
+          supply_active_color: "rgba(255,167,38,0.18)"
+          supply_border_color: "rgba(255,167,38,0.45)"
+    candlestick_events:
+      enabled: true
+      min_gap_size: 0
+      display:
+        event_log: true
+        chart_markers: false
+    pivot_events:
+      enabled: true
+      mode: conservative # conservative, aggressive
+      str_bars: 2
+      compute:
+        str: true
+        itr: true
+        ltr: true
+      display:
+        event_log:
+          str: false
+          itr: true
+          ltr: true
+        chart_markers:
+          str: false
+          itr: true
+          ltr: true
+
+  structure:
+    enabled: true
+    tier: "itr"          # "itr" (default) or "ltr"
+    dual_display: dual # dual mode: higher | lower | both | projected | dual
+    # dual draws projected HTF P/D on the LTF pane plus dashed native LTF P/D.
+    pd_lines:
+      show_midpoint: true      # dashed line at P/D midpoint
+      range_high:
+        color: '#ef5350'
+        line_style: 0          # 0=solid 1=dotted 2=dashed 3=large_dashed 4=sparse_dotted
+        line_width: 1
+      range_low:
+        color: '#26a69a'
+        line_style: 0
+        line_width: 1
+      midpoint:
+        color: '#546e7a'
+        line_style: 2          # dashed
+        line_width: 1
+  hypothesis:
+    enabled: true
+    first_slice: phase_e_d
+    reaction_confirmation: close_through_previous_htf_bar

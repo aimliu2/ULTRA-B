@@ -34,7 +34,7 @@ import pandas as pd
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from backtester.engine import InstrumentEngine, PivotArray
+    from ultrab.backtester.engine import InstrumentEngine, PivotArray
 
 # ---------------------------------------------------------------------------
 # Strategy parameters
