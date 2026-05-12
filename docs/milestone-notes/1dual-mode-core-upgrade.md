@@ -13,10 +13,10 @@ Use it as an impact map:
 
 This is about the replay app under:
 
-- [app.py](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/app.py)
-- [replay_session.py](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/replay_session.py)
-- [config.yaml](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/config.yaml)
-- [index.html](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/templates/index.html)
+- [app.py](../../src/ultrab/replayer/app.py)
+- [replay_session.py](../../src/ultrab/replayer/replay_session.py)
+- [config.yaml](../../src/ultrab/replayer/config.yaml)
+- [index.html](../../src/ultrab/replayer/templates/index.html)
 
 ## Current Scope
 
@@ -44,7 +44,7 @@ The current allowed dual combos are locked in config:
 - `5M / 1H`
 - `1M / 15M`
 
-They live in [config.yaml](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/config.yaml) under:
+They live in [config.yaml](../../src/ultrab/replayer/config.yaml) under:
 
 ```yaml
 dual_mode:
@@ -91,7 +91,7 @@ This is one of the highest-impact architecture levers.
 ## Session Objects
 
 There are now two replay session types in
-[replay_session.py](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/replay_session.py):
+[replay_session.py](../../src/ultrab/replayer/replay_session.py):
 
 - `ReplaySession`
   - single timeframe
@@ -99,7 +99,7 @@ There are now two replay session types in
   - dual timeframe
 
 The Flask entry point in
-[app.py](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/app.py)
+[app.py](../../src/ultrab/replayer/app.py)
 chooses which one to build in:
 
 - `POST /api/replay/session`
@@ -249,7 +249,7 @@ Changing tie-break order affects:
 ## Single vs Dual Mode UI
 
 Frontend mode selection lives in
-[index.html](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/templates/index.html).
+[index.html](../../src/ultrab/replayer/templates/index.html).
 
 Current controls:
 
@@ -352,7 +352,7 @@ This would be a deliberate architecture change, not a small tweak.
 ## Marker System
 
 Marker visuals are configured in
-[config.yaml](/Users/aimliu/Library/CloudStorage/OneDrive-Personal/_CODE/Python/py-systemC-studies/py-ULTRA-B/src/ultrab/replayer/config.yaml):
+[config.yaml](../../src/ultrab/replayer/config.yaml):
 
 - `str`
 - `str_bos`
