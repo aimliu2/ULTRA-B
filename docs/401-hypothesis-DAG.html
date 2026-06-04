@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- source: ultrab/ln-notes/4trade-identify/413-hypothesis-DAG.md -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>401 · Hypothesis DAG — Layer 4</title>
+
+  <!-- Local Mermaid — no CDN -->
+  <script src="../assets/mermaid.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #FAF9F5;
+      --surface:   #ffffff;
+      --border:    #D1CFC5;
+      --accent:    #D97757;
+      --accent2:   #788C5D;
+      --text:      #3D3D3A;
+      --text-dim:  #87867F;
+      --text-head: #141413;
+      --tag-bg:    #E3DACC;
+      --tag-text:  #3D3D3A;
+      --panel-w:   380px;
+    }
+
+    body {
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 18px 32px 14px;
+      border-bottom: 1.5px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-head);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    .epigraph {
+      padding: 12px 32px;
+      background: #F0EEE6;
+      border-bottom: 1.5px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      font-style: italic;
+      flex-shrink: 0;
+    }
+    .epigraph span { display: block; }
+
+    .layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .layout-single { flex-direction: row; }
+
+    /* ── diagram canvas ── */
+    .diagram-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, #C8C4BA 1px, transparent 1px);
+      background-size: 28px 28px;
+      min-width: 0;
+    }
+    .diagram-wrap.panning { cursor: grabbing; }
+
+    .diagram-wrap .mermaid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .diagram-wrap .mermaid svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pan-reset {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pan-reset:hover { color: var(--text-head); border-color: var(--accent); }
+
+    .pan-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      font-size: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    /* Mermaid node hover — accent stroke only */
+    .mermaid .node rect,
+    .mermaid .node polygon,
+    .mermaid .node circle,
+    .mermaid .node ellipse {
+      cursor: pointer;
+      transition: stroke 0.18s ease, stroke-width 0.18s ease;
+    }
+    .mermaid .node:hover rect,
+    .mermaid .node:hover polygon {
+      stroke: var(--accent) !important;
+    }
+    .mermaid .edgePath.dashed path {
+      stroke-dasharray: 6 4;
+      stroke: #B8B4AA;
+    }
+
+    /* ── side panel ── */
+    .side-panel {
+      width: var(--panel-w);
+      min-width: var(--panel-w);
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 20px 22px 16px;
+      border-bottom: 1.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-header .node-num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #C8C4BA;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      line-height: 1;
+      margin-right: 8px;
+    }
+    .panel-header .layer-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 2px 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      vertical-align: middle;
+    }
+    .panel-header .node-num-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-head);
+      line-height: 1.4;
+    }
+    .panel-header .meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 28px;
+    }
+
+    .panel-body p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      margin-top: 12px;
+    }
+    .panel-body p:first-child { margin-top: 0; }
+    .panel-body strong { color: var(--text-head); font-weight: 600; }
+
+    .panel-body ul {
+      margin-top: 10px;
+      padding-left: 16px;
+    }
+    .panel-body ul li {
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--text);
+      margin-top: 5px;
+    }
+
+    .panel-body .rule-block {
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: #F0EEE6;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.7;
+      font-style: italic;
+    }
+
+    .panel-body .code-block {
+      margin-top: 12px;
+      background: #F0EEE6;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .panel-body .panel-link {
+      display: inline-block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      border-bottom: 1px solid transparent;
+    }
+    .panel-body .panel-link:hover { border-bottom-color: var(--accent); }
+
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+      font-style: italic;
+    }
+    .panel-empty .arrow-hint { font-size: 22px; opacity: 0.25; }
+
+    /* ── Routes block ── */
+    .routes-block {
+      margin-bottom: 16px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .routes-head {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      margin-bottom: 4px;
+      margin-top: 12px;
+    }
+    .routes-head:first-child { margin-top: 0; }
+    .route-item {
+      font-size: 12px;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      line-height: 1.9;
+      color: var(--text);
+    }
+    .route-item .ra      { color: var(--accent);   margin-right: 5px; }
+    .route-item .ra-dash { color: var(--text-dim);  margin-right: 5px; }
+    .route-item .rn {
+      font-size: 10px;
+      color: var(--text-dim);
+      font-style: italic;
+      font-family: system-ui, -apple-system, sans-serif;
+      margin-left: 5px;
+    }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    /* ── loading shimmer ── */
+    @keyframes shimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position:  200% 0; }
+    }
+    .diagram-loader {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      background: linear-gradient(90deg, var(--tag-bg) 25%, #F5F2EC 50%, var(--tag-bg) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.6s ease-in-out infinite;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+    .diagram-loader.done { opacity: 0; pointer-events: none; }
+    .diagram-wrap.loading .mermaid {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>401 · Hypothesis DAG — Layer 4</h1>
+  <p>Click any node to read the phase contract. Solid edges = forward path · dashed = failure / cycle.</p>
+</header>
+
+<div class="epigraph">
+  <span>The phase enum stays broad. The precision moves into suffix-style metadata.</span>
+  <span>Numbers hide meaning. Suffixes keep the graph readable.</span>
+</div>
+
+<div class="layout layout-single">
+
+  <div class="diagram-wrap loading" id="wrap-1">
+    <div class="diagram-loader" id="loader-1"></div>
+    <div class="mermaid">
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":"#E3DACC",
+  "primaryTextColor":"#141413",
+  "primaryBorderColor":"#C8C4BA",
+  "lineColor":"#87867F",
+  "secondaryColor":"#F0EEE6",
+  "tertiaryColor":"#FAF9F5",
+  "edgeLabelBackground":"#FAF9F5",
+  "clusterBkg":"#F0EEE6",
+  "fontFamily":"ui-serif, Georgia, serif"
+}}}%%
+flowchart LR
+
+  %% ── Phase E ────────────────────────────────────────────────
+  subgraph SG_E["E · HTF Continuation"]
+    direction TB
+    E_seek["e1 · E.seeking"]
+    E_stall["e2 · E.stalling"]
+    E_pull["e3 · E.pullback_developing"]
+    E_seek --> E_stall
+    E_stall --> E_pull
+  end
+
+  %% ── Phase D ────────────────────────────────────────────────
+  subgraph SG_D["D · Reaction / Reclaim"]
+    direction TB
+    D_react["d1 · D.reaction_point"]
+    D_pd["d2 · D.htf_pd_grab_reclaim"]
+    D_eq["d3 · D.htf_eq_grab_reclaim"]
+    D_zone["d4 · D.htf_zone_reclaim"]
+  end
+
+  %% ── Phase C ────────────────────────────────────────────────
+  subgraph SG_C["C · Counter Pullback"]
+    direction TB
+    C_bounce["c1 · C.htf_reaction_pullback"]
+    C_hard["c2 · C.hard_pullback"]
+    C_slow["c3 · C.slow_pullback"]
+    C_ind["c4 · C.after_inducement"]
+    C_no["c5 · C.no_followthrough"]
+  end
+
+  %% ── Phase B ────────────────────────────────────────────────
+  subgraph SG_B["B · Reclaim Thesis"]
+    direction TB
+    B_init["b1 · B.initiation_watch"]
+    B_strict["b2 · B.strict_reclaim"]
+    B_shallow["b3 · B.shallow_reclaim"]
+    B_init --> B_strict
+    B_init --> B_shallow
+  end
+
+  %% ── Phase A ────────────────────────────────────────────────
+  subgraph SG_A["A · Pro Continuation"]
+    direction TB
+    A_cont["a1 · A.continuation"]
+    A_fin["a2 · A.finale_attempt"]
+    A_cont --> A_fin
+  end
+
+  %% ── Terminal ────────────────────────────────────────────────
+  OVER["1 · thesis.over"]
+  NONE["2 · none"]
+
+  %% ── E → D ───────────────────────────────────────────────────
+  E_seek --> D_pd
+  E_seek --> D_eq
+  E_stall --> D_react
+  E_stall --> D_pd
+  E_stall --> D_eq
+  E_pull --> D_react
+
+  %% ── Fast E → C hard pullback (tight P/D midpoint breach) ────
+  E_seek --> C_hard
+  E_stall --> C_hard
+
+  %% ── E pullback outcomes (skip D, resume, or reset) ──────────
+  E_pull --> C_hard
+  E_pull --> C_slow
+  E_pull -.-> E_stall
+  E_pull -.-> E_seek
+
+  %% ── D → C ───────────────────────────────────────────────────
+  D_react --> C_bounce
+  D_pd --> C_bounce
+  D_eq --> C_bounce
+  D_zone --> C_bounce
+
+  %% ── D failure → E (dashed) ──────────────────────────────────
+  D_react -.-> E_seek
+  D_pd -.-> E_seek
+  D_eq -.-> E_seek
+  D_zone -.-> E_seek
+
+  %% ── C → B ────────────────────────────────────────────────────
+  C_bounce --> B_init
+  C_hard --> B_init
+  C_slow --> B_init
+  C_bounce --> B_strict
+  C_bounce --> B_shallow
+  C_hard --> B_strict
+  C_hard --> B_shallow
+  C_slow --> B_strict
+  C_slow --> B_shallow
+
+  %% ── B → C fallback (dashed) ──────────────────────────────────
+  B_init -.-> C_ind
+  B_init -.-> C_no
+
+  %% ── B.shallow weakening → D ──────────────────────────────────
+  B_shallow --> D_zone
+
+  %% ── B failure → E (dashed) ───────────────────────────────────
+  B_shallow -.-> E_seek
+
+  %% ── B → A ────────────────────────────────────────────────────
+  B_strict --> A_cont
+  B_shallow --> A_cont
+
+  %% ── A failure → none (dashed) ────────────────────────────────
+  A_cont -.-> NONE
+  A_fin -.-> NONE
+
+  %% ── A → thesis.over ──────────────────────────────────────────
+  A_fin --> OVER
+
+  %% ── thesis.over → E (cycle) ──────────────────────────────────
+  OVER --> E_seek
+
+  %% ── click callbacks ──────────────────────────────────────────
+  click E_seek nodeClick
+  click E_stall nodeClick
+  click E_pull nodeClick
+  click D_react nodeClick
+  click D_pd nodeClick
+  click D_eq nodeClick
+  click D_zone nodeClick
+  click C_bounce nodeClick
+  click C_hard nodeClick
+  click C_slow nodeClick
+  click C_ind nodeClick
+  click C_no nodeClick
+  click B_init nodeClick
+  click B_strict nodeClick
+  click B_shallow nodeClick
+  click A_cont nodeClick
+  click A_fin nodeClick
+  click OVER nodeClick
+  click NONE nodeClick
+
+  %% ── node styles ──────────────────────────────────────────────
+  classDef phaseE fill:#E8E4DC,stroke:#B8B4AA,color:#141413
+  classDef phaseD fill:#F2E8DF,stroke:#B8B4AA,color:#141413
+  classDef phaseC fill:#E8EAE0,stroke:#B8B4AA,color:#141413
+  classDef phaseB fill:#DFE8E4,stroke:#B8B4AA,color:#141413
+  classDef phaseA fill:#DFE2EC,stroke:#B8B4AA,color:#141413
+  classDef terminal fill:#D97757,stroke:#B86040,color:#ffffff
+  classDef noneNode fill:#F5F2EC,stroke:#D1CFC5,color:#87867F
+
+  class E_seek,E_stall,E_pull phaseE
+  class D_react,D_pd,D_eq,D_zone phaseD
+  class C_bounce,C_hard,C_slow,C_ind,C_no phaseC
+  class B_init,B_strict,B_shallow phaseB
+  class A_cont,A_fin phaseA
+  class OVER terminal
+  class NONE noneNode
+
+  %% ── subgraph background tints ────────────────────────────────
+  style SG_E fill:#EDEAE2,stroke:#C8C4BA,color:#141413
+  style SG_D fill:#F4EDE5,stroke:#C8C4BA,color:#141413
+  style SG_C fill:#EAECE3,stroke:#C8C4BA,color:#141413
+  style SG_B fill:#E3EDEA,stroke:#C8C4BA,color:#141413
+  style SG_A fill:#E3E6F2,stroke:#C8C4BA,color:#141413
+    </div>
+    <button class="pan-reset" data-wrap="wrap-1">reset</button>
+    <div class="pan-hint">scroll to zoom · drag to pan</div>
+  </div>
+
+  <aside class="side-panel" id="panel-1">
+    <div class="panel-header" id="panel-1-header" style="display:none"></div>
+    <div class="panel-body"   id="panel-1-body"></div>
+    <div class="panel-empty"  id="panel-1-empty">
+      <div class="arrow-hint">←</div>
+      <div>Click a node to read<br>the phase contract.</div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+  const DETAIL = {
+
+    E_seek: {
+      num:   "e1",
+      tag:   "Phase E",
+      title: "E.seeking",
+      meta:  "HTF trending — price seeking external range liquidity",
+      body:  `<p><strong>E.seeking</strong> is the baseline state. HTF has established directional bias, the HTF leg is open, and price is moving toward external range liquidity (ERL) in the bias direction.</p>
+<div class="code-block">HTF bias:      established (biasTier ≥ confirmed)
+HTF leg:       open
+P/D range:     expanding in HTF direction
+Phase E extreme: still being made or defended
+Counter-LTF:   no meaningful pressure yet</div>
+<p><strong>Expected next:</strong></p>
+<ul>
+  <li>E.stalling — if extremes stop being made</li>
+  <li>D.htf_pd_grab_reclaim — if HTF P/D is breached and reclaimed</li>
+  <li>D.htf_eq_grab_reclaim — if HTF EQ pool is grabbed and reclaimed</li>
+  <li>C.hard_pullback — if tight P/D range pullback breaches midpoint with clean counter orderflow</li>
+  <li>New E.seeking — if objective expands and continuation resumes</li>
+</ul>
+<div class="rule-block">Layer 5 stance: skip by default. No continuation entry from E.seeking alone. Wait for D, C, or B permission.</div>
+<a class="panel-link" href="./101-trader-thinking.html">→ Layer architecture overview</a>`,
+    },
+
+    E_stall: {
+      num:   "e2",
+      tag:   "Phase E",
+      title: "E.stalling",
+      meta:  "HTF extremes stopped — counter-LTF evidence beginning",
+      body:  `<p><strong>E.stalling</strong> means the HTF directional leg has stopped making new extremes. Price is still near the Phase E extreme or the premium/discount edge, but the P/D range is no longer expanding.</p>
+<div class="code-block">P/D no longer expanding in HTF direction
+Price near Phase E extreme
+Bullish HTF guide: price ~89–100% premium
+Bearish HTF guide: price ~0–11% discount
+Counter-LTF evidence starting to appear
+Not enough for D, C, or B yet</div>
+<p><strong>Expected next:</strong></p>
+<ul>
+  <li>D.reaction_point — if HTF reaction-point evidence appears</li>
+  <li>D.htf_pd_grab_reclaim — if HTF P/D boundary is tested</li>
+  <li>D.htf_eq_grab_reclaim — if HTF EQ pool is tested</li>
+  <li>E.pullback_developing — if price moves materially back into P/D</li>
+  <li>C.hard_pullback — if tight P/D range pullback breaches midpoint with clean counter orderflow</li>
+  <li>E.seeking — if continuation resumes (new extreme)</li>
+</ul>
+<div class="rule-block">Layer 5 stance: skip. Do not treat as clean continuation. Watch for reaction or pullback development.</div>`,
+    },
+
+    E_pull: {
+      num:   "e3",
+      tag:   "Phase E",
+      title: "E.pullback_developing",
+      meta:  "Clean LTF counter orderflow before Phase C maturity",
+      body:  `<p><strong>E.pullback_developing</strong> is distinct from D, C, and B. It means HTF Phase E stopped extending, then clean unbroken LTF counter orderflow began while HTF may still report phase=open. No confirmed D/C/B resolution yet.</p>
+<p><strong>Bullish HTF trigger:</strong></p>
+<div class="code-block">HTF: bullish, no new P/D high
+LTF: clean bearish counter orderflow
+orderflow_broken: false</div>
+<p><strong>Bearish HTF trigger:</strong></p>
+<div class="code-block">HTF: bearish, no new P/D low
+LTF: clean bullish counter orderflow
+orderflow_broken: false</div>
+<p><strong>Priority of exits (from high to low):</strong></p>
+<ul>
+  <li>D.reaction_point — if HTF reaction-point evidence appears</li>
+  <li>C.hard_pullback — if LTF counter structure is clean, especially if the tight P/D midpoint is breached</li>
+  <li>C.slow_pullback — if counter structure exists but is unclean</li>
+  <li>E.stalling — if the counter orderflow weakens and a pro-continuation test begins without a new HTF extreme</li>
+  <li>E.seeking — if HTF P/D expands and continuation resumes</li>
+</ul>
+<div class="rule-block">E.pullback_developing is not D (no reaction-point evidence required), not C (C still needs maturity), and not B (B requires a prior pullback context). The DAG should not walk E.pullback_developing → B.initiation_watch directly.</div>
+<div class="rule-block">Layer 5 stance: skip until B or C permission exists. Do not treat as clean E.</div>`,
+    },
+
+    D_react: {
+      num:   "d1",
+      tag:   "Phase D",
+      title: "D.reaction_point",
+      meta:  "First HTF zone contact after E — no prior B/C required",
+      body:  `<p><strong>D.reaction_point</strong> is the regular strict D path. HTF Phase E has stopped clean expansion and price is making first meaningful contact with a reaction point — usually an opposing HTF SD zone. No prior B/C reclaim thesis is required.</p>
+<div class="code-block">Entry path:
+  E.seeking | E.stalling -> D.reaction_point
+
+Condition:
+  HTF opposing SD zone is tapped
+  LTF has not yet flipped counter
+  No prior reclaim thesis active</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>C.htf_reaction_pullback</strong> — LTF P/D flips counter after zone test, price bounces</li>
+  <li><strong>E.seeking</strong> (dashed) — zone is run through; trend continuation resumes</li>
+</ul>
+<div class="rule-block">D keeps the meaning of reaction-point evidence. Do not conflate with D.htf_pd_grab_reclaim or D.htf_zone_reclaim which require prior context.</div>`,
+    },
+
+    D_pd: {
+      num:   "d2",
+      tag:   "Phase D",
+      title: "D.htf_pd_grab_reclaim",
+      meta:  "HTF P/D boundary breached, rejected, and reclaimed on LTF",
+      body:  `<p><strong>D.htf_pd_grab_reclaim_test</strong> is the liquidity-grab D path at the HTF P/D boundary. It can appear directly from E because HTF owns the remembered P/D level while LTF confirms the grab/reclaim before the HTF candle closes.</p>
+<div class="code-block">Lifecycle (Layer 3 Liquidity must confirm):
+  1. Price moves beyond the HTF P/D level
+  2. Rejection footprint appears
+     (wick / hammer / counter FVG)
+  3. Price reclaims back inside range on LTF
+
+Trigger:
+  previous/current E.seeking | E.stalling
+  AND htf_pd_grab_reclaim_ready == true
+  AND grab_direction counter to HTF trend</div>
+<p>The grab/reclaim is a major boundary footprint, not proof that D has produced a pullback. It opens a <em>pending decision test</em>.</p>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>C.htf_reaction_pullback</strong> — independent reaction evidence confirms (LTF P/D flips, counter SD forms, FVG follow-through)</li>
+  <li><strong>E.seeking</strong> (dashed) — test fails, trend continuation resumes</li>
+</ul>
+<div class="rule-block">Do not promote to C from the grab footprint alone. Wait for independent reaction evidence first.</div>`,
+    },
+
+    D_eq: {
+      num:   "d3",
+      tag:   "Phase D",
+      title: "D.htf_eq_grab_reclaim",
+      meta:  "HTF EQH/EQL pool grabbed, rejected, and reclaimed",
+      body:  `<p><strong>D.htf_eq_grab_reclaim_test</strong> applies the same grab/reclaim lifecycle to an HTF Equal Highs or Equal Lows (EQH/EQL) liquidity pool instead of a P/D boundary.</p>
+<div class="code-block">EQ pool definition (Layer 3 Liquidity):
+  abs(pivot_a - pivot_b) &lt; HTF_ATR(14) * eq_threshold
+  eq_threshold = 0.1  (configurable in config.yaml)
+
+Lifecycle: same as D.htf_pd_grab_reclaim
+  1. Grab beyond EQ band
+  2. Rejection footprint
+  3. Reclaim through EQ level/band on LTF
+
+Trigger:
+  previous/current E.seeking | E.stalling
+  AND htf_eq_grab_reclaim_ready == true
+  AND grab_direction counter to HTF trend</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>C.htf_reaction_pullback</strong> — independent confirmation after grab/reclaim</li>
+  <li><strong>E.seeking</strong> (dashed) — test fails</li>
+</ul>
+<div class="rule-block">Same ownership as D.htf_pd_grab_reclaim — footprint is the evidence, pending outcome is the D node, confirmed reaction is C.</div>`,
+    },
+
+    D_zone: {
+      num:   "d4",
+      tag:   "Phase D",
+      title: "D.htf_zone_reclaim",
+      meta:  "Reclaim test after a B or C thesis has already weakened",
+      body:  `<p><strong>D.htf_zone_reclaim_test</strong> is fundamentally different from the first-contact D nodes. It appears after the market has already made a B or C attempt that is now weakening. The path already carries directional pressure.</p>
+<div class="code-block">Entry paths:
+  B.shallow_reclaim.weakened -> D.htf_zone_reclaim_test
+  C.* -> D.htf_zone_reclaim_test
+
+Condition:
+  HTF opposing SD zone is present
+  Price enters / taps / mitigates it
+  LTF may provide timing but is not sufficient alone
+
+Stacked zone path:
+  D.htf_zone_reclaim_test -> D.htf_zone_reclaim_test
+  (each stacked zone gets its own test)
+  -> E.seeking if all tests fail and price accepts through</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>C.htf_reaction_pullback</strong> — HTF pullback thesis becomes real</li>
+  <li><strong>E.seeking</strong> (dashed) — all reclaim tests fail; trend continuation</li>
+</ul>
+<div class="rule-block">Do not create D.ltf_reclaim_test. LTF SD touch after shallow B is evidence stored in debug facts — it does not promote the thesis to D. D is HTF-scoped only.</div>`,
+    },
+
+    C_bounce: {
+      num:   "c1",
+      tag:   "Phase C",
+      title: "C.htf_reaction_pullback",
+      meta:  "LTF flipped counter after a direct HTF zone reaction",
+      body:  `<p><strong>C.htf_reaction_pullback</strong> is the regular C node that follows strict D or liquidity-grab D. Price tested the HTF reaction point, bounced, and LTF P/D flipped counter to the prior E direction. This is neither C.slow_pullback nor C.hard_pullback — it comes from a direct HTF zone reaction.</p>
+<div class="code-block">Entry paths:
+  D.reaction_point         -> C.htf_reaction_pullback
+  D.htf_pd_grab_reclaim    -> C.htf_reaction_pullback
+  D.htf_eq_grab_reclaim    -> C.htf_reaction_pullback
+  D.htf_zone_reclaim       -> C.htf_reaction_pullback
+
+Promotion evidence (at least one required):
+  LTF P/D flips counter
+  Counter SD zone forms / mitigates
+  FVG / rejection follow-through confirms
+  HTF later confirms reaction</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>B.strict_reclaim</strong> — HTF pd_value_pct &lt; 50 with fresh reclaim POI</li>
+  <li><strong>B.shallow_reclaim</strong> — 50 ≤ HTF pd_value_pct ≤ 70 with fresh reclaim POI</li>
+</ul>`,
+    },
+
+    C_hard: {
+      num:   "c2",
+      tag:   "Phase C",
+      title: "C.hard_pullback",
+      meta:  "Fast or mature clean counter pullback from Phase E",
+      body:  `<p><strong>C.hard_pullback</strong> can appear from E.seeking, E.stalling, or E.pullback_developing. In a tight HTF P/D range, a clean LTF counter-orderflow leg that breaches the HTF midpoint can shortcut Phase E directly into C.hard_pullback after D has failed to fire.</p>
+<div class="code-block">Fast tight-range path:
+  E.seeking | E.stalling | E.pullback_developing
+  LTF counter orderflow is clean
+  counter orderflow is not broken
+  pullback depth breaches midpoint (>= 50%)
+  D gate did not fire first
+
+Mature slow path:
+  E.pullback_developing
+  clean uninterrupted counter sequence matures</div>
+<div class="code-block">Bullish HTF trigger:
+  LTF prints lower ITR high + lower ITR low
+  (no meaningful interruption)
+  OR clean bearish FVG sequence down
+  THEN LTF bias becomes bearish / P/D flips counter
+
+Bearish HTF trigger:
+  LTF prints higher ITR low + higher ITR high
+  (no meaningful interruption)
+  OR clean bullish FVG sequence up
+  THEN LTF bias becomes bullish / P/D flips counter</div>
+<p><strong>Layer 5 stances:</strong></p>
+<ul>
+  <li><strong>Watching</strong> — clean counter structure exists, no usable counter POI yet</li>
+  <li><strong>Armed</strong> — counter structure + usable counter POI both exist</li>
+</ul>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li>B.strict_reclaim or B.shallow_reclaim — when LTF flips back pro-HTF with fresh POI</li>
+</ul>`,
+    },
+
+    C_slow: {
+      num:   "c3",
+      tag:   "Phase C",
+      title: "C.slow_pullback",
+      meta:  "Unclean LTF counter structure — overlapping, stop-start",
+      body:  `<p><strong>C.slow_pullback</strong> follows E.pullback_developing when the LTF context flips counter but the orderflow is unclean and overlapping. Same entry condition as C.hard_pullback but with degraded structure quality.</p>
+<div class="code-block">Unclean counter development (any of):
+  Overlapping ITR highs/lows
+  Failed counter pushes
+  Back-and-forth liquidity taps
+  Mixed supply/demand reactions
+  Slow grind without clean impulse
+
+Trigger:
+  LTF bias becomes counter-HTF, or
+  LTF last_sc.breakDirection = counter, or
+  LTF P/D range flips into counter structure
+  BUT orderflow is overlapping / unclean</div>
+<p><strong>Layer 5 stance:</strong> Watching — counter structure exists, no clean POI yet.</p>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li>B.strict_reclaim or B.shallow_reclaim — when LTF flips pro-HTF with fresh POI</li>
+</ul>
+<div class="rule-block">C.slow_pullback is a pullback-development node from E.pullback_developing. C.hard_pullback can also be a fast tight-range shortcut from E.seeking or E.stalling when the midpoint breach is already decisive. Neither is a direct HTF zone reaction.</div>`,
+    },
+
+    C_ind: {
+      num:   "c4",
+      tag:   "Phase C",
+      title: "C.pullback.after_inducement",
+      meta:  "B.initiation_watch weakened → rejected from opposing HTF zone",
+      body:  `<p><strong>C.pullback.after_inducement</strong> is a fallback C path that fires when B.initiation_watch has been weakened and price then rejects from the opposing HTF zone and flips back counter.</p>
+<div class="code-block">Entry path:
+  B.initiation_watch.weakened
+    -> C.pullback.after_inducement
+
+Meaning:
+  B.initiation_watch.weakened = the intended
+  test area has been involved; B idea is vulnerable.
+  Only after that may the classifier emit this C node.
+
+  (do NOT emit from B.initiation_watch.decisive alone —
+   that can only become C.no_followthrough)</div>
+<p>This C node carries the memory that an inducement sweep happened before the counter leg. Layer 5 should treat it as a lower-quality counter-pullback context compared to C.hard_pullback.</p>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li>B.strict_reclaim or B.shallow_reclaim — when LTF flips pro-HTF with fresh POI</li>
+</ul>`,
+    },
+
+    C_no: {
+      num:   "c5",
+      tag:   "Phase C",
+      title: "C.pullback.no_followthrough",
+      meta:  "B.initiation_watch decisive/stalled → decision test rejected",
+      body:  `<p><strong>C.pullback.no_followthrough</strong> fires when B.initiation_watch is decisive or stalled and the decision test rejects — without the inducement sweep that would make it C.pullback.after_inducement.</p>
+<div class="code-block">Entry paths:
+  B.initiation_watch.decisive -> C.pullback.no_followthrough
+    if decision test rejects with LTF counter /
+    FVG confirmation
+
+  B.initiation_watch.stalled -> C.pullback.no_followthrough
+    if the original B-init source HTF ITR
+    level/EQ pool is run again
+
+Contrast with C.pullback.after_inducement:
+  no_followthrough = stalled/decisive rejected
+                     WITHOUT inducement sweep
+  after_inducement = weakened then rejected
+                     WITH prior inducement sweep</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li>B.strict_reclaim or B.shallow_reclaim — when LTF flips pro-HTF with fresh POI</li>
+</ul>`,
+    },
+
+    B_init: {
+      num:   "b1",
+      tag:   "Phase B",
+      title: "B.initiation_watch",
+      meta:  "3-step HTF ITR chain — venue confirmed, verdict unknown",
+      body:  `<p><strong>B.initiation_watch</strong> is the casino-ticket situation. The machine observes a possible reclaim born from HTF ITR liquidity grabs but cannot know whether the move is genuine reversal or inducement until the decisive reaction.</p>
+<p>It is no longer a direct child of <strong>E.pullback_developing</strong>. The pullback must first mature into a C node, then B.initiation_watch can evaluate whether a pro-side reclaim attempt is forming from that pullback context.</p>
+<p><strong>3-step chain (Evidence Compiler accumulates):</strong></p>
+<div class="code-block">Step 1 — source_itr_grab
+  HTF ITR grabbed in pro-bias direction
+  Status: collecting
+
+Step 2 — opposite_itr_grab
+  Counter-direction HTF ITR grabbed
+  Status: collecting
+
+Step 3 — decision_zone_ids
+  HTF counter-bias SD zone tapped
+  Status: ready</div>
+<p><strong>Sub-states:</strong></p>
+<ul>
+  <li><strong>active</strong> — step 1 confirmed</li>
+  <li><strong>decisive</strong> — all 3 steps confirmed; venue but not verdict</li>
+  <li><strong>stalled</strong> — decisive rejected / failed to launch</li>
+  <li><strong>weakened</strong> — intended test area involved; B idea vulnerable</li>
+</ul>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>B.strict / B.shallow</strong> — fresh reclaim evidence appears before rejection</li>
+  <li><strong>A.continuation</strong> — price runs/resolves the opposing HTF zone directly</li>
+  <li><strong>C.after_inducement</strong> — weakened → rejected from opposing zone</li>
+  <li><strong>C.no_followthrough</strong> — decisive/stalled then rejected</li>
+</ul>
+<div class="rule-block">Do not let stale alignment upgrade B.initiation_watch to B.strict_reclaim. Normal B needs fresh reclaim evidence with an independent POI.</div>`,
+    },
+
+    B_strict: {
+      num:   "b2",
+      tag:   "Phase B",
+      title: "B.strict_reclaim",
+      meta:  "HTF pd_value_pct < 50 — full value reclaim with fresh POI",
+      body:  `<p><strong>B.strict_reclaim</strong> is the high-conviction reclaim thesis. Price has returned deep into the HTF P/D range from a counter-pullback, and a fresh pro-bias LTF POI exists.</p>
+<div class="code-block">Conditions:
+  HTF pd_value_pct &lt; 50
+    (price in genuine discount for bullish HTF
+     or genuine premium for bearish HTF)
+  HTF pro-direction SD reaction / mitigation exists
+  LTF flipped back toward HTF bias
+  Fresh pro-direction LTF POI exists</div>
+<p><strong>Origin tracking:</strong></p>
+<div class="code-block">phase_origin_node stored separately:
+  C.slow_pullback | C.hard_pullback |
+  C.htf_reaction_pullback | B.initiation_watch | ...</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>A.continuation</strong> — LTF bias aligned, POI confirmed, PD expanding with HTF</li>
+</ul>`,
+    },
+
+    B_shallow: {
+      num:   "b3",
+      tag:   "Phase B",
+      title: "B.shallow_reclaim",
+      meta:  "50 ≤ HTF pd_value_pct ≤ 70 — weak-value reclaim",
+      body:  `<p><strong>B.shallow_reclaim</strong> is the lower-conviction reclaim thesis where price has returned to a mid-range value area rather than deep discount/premium. Allowed as its own trade idea but does not unlock A budget the same way.</p>
+<div class="code-block">Conditions:
+  50 ≤ HTF pd_value_pct ≤ 70
+  HTF pro-direction SD reaction / mitigation exists
+  LTF flipped back toward HTF bias
+  Fresh pro-direction LTF POI exists</div>
+<p><strong>Weakening path (B.shallow.contested → B.shallow.weakened):</strong></p>
+<ul>
+  <li>LTF counter mitigation/rejection appears → contested</li>
+  <li>Price returns to same decision area → weakened</li>
+  <li>HTF opposing SD appears/taps → D.htf_zone_reclaim_test</li>
+</ul>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>A.continuation</strong> — if LTF aligned and expanding</li>
+  <li><strong>D.htf_zone_reclaim</strong> — when HTF opposing SD zone appears or taps</li>
+  <li><strong>D.htf_pd_grab_reclaim / D.htf_eq_grab_reclaim</strong> — without a clean HTF zone</li>
+  <li><strong>E.seeking</strong> (dashed) — if HTF genuinely expands the leg</li>
+</ul>
+<div class="rule-block">B.shallow does not unlock another A budget. It reclaimed from a weak-value location. Treat genuine HTF expansion as E.seeking, not as a second B→A cycle.</div>`,
+    },
+
+    A_cont: {
+      num:   "a1",
+      tag:   "Phase A",
+      title: "A.continuation",
+      meta:  "Pro swing + pro internal — both HTF and LTF aligned",
+      body:  `<p><strong>A.continuation</strong> is the continuation phase after Phase B. Both HTF and LTF are aligned. Price is expanding in the HTF direction from a confirmed internal LTF POI.</p>
+<div class="code-block">Entry conditions:
+  previous_phase == "B"
+  shadow episode_status = confirming | confirmed
+  LTF bias aligned with HTF bias
+  LTF P/D expanding with HTF direction
+  selected_poi is not None (from Phase B)</div>
+<p><strong>Sub-states:</strong></p>
+<ul>
+  <li><strong>A.approach</strong> — approaching POI, not yet triggered</li>
+  <li><strong>A.entry_live</strong> — in position</li>
+  <li><strong>A.finale_pending</strong> — target not yet reached</li>
+</ul>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>A.finale_attempt</strong> — position progressing toward target</li>
+  <li><strong>none</strong> (dashed) — LTF alignment lost before entry, or structural shift</li>
+</ul>
+<a class="panel-link" href="./301-context.html">→ 301 Layer 3 context overview</a>`,
+    },
+
+    A_fin: {
+      num:   "a2",
+      tag:   "Phase A",
+      title: "A.finale_attempt",
+      meta:  "Finale target approaching — waiting for close confirmation",
+      body:  `<p><strong>A.finale_attempt</strong> is the terminal sub-state of Phase A. The position is live and price is approaching the finale target.</p>
+<div class="code-block">Resolved by:
+  phase_a_finale_touched == true
+  AND phase_a_finale_closed_beyond == true
+  -> thesis.over
+
+Failed by:
+  invalidation level breached before finale
+  -> none (shadow episode marked failed)</div>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>thesis.over</strong> — finale tapped and closed beyond</li>
+  <li><strong>none</strong> (dashed) — invalidation breached; shadow episode failed</li>
+</ul>`,
+    },
+
+    OVER: {
+      num:   "1",
+      tag:   "Terminal",
+      title: "thesis.over",
+      meta:  "Episode complete — A/B budget consumed, do not replenish",
+      body:  `<p><strong>thesis.over</strong> means the active thesis has reached its objective or liquidity resolution area. The episode is closed and the old A/B budget is done.</p>
+<div class="code-block">Sub-statuses:
+  thesis.over.pd_objective
+    HTF P/D objective reached
+
+  thesis.over.eq_liquidity
+    HTF EQH/EQL liquidity pool resolved
+
+  thesis.over.trade_complete
+    Managed exit (TP / SL / time-based)
+
+  thesis.over.failed_finale
+    Invalidation hit (legacy: range.failed_a_finale)</div>
+<p><strong>Rules after thesis.over:</strong></p>
+<ul>
+  <li>Do not replenish A/B budget inside the same thesis</li>
+  <li>Do not create D.htf_pd_grab_reclaim_test from A</li>
+  <li>Do not create D.htf_eq_grab_reclaim_test from A</li>
+  <li>Wait for fresh E.seeking or a new structural epoch</li>
+</ul>
+<div class="rule-block">thesis.over → E.seeking on the next bar. The cycle restarts. sideway / range should never be a hypothesis node — use thesis.over instead.</div>`,
+    },
+
+    NONE: {
+      num:   "2",
+      tag:   "Unresolved",
+      title: "none",
+      meta:  "No phase guard satisfied at this bar",
+      body:  `<p><strong>none</strong> is emitted when no edge guard fires from the current DAG node. It is not an error state. It is the honest label for an unresolved bar.</p>
+<p><strong>none_sub_status values:</strong></p>
+<div class="code-block">htf_resolve_unclassified
+  HTF structural resolution state is intermediate
+
+directional_context_unclassified
+  Alignment does not match any phase matrix entry
+
+waiting_b_initiation
+  In E, b_initiation chain active, step 1 or 2 seen,
+  not yet ready
+
+waiting_phase_d_confirmation
+  D preconditions partially met, waiting one more bar
+
+b_shadow_suppressed
+  B re-entry blocked by recent failed shadow episode
+  Lifts when new EvidenceCandidate with different
+  first_seen_at is emitted
+
+epoch_reset
+  htf_pd_epoch_id changed; DAG reset bar</div>
+<p><strong>none_origin_phase</strong> is set to <code>previous_phase</code> from Layer 4 state. Known design debt — Evidence Compiler should eventually emit <code>last_ready_pattern</code> so Layer 4 does not need internal history for this field.</p>
+<div class="rule-block">Record none honestly. Measure it. Do not suppress it or roll it into the last active phase. The none count reveals which structural states the DAG cannot yet classify.</div>
+<a class="panel-link" href="./402-hypothesis-none.html">→ Open 402 none Phase &amp; Warmup Detail</a>`,
+    },
+
+  };
+
+  // ── Mermaid init ─────────────────────────────────────────────────────────
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof mermaid.run === 'function') {
+      await mermaid.run();
+    } else {
+      mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    }
+    requestAnimationFrame(() => {
+      initSvgPanZoom('wrap-1');
+      const wrap1   = document.getElementById('wrap-1');
+      const loader1 = document.getElementById('loader-1');
+      wrap1.classList.remove('loading');
+      loader1.classList.add('done');
+      loader1.addEventListener('transitionend', () => loader1.remove(), { once: true });
+    });
+  });
+
+  // ── SVG-native pan / zoom ────────────────────────────────────────────────
+  function initSvgPanZoom(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    const resetBtn = wrap.querySelector('.pan-reset');
+    const svg = wrap.querySelector('.mermaid svg');
+    if (!svg) return;
+
+    const current = () => {
+      const vb = svg.viewBox.baseVal;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    };
+    const setViewBox = vb =>
+      svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+
+    let initialViewBox;
+    try {
+      const bbox = svg.getBBox();
+      const pad = Math.max(bbox.width, bbox.height) * 0.08;
+      initialViewBox = { x: bbox.x - pad, y: bbox.y - pad,
+                         width: bbox.width + pad * 2, height: bbox.height + pad * 2 };
+    } catch {
+      const vb = current();
+      initialViewBox = { x: vb.x, y: vb.y, width: vb.width || 1200, height: vb.height || 800 };
+    }
+    setViewBox(initialViewBox);
+
+    let dragging = false, moved = false, lastX = 0, lastY = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true; moved = false;
+      lastX = e.clientX; lastY = e.clientY;
+      wrap.classList.add('panning');
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const vb = current(), rect = wrap.getBoundingClientRect();
+      setViewBox({ x: vb.x - dx * (vb.width / rect.width),
+                   y: vb.y - dy * (vb.height / rect.height),
+                   width: vb.width, height: vb.height });
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false; wrap.classList.remove('panning');
+    });
+    wrap.addEventListener('click', e => { if (moved) e.stopPropagation(); }, true);
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const vb = current();
+      const factor = e.deltaY < 0 ? 0.9 : 1.1;
+      const nextW = Math.min(Math.max(vb.width  * factor, initialViewBox.width  * 0.08), initialViewBox.width  * 12);
+      const nextH = Math.min(Math.max(vb.height * factor, initialViewBox.height * 0.08), initialViewBox.height * 12);
+      setViewBox({ x: vb.x + (vb.width - nextW) * (mx / rect.width),
+                   y: vb.y + (vb.height - nextH) * (my / rect.height),
+                   width: nextW, height: nextH });
+    }, { passive: false });
+    if (resetBtn)
+      resetBtn.addEventListener('click', e => { e.stopPropagation(); setViewBox(initialViewBox); });
+  }
+
+  // ── Panel renderer ───────────────────────────────────────────────────────
+  function renderPanel(panelId, data, nodeId) {
+    if (!data) return;
+    document.getElementById(`${panelId}-empty`).style.display = 'none';
+    const hdr = document.getElementById(`${panelId}-header`);
+    hdr.style.display = 'block';
+    hdr.innerHTML = `
+      <div class="node-num-row">
+        <span class="node-num">${data.num}</span>
+        <span class="layer-tag">${data.tag}</span>
+      </div>
+      <h2>${data.title}</h2>
+      <div class="meta">${data.meta}</div>
+    `;
+    document.getElementById(`${panelId}-body`).innerHTML =
+      (nodeId ? buildRoutesHTML(nodeId) : '') + data.body;
+  }
+
+  // ── Routes map ────────────────────────────────────────────────────────────
+  // Every edge from the Mermaid diagram. Solid edge = plain id string (or object
+  // without dashed). Dashed / fallback edge = { id, dashed: true, note: '...' }.
+  const ROUTES = {
+    E_seek: {
+      out: ['E_stall', 'D_pd', 'D_eq', 'C_hard'],
+      in:  [{ id:'OVER',      note:'cycle'   },
+            { id:'D_react',   dashed:true, note:'failure' },
+            { id:'D_pd',      dashed:true, note:'failure' },
+            { id:'D_eq',      dashed:true, note:'failure' },
+            { id:'D_zone',    dashed:true, note:'failure' },
+            { id:'B_shallow', dashed:true, note:'failure' }],
+    },
+    E_stall: {
+      out: ['E_pull', 'D_react', 'D_pd', 'D_eq', 'C_hard'],
+      in:  ['E_seek', { id:'E_pull', dashed:true, note:'resume test' }],
+    },
+    E_pull: {
+      out: ['D_react', 'C_hard', 'C_slow',
+            { id:'E_stall', dashed:true, note:'resume test' },
+            { id:'E_seek',  dashed:true, note:'resumes' }],
+      in:  ['E_stall'],
+    },
+    D_react: {
+      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
+      in:  ['E_stall', 'E_pull'],
+    },
+    D_pd: {
+      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
+      in:  ['E_seek', 'E_stall'],
+    },
+    D_eq: {
+      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
+      in:  ['E_seek', 'E_stall'],
+    },
+    D_zone: {
+      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
+      in:  ['B_shallow'],
+    },
+    C_bounce: {
+      out: ['B_init', 'B_strict', 'B_shallow'],
+      in:  ['D_react', 'D_pd', 'D_eq', 'D_zone'],
+    },
+    C_hard: {
+      out: ['B_init', 'B_strict', 'B_shallow'],
+      in:  ['E_seek', 'E_stall', 'E_pull'],
+    },
+    C_slow: {
+      out: ['B_init', 'B_strict', 'B_shallow'],
+      in:  ['E_pull'],
+    },
+    C_ind: {
+      out: [],
+      in:  [{ id:'B_init', dashed:true, note:'fallback' }],
+    },
+    C_no: {
+      out: [],
+      in:  [{ id:'B_init', dashed:true, note:'fallback' }],
+    },
+    B_init: {
+      out: ['B_strict', 'B_shallow',
+            { id:'C_ind', dashed:true, note:'fallback' },
+            { id:'C_no',  dashed:true, note:'fallback' }],
+      in:  ['C_bounce', 'C_hard', 'C_slow'],
+    },
+    B_strict: {
+      out: ['A_cont'],
+      in:  ['C_bounce', 'C_hard', 'C_slow', 'B_init'],
+    },
+    B_shallow: {
+      out: ['D_zone', 'A_cont', { id:'E_seek', dashed:true, note:'failure' }],
+      in:  ['C_bounce', 'C_hard', 'C_slow', 'B_init'],
+    },
+    A_cont: {
+      out: ['A_fin', { id:'NONE', dashed:true, note:'failure' }],
+      in:  ['B_strict', 'B_shallow'],
+    },
+    A_fin: {
+      out: ['OVER', { id:'NONE', dashed:true, note:'failure' }],
+      in:  ['A_cont'],
+    },
+    OVER: {
+      out: [{ id:'E_seek', note:'cycle' }],
+      in:  ['A_fin'],
+    },
+    NONE: {
+      out: [],
+      in:  [{ id:'A_cont', dashed:true }, { id:'A_fin', dashed:true }],
+    },
+  };
+
+  // ── Routes HTML builder ───────────────────────────────────────────────────
+  function buildRoutesHTML(nodeId) {
+    const r = ROUTES[nodeId];
+    if (!r) return '';
+
+    function row(item, dir) {
+      const d      = (typeof item === 'string') ? { id: item } : item;
+      const detail = DETAIL[d.id];
+      const label  = detail ? `${detail.num} · ${detail.title}` : d.id;
+      const arrow  = dir === 'out'
+        ? (d.dashed ? '<span class="ra-dash">⇢</span>' : '<span class="ra">→</span>')
+        : (d.dashed ? '<span class="ra-dash">⇠</span>' : '<span class="ra">←</span>');
+      const note   = d.note ? `<span class="rn">${d.note}</span>` : '';
+      return `<div class="route-item">${arrow}${label}${note}</div>`;
+    }
+
+    let html = '<div class="routes-block">';
+    if (r.out && r.out.length) {
+      html += '<div class="routes-head">From here</div>';
+      html += r.out.map(i => row(i, 'out')).join('');
+    }
+    if (r.in && r.in.length) {
+      html += '<div class="routes-head">To here</div>';
+      html += r.in.map(i => row(i, 'in')).join('');
+    }
+    return html + '</div>';
+  }
+
+  window.nodeClick = function(nodeId) {
+    renderPanel('panel-1', DETAIL[nodeId], nodeId);
+  };
+</script>
+
+<!--
+  Source: ultrab/ln-notes/4trade-identify/413-hypothesis-DAG.md
+  Reference: ultrab/ln-notes/4trade-identify/401.hypothesis.md
+
+  Layer 1 (Visual) — Mermaid flowchart + side panel. Active.
+
+  Layer 2 (Hidden LLM text) — omitted. DETAIL object is plain readable
+  template-literal prose in <script>. Any LLM reading raw HTML can match
+  node IDs to descriptions without a separate llm-context block.
+
+  Layer 3 (JSON-LD) — omitted. Plain static HTML; no CSR framework.
+-->
+</body>
+</html>

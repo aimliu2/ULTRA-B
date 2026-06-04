@@ -1,0 +1,690 @@
+<!-- source: ultrab/ln-notes/2marking/202-Candlestick-events.md
+     algo:   ultrab/src/ultrab/core/smc/candleEvent.py
+     config: ultrab/src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>202 · Candlestick Events: CE01 / CE02 FVG</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "▸";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  .figure {
+    margin: 24px 0;
+    max-width: 700px;
+  }
+  .figure img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    display: block;
+  }
+  .figure figcaption {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 7px;
+    font-family: var(--sans);
+  }
+
+  ul.plain {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ul.plain li {
+    margin-bottom: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--tag-bg);
+    color: var(--text-dim);
+    border: 1.5px solid var(--border);
+    border-radius: 22px;
+    padding: 2px 10px;
+    font-family: var(--sans);
+    vertical-align: middle;
+  }
+
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core concept</a>
+    <a href="#payload">Payload contract</a>
+    <a href="#ce01">CE01 Expansion</a>
+    <a href="#ce02">CE02 Confirmation</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#algo" class="l2">Engine loop</a>
+    <a href="#algo" class="l2">Payload shape</a>
+    <a href="#config">Config</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>ln-notes/2marking/202-Candlestick-events.md</code>
+      <code>core/smc/candleEvent.py</code>
+      <code>replayer/config.yaml:169</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 2 · Marking · Candlestick Events</div>
+      <h1>CE01 / CE02 - Causal Fair Value Gap Events</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - The FVG engine splits the discretionary "impulse left an imbalance" idea into two causal Layer 2 events.
+        <code>CE01</code> spots expansion on bar 2. <code>CE02</code> confirms a preserved gap on bar 3.
+        Bar 2 is the chart anchor, while <code>eventTimestamp</code> is the bar where the event becomes usable.
+      </div>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>A Fair Value Gap is a three-candle story. Bar 1 provides the reference boundary, bar 2 anchors the event on the chart, and bar 3 decides whether the imbalance is actually preserved.</p>
+    <pre class="block">bar 1 = reference boundary
+bar 2 = anchor bar / event position
+bar 3 = confirmation bar</pre>
+
+    <figure class="figure">
+      <img src="../assets/202-ce1.png" alt="CE01 expansion spotted example">
+      <figcaption>CE01 marks the bar 2 expansion condition. It is early evidence, not a confirmed FVG.</figcaption>
+    </figure>
+    <figure class="figure">
+      <img src="../assets/202-FVG.jpeg" alt="Fair Value Gap diagram">
+      <figcaption>CE02 confirms that the bar 1 to bar 3 gap is preserved.</figcaption>
+    </figure>
+
+    <details open>
+      <summary>Step 1 - Separate chart anchor from decision time <span class="where">contract</span></summary>
+      <div class="body">
+        <p>Bar 2 is where the FVG belongs visually. For CE records this is <code>anchorTimestamp</code>. The event only becomes usable at <code>eventTimestamp</code>.</p>
+        <pre class="block">CE01 eventTimestamp = bar 2 close
+CE02 eventTimestamp = bar 3 close
+anchorTimestamp     = bar 2</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Step 2 - Keep CE01 and CE02 independent <span class="where">event family</span></summary>
+      <div class="body">
+        <p><code>CE02</code> does not require <code>CE01</code>. If bar 2 is a doji or inside bar but bar 3 preserves a true gap, the engine still emits the confirmed FVG.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">Layer 2 detects primitive FVG events only. Mitigation, quality scoring, and higher-timeframe interpretation belong to Layer 3.</div>
+
+    <h2 id="payload"><span class="sec-num">01</span> Payload Contract</h2>
+    <p>CE events share the Layer 2 event envelope and then add FVG-specific fields. The implementation exposes this through <code>FvgEvent.to_dict()</code>.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">Shared envelope</button>
+        <button data-t="1">CE fields</button>
+      </div>
+<pre class="on">eventId
+eventCode
+eventName
+eventGroup = CE
+timeframe
+tier = null
+side
+direction
+eventTimestamp
+causalAvailableAt
+anchorTimestamp
+sourceBarIndexes
+sourceCandleRefs
+metadata
+price</pre>
+<pre>type = rally | drop
+subType                 # CE01 only
+pivotTimestamp           # CE02 compatibility alias for bar 2
+gapTop                   # CE02 only
+gapBottom                # CE02 only
+gapSize                  # CE02 only
+bar1Timestamp
+bar1High
+bar1Low
+bar2Timestamp
+bar2Open                 # CE01 only
+bar2Close                # CE01 only
+bar3Timestamp            # CE02 only</pre>
+    </div>
+
+    <div class="callout"><div class="ico">!</div><div><code>pivotTimestamp</code> is not the decision time for CE02. It is the bar 2 anchor alias. <code>eventTimestamp</code> is bar 3 close for CE02.</div></div>
+
+    <h2 id="ce01"><span class="sec-num">02</span> CE01 Expansion Spotted</h2>
+    <p><code>CE01</code> fires on bar 2 close when bar 2 closes beyond the bar 1 range. This is a primitive expansion observation.</p>
+
+    <details open>
+      <summary>Discretionary idea <span class="where">bar 2</span></summary>
+      <div class="body">
+        <p>A candle closes outside the prior candle boundary. The tape shows expansion, but the FVG is not confirmed yet.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Algorithm mapping <span class="where">_try_expansion</span></summary>
+      <div class="body">
+        <p>The engine compares <code>bar2_close</code> to <code>bar1.high</code> and <code>bar1.low</code>. If neither boundary is broken by close, no CE01 is emitted.</p>
+      </div>
+    </details>
+
+    $$\text{CE01}_{rally}: close_2 > high_1$$
+    $$\text{CE01}_{drop}: close_2 < low_1$$
+
+    <pre class="block">subType:
+  expansion_up / expansion_down
+  engulfing_rally / engulfing_drop
+  gap_up / gap_down</pre>
+
+    <div class="rule-block">CE01 is early only. It can exist without CE02 following.</div>
+
+    <h2 id="ce02"><span class="sec-num">03</span> CE02 FVG Confirmed</h2>
+    <p><code>CE02</code> fires on bar 3 close when the gap between bar 1 and bar 3 is preserved by wick. All three bars are closed, so the event is causal.</p>
+
+    <details open>
+      <summary>Discretionary idea <span class="where">bar 3</span></summary>
+      <div class="body">
+        <p>The imbalance is real only if bar 3 does not trade back into the bar 1 boundary. The gap zone is the empty space between bar 1 and bar 3.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Algorithm mapping <span class="where">_try_confirm</span></summary>
+      <div class="body">
+        <p>Rally FVG uses <code>bar3.low > bar1.high</code>. Drop FVG uses <code>bar3.high < bar1.low</code>. The engine then checks <code>min_gap_size</code>.</p>
+      </div>
+    </details>
+
+    $$\text{CE02}_{rally}: low_3 > high_1$$
+    $$\text{CE02}_{drop}: high_3 < low_1$$
+
+    <pre class="block">rally gap:
+  gapTop    = bar3.low
+  gapBottom = bar1.high
+
+drop gap:
+  gapTop    = bar1.low
+  gapBottom = bar3.high</pre>
+
+    <div class="rule-block">CE02 is independent of CE01. A confirmed FVG can appear even when bar 2 did not qualify as expansion.</div>
+
+    <h2 id="algo"><span class="sec-num">04</span> Algorithm</h2>
+    <p>The implementation lives in <code>ultrab/src/ultrab/core/smc/candleEvent.py</code>. A sliding three-bar window emits CE02 first, then CE01, so one incoming bar can close a confirmation story and begin a new expansion story.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">on_bar loop</button>
+        <button data-t="1">CE01 method</button>
+        <button data-t="2">CE02 method</button>
+        <button data-t="3">Payload</button>
+      </div>
+<pre class="on"><span class="cm"># FvgEventEngine.on_bar()</span>
+def on_bar(self, row: pd.Series) -> list[FvgEvent]:
+    self._bar_index += 1
+    current = _BarSnapshot(...)
+    emitted: list[FvgEvent] = []
+
+    <span class="cm"># CE02 first: current bar is bar 3</span>
+    if self._bar1_ref is not None and self._prev is not None:
+        ce02 = self._try_confirm(self._bar1_ref, self._prev, current)
+        if ce02 is not None:
+            emitted.append(ce02)
+
+    <span class="cm"># CE01 second: current bar is bar 2</span>
+    if self._prev is not None:
+        ce01 = self._try_expansion(self._prev, ts, open_, high, low, close)
+        if ce01 is not None:
+            emitted.append(ce01)
+
+    self._bar1_ref = self._prev
+    self._prev = current
+    return emitted</pre>
+<pre><span class="cm"># FvgEventEngine._try_expansion()</span>
+if bar2_close > bar1.high:
+    fvg_type = <span class="hl">"rally"</span>
+elif bar2_close < bar1.low:
+    fvg_type = <span class="hl">"drop"</span>
+else:
+    return None
+
+sub_type = _classify_sub_type(
+    fvg_type, bar1.high, bar1.low,
+    bar2_open, bar2_high, bar2_low
+)
+
+return FvgEvent(
+    event_code=<span class="hl">"CE01"</span>,
+    event_timestamp=bar2_ts,
+    bar2_timestamp=bar2_ts,
+    sub_type=sub_type,
+    source_bar_indexes=[bar1.index, self._bar_index],
+)</pre>
+<pre><span class="cm"># FvgEventEngine._try_confirm()</span>
+if bar3.low > bar1.high:
+    fvg_type = <span class="hl">"rally"</span>
+    gap_top = bar3.low
+    gap_bottom = bar1.high
+elif bar3.high < bar1.low:
+    fvg_type = <span class="hl">"drop"</span>
+    gap_top = bar1.low
+    gap_bottom = bar3.high
+else:
+    return None
+
+gap_size = gap_top - gap_bottom
+if gap_size < self.min_gap_size:
+    return None
+
+return FvgEvent(
+    event_code=<span class="hl">"CE02"</span>,
+    event_timestamp=bar3.timestamp,
+    bar2_timestamp=bar2.timestamp,
+    pivot_timestamp=bar2.timestamp,
+    gap_top=gap_top,
+    gap_bottom=gap_bottom,
+    gap_size=gap_size,
+)</pre>
+<pre><span class="cm"># FvgEvent.to_dict()</span>
+payload = {
+  <span class="hl">"eventId"</span>: self.event_id,
+  "eventCode": self.event_code,
+  "eventGroup": "CE",
+  "timeframe": self.timeframe,
+  "tier": None,
+  "side": self.side,
+  "direction": self.direction,
+  <span class="hl">"eventTimestamp"</span>: self.event_timestamp,
+  <span class="hl">"causalAvailableAt"</span>: self.causal_available_at,
+  <span class="hl">"anchorTimestamp"</span>: self.anchor_timestamp,
+  "sourceBarIndexes": list(self.source_bar_indexes),
+  "sourceCandleRefs": list(self.source_candle_refs),
+  "type": self.fvg_type,
+}</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">05</span> Config</h2>
+    <p>The current runtime exposes only a small CE config surface. The event definition stays broad; tuning weak FVGs is deferred until replay evidence justifies tightening.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">__init__</button>
+      </div>
+<pre class="on"><span class="cm"># ultrab/src/ultrab/replayer/config.yaml</span>
+candlestick_events:
+  enabled: <span class="hl">true</span>
+  min_gap_size: <span class="hl">0</span>
+  display:
+    event_log: <span class="hl">true</span>
+    chart_markers: false</pre>
+<pre><span class="cm"># FvgEventEngine.__init__()</span>
+def __init__(self, config: dict[str, Any] | None = None) -> None:
+    cfg = config or {}
+    self.min_gap_size = float(cfg.get(<span class="hl">"min_gap_size"</span>, 0.0))
+    self.timeframe = cfg.get(<span class="hl">"timeframe"</span>)
+    self._bar_index = -1
+    self._prev = None
+    self._bar1_ref = None</pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">06</span> Open Issues</h2>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p>CE02 can fire without CE01 when bar 2 is inside/doji but bar 3 preserves a real imbalance. This is intended.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p>FVG mitigation, quality scoring, and higher-timeframe context remain Layer 3 work, not Layer 2 work.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p>If weak FVGs are noisy, first tune <code>min_gap_size</code>; only then consider impulse filters such as ATR or relative body size.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p>Use these CE records as inputs to Layer 3 semantic lifecycle normalization for S/D zones and Evidence Compiler candidates.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Contract Cleanup</div>
+        <p>The active CE emitter uses the canonical event-stream envelope, but replay/UI adapters still carry legacy aliases such as <code>tf</code>, <code>event_code</code>, <code>decision_ts</code>, and <code>anchor_ts</code>. Keep them only as compatibility fields until the frontend consumes canonical names directly.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks = document.querySelectorAll("nav a[href^='#']");
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

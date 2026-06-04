@@ -8,6 +8,8 @@
       type="text/javascript"
       src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"
     ></script>
+    <link rel="stylesheet" href="/vendor/flatpickr/flatpickr.min.css">
+    <script src="/vendor/flatpickr/flatpickr.min.js"></script>
     <style>
       :root {
         color-scheme: dark;
@@ -58,9 +60,199 @@
         padding: 8px 10px;
         min-width: 220px;
       }
+      .mode-field {
+        position: relative;
+        min-width: 46px;
+      }
+      .mode-select-hidden {
+        display: none;
+      }
+      .mode-picker {
+        position: relative;
+        width: 38px;
+      }
+      .mode-trigger,
+      .mode-option {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 38px;
+        height: 38px;
+        padding: 0;
+        background: #171b2c;
+      }
+      .mode-option {
+        border-radius: 0;
+      }
+      .mode-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        z-index: 50;
+        display: none;
+        flex-direction: column;
+        overflow: hidden;
+        background: #171b2c;
+        border: 1px solid #2c334a;
+        border-radius: 6px;
+        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.36);
+      }
+      .mode-picker.is-open .mode-menu {
+        display: flex;
+      }
+      .mode-menu .mode-option:first-child {
+        border-radius: 6px 6px 0 0;
+      }
+      .mode-menu .mode-option:last-child {
+        border-radius: 0 0 6px 6px;
+      }
+      .mode-menu .mode-option + .mode-option {
+        border-top: 1px solid #2c334a;
+      }
+      .mode-trigger:hover,
+      .mode-option:hover {
+        background: #202942;
+      }
+      .mode-trigger img,
+      .mode-option img {
+        width: 19px;
+        height: 19px;
+        display: block;
+        filter: brightness(0) saturate(100%) invert(80%) sepia(11%) saturate(413%) hue-rotate(185deg) brightness(97%) contrast(90%);
+      }
+      .mode-option.is-active {
+        background: #263754;
+        border-color: #4f6f9f;
+      }
+      .mode-option.is-active img {
+        filter: brightness(0) saturate(100%) invert(90%) sepia(11%) saturate(825%) hue-rotate(122deg) brightness(99%) contrast(94%);
+      }
+      #startTime {
+        cursor: pointer;
+      }
+      .flatpickr-calendar.replay-picker {
+        background: #171b2c;
+        border: 1px solid #35405c;
+        border-radius: 6px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.03);
+        color: #e7eaf3;
+        font-family: Inter, Arial, sans-serif;
+      }
+      .flatpickr-calendar.replay-picker::before {
+        border-bottom-color: #35405c;
+        border-top-color: #35405c;
+      }
+      .flatpickr-calendar.replay-picker::after {
+        border-bottom-color: #171b2c;
+        border-top-color: #171b2c;
+      }
+      .replay-picker .flatpickr-months,
+      .replay-picker .flatpickr-weekdays,
+      .replay-picker .flatpickr-time {
+        background: #171b2c;
+      }
+      .replay-picker .flatpickr-months .flatpickr-month,
+      .replay-picker .flatpickr-current-month,
+      .replay-picker .flatpickr-current-month input.cur-year,
+      .replay-picker .flatpickr-weekday,
+      .replay-picker .flatpickr-time input,
+      .replay-picker .flatpickr-time .flatpickr-time-separator {
+        color: #e7eaf3;
+        fill: #e7eaf3;
+      }
+      .replay-picker .flatpickr-monthDropdown-months,
+      .replay-picker .flatpickr-current-month input.cur-year,
+      .replay-picker .flatpickr-time input {
+        background: transparent;
+      }
+      .replay-picker .flatpickr-monthDropdown-month {
+        background: #171b2c;
+        color: #e7eaf3;
+      }
+      .replay-picker .flatpickr-prev-month,
+      .replay-picker .flatpickr-next-month {
+        color: #c3cade;
+        fill: #c3cade;
+      }
+      .replay-picker .flatpickr-prev-month:hover,
+      .replay-picker .flatpickr-next-month:hover {
+        color: #64d8cb;
+        fill: #64d8cb;
+      }
+      .replay-picker .flatpickr-day {
+        color: #d8deee;
+        border-radius: 50%;
+      }
+      .replay-picker .flatpickr-day:hover,
+      .replay-picker .flatpickr-day:focus {
+        background: rgba(100, 216, 203, 0.14);
+        border-color: rgba(100, 216, 203, 0.42);
+        color: #f6f8ff;
+      }
+      .replay-picker .flatpickr-day.today {
+        border-color: #64d8cb;
+      }
+      .replay-picker .flatpickr-day.selected,
+      .replay-picker .flatpickr-day.startRange,
+      .replay-picker .flatpickr-day.endRange {
+        background: #26a69a;
+        border-color: #26a69a;
+        color: #071412;
+        font-weight: 700;
+      }
+      .replay-picker .flatpickr-day.prevMonthDay,
+      .replay-picker .flatpickr-day.nextMonthDay {
+        color: #687089;
+      }
+      .replay-picker .flatpickr-day.flatpickr-disabled,
+      .replay-picker .flatpickr-day.flatpickr-disabled:hover {
+        color: #495068;
+        background: transparent;
+        border-color: transparent;
+        cursor: not-allowed;
+      }
+      .replay-picker.hasTime .flatpickr-time {
+        border-top: 1px solid #2c334a;
+      }
+      .replay-picker .flatpickr-time input:hover,
+      .replay-picker .flatpickr-time input:focus {
+        background: rgba(100, 216, 203, 0.12);
+      }
+      .replay-picker .numInputWrapper span.arrowUp::after {
+        border-bottom-color: #a8b0c3;
+      }
+      .replay-picker .numInputWrapper span.arrowDown::after {
+        border-top-color: #a8b0c3;
+      }
       .buttons {
         display: flex;
         gap: 8px;
+        align-items: end;
+      }
+      .speed-field {
+        min-width: 148px;
+      }
+      .speed-inline {
+        display: grid;
+        grid-template-columns: auto minmax(82px, 1fr) auto;
+        align-items: center;
+        gap: 8px;
+        height: 38px;
+        min-width: 150px;
+        font-size: 12px;
+      }
+      .speed-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .speed-value {
+        color: #e7eaf3;
+        font-weight: 700;
+      }
+      .speed-slider {
+        width: 100%;
+        accent-color: #26a69a;
       }
       button {
         background: #1f2840;
@@ -255,6 +447,52 @@
       }
       .ctx-zone-state.watching { background: rgba(255,255,255,0.07); color: #a8b0c3; }
       .ctx-zone-state.tapped   { background: rgba(255,193,7,0.15);   color: #ffc107; }
+      .ctx-liquidity-item {
+        padding: 7px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+        font-size: 12px;
+      }
+      .ctx-liquidity-item:last-child { border-bottom: 0; }
+      .ctx-liquidity-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 3px;
+      }
+      .ctx-liquidity-side {
+        font-weight: 700;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .ctx-liquidity-side.buy_side { color: #ef9a9a; }
+      .ctx-liquidity-side.sell_side { color: #a5d6a7; }
+      .ctx-liquidity-state {
+        font-size: 10px;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: rgba(255,255,255,0.07);
+        color: #a8b0c3;
+      }
+      .ctx-liquidity-state.wick_swept,
+      .ctx-liquidity-state.close_run,
+      .ctx-liquidity-state.reclaimed,
+      .ctx-liquidity-state.liquidity_grab_confirmed,
+      .ctx-liquidity-state.sweep_reclaim_confirmed {
+        background: rgba(255,193,7,0.15);
+        color: #ffe082;
+      }
+      .ctx-liquidity-detail {
+        color: #a8b0c3;
+        font-variant-numeric: tabular-nums;
+      }
+      .ctx-liquidity-dist {
+        color: #7f889f;
+        font-size: 11px;
+      }
       /* structure bias / phase badges */
       .str-bias {
         font-weight: 700; font-size: 11px; letter-spacing: 0.06em;
@@ -303,7 +541,7 @@
         background: rgba(255,255,255,0.05); color: #a8b0c3;
         font-family: monospace;
       }
-      .str-sc.choach { background: rgba(255,167,38,0.15); color: #ffa726; }
+      .str-sc.choch { background: rgba(255,167,38,0.15); color: #ffa726; }
       .ctx-zone-detail {
         color: #a8b0c3;
         font-variant-numeric: tabular-nums;
@@ -459,12 +697,25 @@
         <div class="title">SystemC Replay Boilerplate</div>
       </div>
       <div class="controls">
-        <div class="field">
+        <div class="field mode-field">
           <label for="modeSelect">Mode</label>
-          <select id="modeSelect">
+          <select id="modeSelect" class="mode-select-hidden" aria-label="Mode">
             <option value="single">Single</option>
             <option value="dual">Dual</option>
           </select>
+          <div id="modePicker" class="mode-picker">
+            <button id="modeTrigger" class="mode-trigger" type="button" title="Dual mode" aria-label="Mode: Dual" aria-expanded="false">
+              <img id="currentModeIcon" src="/icons/dual-mode.svg" alt="">
+            </button>
+            <div id="modeMenu" class="mode-menu" role="menu" aria-label="Mode">
+              <button id="singleModeBtn" class="mode-option" type="button" title="Single mode" aria-label="Single mode" role="menuitemradio" data-mode-value="single">
+                <img src="/icons/single-mode.svg" alt="">
+              </button>
+              <button id="dualModeBtn" class="mode-option" type="button" title="Dual mode" aria-label="Dual mode" role="menuitemradio" data-mode-value="dual">
+                <img src="/icons/dual-mode.svg" alt="">
+              </button>
+            </div>
+          </div>
         </div>
         <div class="field">
           <label for="symbolSelect">Symbol</label>
@@ -480,7 +731,7 @@
         </div>
         <div class="field">
           <label for="startTime">Cursor start time (UTC)</label>
-          <input id="startTime" type="datetime-local">
+          <input id="startTime" type="text" inputmode="none" autocomplete="off">
         </div>
         <div class="buttons">
           <button id="fetchBtn" class="icon-btn" type="button" title="Fetch" aria-label="Fetch">
@@ -492,7 +743,12 @@
           <button id="playPauseBtn" class="icon-btn" type="button" title="Play" aria-label="Play" disabled>
             <img src="/icons/playpause.svg" alt="Play / Pause">
           </button>
-          <button id="resetBtn" class="icon-btn" type="button" title="Replay" aria-label="Replay" disabled>
+          <div class="speed-field speed-inline">
+            <label for="playSpeed">Speed</label>
+            <input id="playSpeed" class="speed-slider" type="range" min="1" max="4" step="1" value="1">
+            <span id="playSpeedValue" class="speed-value">x1</span>
+          </div>
+          <button id="resetBtn" class="icon-btn is-hidden" type="button" title="Replay" aria-label="Replay" disabled>
             <img src="/icons/replay.svg" alt="Replay">
           </button>
         </div>
@@ -542,7 +798,7 @@
             <div id="ctxSnapshot" class="ctx-empty">— no data —</div>
           </div>
           <div class="ctx-section-col">
-            <div class="ctx-section-col-title">Levels</div>
+            <div class="ctx-section-col-title">Liquidity</div>
             <div id="ctxLevels" class="ctx-empty">— no data —</div>
           </div>
           <div class="ctx-section-col">
@@ -578,6 +834,9 @@
       let stepHoldDelayTimer = null;
       let stepHoldRepeatTimer = null;
       let suppressStepClick = false;
+      let playbackSpeed = 1;
+      const PLAY_INTERVAL_MS = 500;
+      const STEP_HOLD_INTERVAL_MS = 180;
       let chartInitialVisibleBars = {{ chart_meta.initial_visible_bars|tojson }};
       let chartPaddingBars = {{ chart_meta.chart_padding_bars|tojson }};
       let chartMarkerConfig = {{ chart_meta.chart_markers|tojson }};
@@ -586,6 +845,7 @@
       let dualComboConfig = {{ chart_meta.dual_combos|tojson }};
       let barColors = {{ chart_meta.bar_colors|tojson }};
       let structurePdLinesConfig = {{ chart_meta.structure_pd_lines|tojson }};
+      let startTimePicker = null;
 
       function _hexOpacity(hex, opacity) {
         if (!hex) return hex;
@@ -762,6 +1022,140 @@
       function fromDatetimeLocal(value) {
         if (!value) return null;
         return `${value}:00Z`;
+      }
+
+      function timeframeMinutes(timeframe) {
+        const match = String(timeframe || "").trim().toLowerCase().match(/^(\d+)(m|h|d)$/);
+        if (!match) return 1;
+        const amount = Number.parseInt(match[1], 10);
+        const unit = match[2];
+        if (!Number.isFinite(amount) || amount <= 0) return 1;
+        if (unit === "m") return amount;
+        if (unit === "h") return amount * 60;
+        if (unit === "d") return amount * 24 * 60;
+        return 1;
+      }
+
+      function activeStartTimeframe() {
+        const mode = document.getElementById("modeSelect").value;
+        if (mode === "dual") {
+          const comboKey = document.getElementById("dualComboSelect").value;
+          const combo = (dualComboConfig || {})[comboKey] || {};
+          return combo.lower_tf || "1m";
+        }
+        return document.getElementById("timeframeSelect").value || "1m";
+      }
+
+      function updateModeButtons(modeValue) {
+        const modeLabels = {
+          single: "Single mode",
+          dual: "Dual mode",
+        };
+        const modeIcons = {
+          single: "/icons/single-mode.svg",
+          dual: "/icons/dual-mode.svg",
+        };
+        const label = modeLabels[modeValue] || "Mode";
+        const icon = modeIcons[modeValue] || modeIcons.dual;
+        const trigger = document.getElementById("modeTrigger");
+        const currentIcon = document.getElementById("currentModeIcon");
+        trigger.title = label;
+        trigger.setAttribute("aria-label", `Mode: ${label.replace(" mode", "")}`);
+        currentIcon.src = icon;
+        document.querySelectorAll("[data-mode-value]").forEach((button) => {
+          const active = button.dataset.modeValue === modeValue;
+          button.classList.toggle("is-active", active);
+          button.setAttribute("aria-pressed", active ? "true" : "false");
+          button.setAttribute("aria-checked", active ? "true" : "false");
+        });
+      }
+
+      function setModeValue(modeValue) {
+        const select = document.getElementById("modeSelect");
+        select.value = modeValue;
+        updateModeUi(modeValue);
+        closeModeMenu();
+      }
+
+      function openModeMenu() {
+        document.getElementById("modePicker").classList.add("is-open");
+        document.getElementById("modeTrigger").setAttribute("aria-expanded", "true");
+      }
+
+      function closeModeMenu() {
+        document.getElementById("modePicker").classList.remove("is-open");
+        document.getElementById("modeTrigger").setAttribute("aria-expanded", "false");
+      }
+
+      function toggleModeMenu() {
+        const picker = document.getElementById("modePicker");
+        if (picker.classList.contains("is-open")) {
+          closeModeMenu();
+          return;
+        }
+        openModeMenu();
+      }
+
+      function updateStartTimeStep() {
+        const timeframeStepMinutes = timeframeMinutes(activeStartTimeframe());
+        const minuteIncrement = Math.max(1, Math.min(60, timeframeStepMinutes));
+        const hourIncrement = timeframeStepMinutes >= 60 ? Math.max(1, Math.floor(timeframeStepMinutes / 60)) : 1;
+        const input = document.getElementById("startTime");
+        input.step = String(timeframeStepMinutes * 60);
+        if (startTimePicker) {
+          startTimePicker.set("minuteIncrement", minuteIncrement);
+          startTimePicker.set("hourIncrement", hourIncrement);
+          if (startTimePicker.minuteElement) {
+            startTimePicker.minuteElement.step = String(minuteIncrement);
+          }
+          if (startTimePicker.hourElement) {
+            startTimePicker.hourElement.step = String(hourIncrement);
+          }
+        }
+      }
+
+      function setStartTimeValue(isoString) {
+        const value = toDatetimeLocal(isoString);
+        const input = document.getElementById("startTime");
+        if (startTimePicker) {
+          startTimePicker.setDate(value, false, "Y-m-d\\TH:i");
+        } else {
+          input.value = value;
+        }
+      }
+
+      function setStartTimeBounds(minIso, maxIso) {
+        const minValue = toDatetimeLocal(minIso);
+        const maxValue = toDatetimeLocal(maxIso);
+        const input = document.getElementById("startTime");
+        input.min = minValue;
+        input.max = maxValue;
+        if (startTimePicker) {
+          startTimePicker.set("minDate", minValue || null);
+          startTimePicker.set("maxDate", maxValue || null);
+        }
+      }
+
+      function getStartTimeIso() {
+        return fromDatetimeLocal(document.getElementById("startTime").value);
+      }
+
+      function initStartTimePicker() {
+        const input = document.getElementById("startTime");
+        if (!window.flatpickr || !input) return;
+        startTimePicker = flatpickr(input, {
+          allowInput: false,
+          appendTo: document.body,
+          dateFormat: "Y-m-d\\TH:i",
+          disableMobile: true,
+          enableTime: true,
+          minuteIncrement: 1,
+          time_24hr: true,
+          onReady: (_selectedDates, _dateStr, instance) => {
+            instance.calendarContainer.classList.add("replay-picker");
+          },
+        });
+        updateStartTimeStep();
       }
 
       function formatTimestamp(isoString) {
@@ -1042,6 +1436,149 @@
           return st.bias !== "neutral" ? ph("tracing…") : ph("—");
         };
         const structureTierHtml = (st) => st && st.tier ? st.tier.toUpperCase() : ph("—");
+        const safeText = (value) => String(value ?? "—")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll("\"", "&quot;")
+          .replaceAll("'", "&#039;");
+        const fmtPrice = (value) => {
+          if (value == null || value === "") return ph("—");
+          const n = Number(value);
+          return Number.isFinite(n) ? n.toFixed(prec) : safeText(value);
+        };
+        const fmtMaybeTime = (value) => value ? formatTimestamp(value) : "—";
+        const liquidityStateClass = (value) => String(value || "active").toLowerCase().replaceAll(" ", "_");
+        const liquiditySideClass = (value) => String(value || "unknown").toLowerCase().replaceAll(" ", "_");
+        const liquidityStatusLabel = (value) => safeText(String(value || "active").replaceAll("_", " "));
+
+        function renderLiquidityPanel() {
+          const liquidity = snapshot.liquidity || {};
+          const activePools = [
+            ...(Array.isArray(liquidity.active_htf_pd_pools) ? liquidity.active_htf_pd_pools : []),
+            ...(Array.isArray(liquidity.active_htf_eq_pools) ? liquidity.active_htf_eq_pools : []),
+            ...(Array.isArray(liquidity.active_htf_itr_pools) ? liquidity.active_htf_itr_pools : []),
+          ];
+          const events = Array.isArray(liquidity.events)
+            ? liquidity.events
+            : Array.isArray(liquidity.event_log)
+              ? liquidity.event_log
+              : Array.isArray(liquidity.htf_pd_events)
+                ? liquidity.htf_pd_events
+                : [];
+          const debug = hyp?.debug_facts || {};
+          const debugRows = Object.entries(debug)
+            .filter(([key, value]) => (
+              key.includes("liquidity")
+              || key.includes("sweep")
+              || key.includes("reclaim")
+              || key.includes("phase_d_trigger")
+              || key.includes("phase_d_selection_reason")
+            ) && value !== null && value !== undefined && value !== "")
+            .slice(0, 12);
+
+          const summaryRows = [
+            ["HTF P/D ready", liquidity.htf_pd_grab_reclaim_ready ?? liquidity.htf_pd_sweep_reclaim_ready],
+            ["side", liquidity.htf_pd_grab_reclaim_side ?? liquidity.htf_pd_sweep_reclaim_side],
+            ["direction", liquidity.htf_pd_grab_reclaim_direction ?? liquidity.htf_pd_sweep_reclaim_direction],
+            ["source", liquidity.htf_pd_grab_reclaim_source ?? liquidity.htf_pd_sweep_reclaim_source],
+            ["level", liquidity.htf_pd_grab_reclaim_level ?? liquidity.htf_pd_sweep_reclaim_level],
+            ["take", liquidity.htf_pd_grab_reclaim_take_type ?? liquidity.htf_pd_sweep_reclaim_take_type],
+            ["taken", liquidity.htf_pd_grab_reclaim_taken_at ?? liquidity.htf_pd_sweep_reclaim_taken_at],
+            ["reclaimed", liquidity.htf_pd_grab_reclaim_reclaimed_at ?? liquidity.htf_pd_sweep_reclaim_reclaimed_at],
+            ["confirmed", liquidity.htf_pd_grab_reclaim_confirmed_at ?? liquidity.htf_pd_sweep_reclaim_confirmed_at],
+            ["confirmed by", liquidity.htf_pd_grab_reclaim_confirmed_by ?? liquidity.htf_pd_sweep_reclaim_confirmed_by],
+            ["HTF EQ ready", liquidity.htf_eq_grab_reclaim_ready],
+            ["EQ side", liquidity.htf_eq_grab_reclaim_side],
+            ["EQ direction", liquidity.htf_eq_grab_reclaim_direction],
+            ["EQ source", liquidity.htf_eq_grab_reclaim_source],
+            ["EQ level", liquidity.htf_eq_grab_reclaim_level],
+            ["HTF ITR ready", liquidity.htf_itr_grab_reclaim_ready],
+            ["ITR variant", liquidity.htf_itr_grab_reclaim_variant],
+            ["ITR side", liquidity.htf_itr_grab_reclaim_side],
+            ["ITR direction", liquidity.htf_itr_grab_reclaim_direction],
+            ["ITR source", liquidity.htf_itr_grab_reclaim_source],
+            ["ITR level", liquidity.htf_itr_grab_reclaim_level],
+            ["ITR came from", liquidity.htf_itr_grab_reclaim_came_from],
+            ["ITR left to", liquidity.htf_itr_grab_reclaim_left_to],
+            ["ITR anchor run", liquidity.htf_itr_anchor_run_ready],
+            ["anchor variant", liquidity.htf_itr_anchor_run_variant],
+            ["anchor source", liquidity.htf_itr_anchor_run_source],
+            ["anchor level", liquidity.htf_itr_anchor_run_level],
+            ["anchor run at", liquidity.htf_itr_anchor_run_at],
+            ["almost touch", liquidity.htf_pd_almost_touch],
+            ["EQH/EQL", [
+              liquidity.htf_pd_boundary_eqh ? "EQH" : null,
+              liquidity.htf_pd_boundary_eql ? "EQL" : null,
+            ].filter(Boolean).join(" / ")],
+          ].filter(([, value]) => value !== null && value !== undefined && value !== "" && value !== false);
+
+          const summaryHtml = summaryRows.length
+            ? summaryRows.map(([label, value]) => {
+                const labelKey = String(label);
+                const display = String(label).includes("level")
+                  ? fmtPrice(value)
+                  : ["taken", "reclaimed", "confirmed"].includes(labelKey)
+                    ? safeText(fmtMaybeTime(value))
+                    : safeText(value);
+                return `<div class="ctx-row"><span class="ctx-label">${safeText(label)}</span><span class="ctx-value">${display}</span></div>`;
+              }).join("")
+            : "";
+
+          const poolsHtml = activePools.length
+            ? `
+              <div class="ctx-structure-heading"><span>HTF Liquidity Pools</span><span>${activePools.length}</span></div>
+              ${activePools.map((pool) => {
+                const side = pool.side || "unknown";
+                const status = pool.status || "active";
+                return `
+                  <div class="ctx-liquidity-item">
+                    <div class="ctx-liquidity-header">
+                      <span class="ctx-liquidity-side ${liquiditySideClass(side)}">${safeText(String(side).replaceAll("_", " "))}</span>
+                      ${pool.timeframe ? timeframeBadgeHtml(pool.timeframe) : ""}
+                      <span class="ctx-liquidity-state ${liquidityStateClass(status)}">${liquidityStatusLabel(status)}</span>
+                    </div>
+                    <div class="ctx-liquidity-detail">${safeText([pool.source || "pool", pool.variant, pool.scope].filter(Boolean).join(" · "))} · ${fmtPrice(pool.price)}</div>
+                    <div class="ctx-liquidity-dist">created ${safeText(fmtMaybeTime(pool.created_at))} · last ${safeText(fmtMaybeTime(pool.last_interaction_at))}</div>
+                  </div>`;
+              }).join("")}
+            `
+            : "";
+
+          const eventRows = events.length
+            ? `
+              <div class="ctx-structure-heading"><span>Liquidity Log</span><span>${events.length}</span></div>
+              ${[...events].slice(-20).reverse().map((event) => {
+                const eventType = event.event_type || event.type || event.status || "liquidity";
+                const side = event.side || liquidity.htf_pd_grab_reclaim_side || liquidity.htf_pd_sweep_reclaim_side || "unknown";
+                return `
+                  <div class="ctx-liquidity-item">
+                    <div class="ctx-liquidity-header">
+                      <span class="ctx-liquidity-side ${liquiditySideClass(side)}">${safeText(String(side).replaceAll("_", " "))}</span>
+                      <span class="ctx-liquidity-state ${liquidityStateClass(eventType)}">${liquidityStatusLabel(eventType)}</span>
+                    </div>
+                    <div class="ctx-liquidity-detail">${safeText([event.source || liquidity.htf_pd_grab_reclaim_source || liquidity.htf_pd_sweep_reclaim_source || "HTF liquidity", event.variant, event.scope].filter(Boolean).join(" · "))} · ${fmtPrice(event.level_price ?? event.price)}</div>
+                    <div class="ctx-liquidity-dist">${safeText(fmtMaybeTime(event.bar_time || event.timestamp || event.time))}</div>
+                  </div>`;
+              }).join("")}
+            `
+            : "";
+
+          const debugHtml = debugRows.length
+            ? `
+              <div class="ctx-structure-heading"><span>Hypothesis Hints</span><span>${debugRows.length}</span></div>
+              ${debugRows.map(([key, value]) => `
+                <div class="ctx-row">
+                  <span class="ctx-label">${safeText(key.replaceAll("_", " "))}</span>
+                  <span class="ctx-value">${safeText(Array.isArray(value) ? value.join(", ") : value)}</span>
+                </div>
+              `).join("")}
+            `
+            : "";
+
+          const html = [summaryHtml, poolsHtml, eventRows, debugHtml].filter(Boolean).join("");
+          document.getElementById("ctxLevels").innerHTML = html || `<div class="ctx-empty">— no liquidity facts yet —</div>`;
+        }
 
         // ── Snapshot ──────────────────────────────────────────────────
         const supply  = zones.filter((z) => z.direction === "supply");
@@ -1066,9 +1603,8 @@
           <div class="ctx-row"><span class="ctx-label">demand zones</span><span class="ctx-value">${demand.length} active · ${tappedD} tapped</span></div>
         `;
 
-        // ── Levels ────────────────────────────────────────────────────
-        document.getElementById("ctxLevels").innerHTML =
-          `<div class="ctx-empty">— not yet —</div>`;
+        // ── Liquidity ─────────────────────────────────────────────────
+        renderLiquidityPanel();
 
         // ── Hypothesis ────────────────────────────────────────────────
         if (!hyp) {
@@ -1083,6 +1619,10 @@
           const entryPolicy = `<span class="hyp-entry">${String(hyp.entry_policy || "wait").replaceAll("_", " ")}</span>`;
           const selectedPoi = hyp.poi_id || "—";
           const debug = hyp.debug_facts || {};
+          const subStatusRaw = hyp.phase_sub_status || debug.phase_sub_status || "";
+          const phaseDetail = subStatusRaw
+            ? `${String(hyp.phase || "none").toUpperCase()}.${String(subStatusRaw).replaceAll("_", " ")}`
+            : "—";
           const activeExtreme = debug.active_phase_e_extreme_price != null
             ? Number(debug.active_phase_e_extreme_price).toFixed(prec)
             : "—";
@@ -1093,6 +1633,7 @@
               : "none";
           document.getElementById("hypothesisPanel").innerHTML = `
             <div class="ctx-row"><span class="ctx-label">phase</span><span class="ctx-value">${phaseHtml}</span></div>
+            <div class="ctx-row"><span class="ctx-label">subphase</span><span class="ctx-value">${phaseDetail}</span></div>
             <div class="ctx-row"><span class="ctx-label">status</span><span class="ctx-value">${statusHtml}</span></div>
             <div class="ctx-row"><span class="ctx-label">direction</span><span class="ctx-value">${direction}</span></div>
             <div class="ctx-row"><span class="ctx-label">selected POI</span><span class="ctx-value">${selectedPoi}</span></div>
@@ -1147,9 +1688,9 @@
           let scHtml = ph("none");
           if (st.last_sc) {
             const sc = st.last_sc;
-            const scClass = sc.choach ? "choach" : "";
-            const choachTag = sc.choach ? ` <span style="color:#ffa726;font-size:10px">ChoCh</span>` : "";
-            scHtml = `<span class="str-sc ${scClass}">${sc.eventCode}</span>${choachTag}`;
+            const scClass = sc.choch ? "choch" : "";
+            const chochTag = sc.choch ? ` <span style="color:#ffa726;font-size:10px">ChoCh</span>` : "";
+            scHtml = `<span class="str-sc ${scClass}">${sc.eventCode}</span>${chochTag}`;
           }
 
           return `
@@ -1711,8 +2252,7 @@
         const button = document.getElementById("copyContextBtn");
         const sections = [
           { label: "Snapshot",  id: "ctxSnapshot"  },
-          { label: "Hypothesis", id: "hypothesisPanel" },
-          { label: "Levels",    id: "ctxLevels"    },
+          { label: "Liquidity", id: "ctxLevels"    },
           { label: "Zones",     id: "ctxZones"     },
           { label: "Structure", id: "ctxStructure" },
         ];
@@ -1750,6 +2290,27 @@
         button.setAttribute("aria-label", label);
       }
 
+      function playbackIntervalMs() {
+        return Math.max(80, Math.round(PLAY_INTERVAL_MS / playbackSpeed));
+      }
+
+      function stepHoldIntervalMs() {
+        return Math.max(40, Math.round(STEP_HOLD_INTERVAL_MS / playbackSpeed));
+      }
+
+      function updatePlaybackSpeed(value) {
+        playbackSpeed = Math.min(4, Math.max(1, Number.parseInt(value, 10) || 1));
+        document.getElementById("playSpeedValue").textContent = `x${playbackSpeed}`;
+        if (playTimer) {
+          stopPlay();
+          startPlay();
+        }
+        if (stepHoldRepeatTimer) {
+          clearInterval(stepHoldRepeatTimer);
+          stepHoldRepeatTimer = setInterval(stepOnce, stepHoldIntervalMs());
+        }
+      }
+
       function fillSymbolSelector(payload) {
         symbolPayload = payload;
         const select = document.getElementById("symbolSelect");
@@ -1775,6 +2336,7 @@
           option.selected = optionData.value === selectedValue;
           select.appendChild(option);
         }
+        updateStartTimeStep();
       }
 
       function fillDualComboSelector(combos, selectedValue) {
@@ -1787,13 +2349,16 @@
           option.selected = key === selectedValue;
           select.appendChild(option);
         }
+        updateStartTimeStep();
       }
 
       function updateModeUi(modeValue) {
         const isDual = modeValue === "dual";
+        updateModeButtons(modeValue);
         document.getElementById("dualComboField").classList.toggle("is-hidden", !isDual);
         document.getElementById("timeframeField").classList.toggle("is-hidden", isDual);
         document.getElementById("timeframeSelect").disabled = isDual;
+        updateStartTimeStep();
       }
 
       function setChartMode(modeValue, labels = {}) {
@@ -1878,20 +2443,18 @@
         bootPayload = await barsResponse.json();
         const symbolsPayload = await symbolsResponse.json();
         const bootMode = symbolsPayload.default_mode || defaultMode;
-        document.getElementById("modeSelect").value = bootMode;
         fillSymbolSelector(symbolsPayload);
         fillTimeframeSelector(symbolsPayload.timeframes || [], symbolsPayload.default_timeframe);
         fillDualComboSelector(symbolsPayload.dual_combos || dualComboConfig, symbolsPayload.default_dual_combo || defaultDualCombo);
-        updateModeUi(bootMode);
-        document.getElementById("startTime").value = toDatetimeLocal(bootPayload.window_start_time);
-        document.getElementById("startTime").min = toDatetimeLocal(bootPayload.data_start_time);
-        document.getElementById("startTime").max = toDatetimeLocal(bootPayload.data_end_time);
-
+        setModeValue(bootMode);
         if (bootMode === "dual") {
           setStatus("loading default dual replay session...");
           await createSession();
           return;
         }
+
+        setStartTimeValue(bootPayload.default_start_time || bootPayload.window_start_time);
+        setStartTimeBounds(bootPayload.data_start_time, bootPayload.data_end_time);
 
         setChartMode("single", { symbol: bootPayload.symbol, timeframe: bootPayload.timeframe });
         renderChartPane("top", bootPayload.bars, { preserveViewport: false, timeframe: bootPayload.timeframe });
@@ -1906,7 +2469,7 @@
 
       async function createSession() {
         const mode = document.getElementById("modeSelect").value;
-        const startTime = fromDatetimeLocal(document.getElementById("startTime").value);
+        const startTime = mode === "dual" && !replaySessionId ? null : getStartTimeIso();
         const symbol = document.getElementById("symbolSelect").value;
         const timeframe = document.getElementById("timeframeSelect").value;
         const dualCombo = document.getElementById("dualComboSelect").value;
@@ -1917,8 +2480,8 @@
         });
         const payload = await response.json();
         replaySessionId = payload.metadata.session_id;
-        document.getElementById("startTime").min = toDatetimeLocal(payload.metadata.data_start_time);
-        document.getElementById("startTime").max = toDatetimeLocal(payload.metadata.data_end_time);
+        setStartTimeValue(payload.metadata.default_start_time);
+        setStartTimeBounds(payload.metadata.data_start_time, payload.metadata.data_end_time);
         applySnapshot(payload.snapshot, { preserveViewport: false });
         setReplayButtons(true);
         updatePlayPauseButton();
@@ -1967,7 +2530,7 @@
           stepOnce();
           stepHoldDelayTimer = setTimeout(() => {
             stepHoldDelayTimer = null;
-            stepHoldRepeatTimer = setInterval(stepOnce, 180);
+            stepHoldRepeatTimer = setInterval(stepOnce, stepHoldIntervalMs());
           }, 320);
         });
 
@@ -1991,7 +2554,7 @@
 
       function startPlay() {
         if (!replaySessionId || playTimer) return;
-        playTimer = setInterval(stepOnce, 500);
+        playTimer = setInterval(stepOnce, playbackIntervalMs());
         updatePlayPauseButton();
       }
 
@@ -2049,6 +2612,31 @@
       document.getElementById("modeSelect").addEventListener("change", (event) => {
         updateModeUi(event.target.value);
       });
+      document.getElementById("modeTrigger").addEventListener("click", (event) => {
+        event.stopPropagation();
+        toggleModeMenu();
+      });
+      document.querySelectorAll("[data-mode-value]").forEach((button) => {
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          setModeValue(button.dataset.modeValue);
+        });
+      });
+      document.addEventListener("click", (event) => {
+        if (!document.getElementById("modePicker").contains(event.target)) {
+          closeModeMenu();
+        }
+      });
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          closeModeMenu();
+        }
+      });
+      document.getElementById("timeframeSelect").addEventListener("change", updateStartTimeStep);
+      document.getElementById("dualComboSelect").addEventListener("change", updateStartTimeStep);
+      document.getElementById("playSpeed").addEventListener("input", (event) => {
+        updatePlaybackSpeed(event.target.value);
+      });
       document.getElementById("stepBtn").addEventListener("click", (event) => {
         if (suppressStepClick) {
           event.preventDefault();
@@ -2074,7 +2662,9 @@
         await rewindToPickedBar("bottom");
       });
 
+      initStartTimePicker();
       loadBootstrap();
+      updatePlaybackSpeed(document.getElementById("playSpeed").value);
       updatePlayPauseButton();
     </script>
   </body>

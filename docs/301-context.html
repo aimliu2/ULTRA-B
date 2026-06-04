@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- source: ultrab/ln-notes/3context/301-Context.md + ultrab/ln-notes/3context/SMC/ -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Layer 3 — SMC Context</title>
+
+  <!-- Local Mermaid — no CDN. -->
+  <script src="../assets/mermaid.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Sepia design tokens ─────────────────────────────────────────────── */
+    :root {
+      --bg:        #FAF9F5;
+      --surface:   #ffffff;
+      --border:    #D1CFC5;
+      --accent:    #D97757;
+      --accent2:   #788C5D;
+      --text:      #3D3D3A;
+      --text-dim:  #87867F;
+      --text-head: #141413;
+      --tag-bg:    #E3DACC;
+      --tag-text:  #3D3D3A;
+      --panel-w:   clamp(440px, 33.333vw, 640px);
+    }
+
+    body {
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 18px 32px 14px;
+      border-bottom: 1.5px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-head);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    .epigraph {
+      padding: 12px 32px;
+      background: #F0EEE6;
+      border-bottom: 1.5px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      font-style: italic;
+      flex-shrink: 0;
+    }
+    .epigraph span { display: block; }
+
+    .layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .layout-single { flex-direction: row; }
+
+    /* ── Diagram canvas ──────────────────────────────────────────────────── */
+    .diagram-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, #C8C4BA 1px, transparent 1px);
+      background-size: 28px 28px;
+      min-width: 0;
+    }
+    .diagram-wrap.panning { cursor: grabbing; }
+
+    /* SVG fills the wrap after Mermaid renders */
+    .diagram-wrap .mermaid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .diagram-wrap .mermaid svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pan-reset {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pan-reset:hover { color: var(--text-head); border-color: var(--accent); }
+
+    .pan-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      font-size: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    .mermaid .node rect,
+    .mermaid .node polygon,
+    .mermaid .node circle,
+    .mermaid .node ellipse {
+      cursor: pointer;
+      transition: stroke 0.15s ease;
+    }
+    .mermaid .node:hover rect,
+    .mermaid .node:hover polygon {
+      stroke: var(--accent) !important;
+    }
+    .mermaid .edgePath.dashed path {
+      stroke-dasharray: 6 4;
+      stroke: #B8B4AA;
+    }
+
+    /* ── Side panel ──────────────────────────────────────────────────────── */
+    .side-panel {
+      width: var(--panel-w);
+      min-width: var(--panel-w);
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 20px 22px 16px;
+      border-bottom: 1.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-header .node-num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #C8C4BA;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      line-height: 1;
+      margin-right: 8px;
+    }
+    .panel-header .layer-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 2px 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      vertical-align: middle;
+    }
+    .panel-header .node-num-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-head);
+      line-height: 1.4;
+    }
+    .panel-header .meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 28px;
+    }
+
+    .panel-body p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      margin-top: 12px;
+    }
+    .panel-body p:first-child { margin-top: 0; }
+    .panel-body strong { color: var(--text-head); font-weight: 600; }
+
+    .panel-body ul {
+      margin-top: 10px;
+      padding-left: 16px;
+    }
+    .panel-body ul li {
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--text);
+      margin-top: 5px;
+    }
+
+    .panel-body .rule-block {
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: #F0EEE6;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.7;
+      font-style: italic;
+    }
+
+    .panel-body .code-block {
+      margin-top: 12px;
+      background: #F0EEE6;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .panel-body .panel-link {
+      display: inline-block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      border-bottom: 1px solid transparent;
+    }
+    .panel-body .panel-link:hover { border-bottom-color: var(--accent); }
+
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+      font-style: italic;
+    }
+    .panel-empty .arrow-hint { font-size: 22px; opacity: 0.25; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Layer 3 — SMC Context</h1>
+  <p>Click any node to read the layer contract. Sources: 301-Context.md · 310-314 SMC notes.</p>
+</header>
+
+<div class="epigraph">
+  <span>"If it requires remembering a prior confirmed level, zone, liquidity pool, or structure attempt to compute, it belongs here, not in Layer 2."</span>
+  <span>"What fires looks like an event. What enables the firing requires memory."</span>
+</div>
+
+<div class="layout layout-single">
+
+  <!-- ── DIAGRAM ─────────────────────────────────────────────────────────── -->
+  <div class="diagram-wrap" id="wrap-1">
+    <div class="mermaid">
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":"#E3DACC",
+  "primaryTextColor":"#141413",
+  "primaryBorderColor":"#C8C4BA",
+  "lineColor":"#87867F",
+  "secondaryColor":"#F0EEE6",
+  "tertiaryColor":"#FAF9F5",
+  "edgeLabelBackground":"#FAF9F5",
+  "fontFamily":"ui-serif, Georgia, serif"
+}}}%%
+flowchart TD
+    R["01 · Layer 1 Runtime Cursor<br/>current bar envelope"]
+    A["02 · Layer 2 Event Records<br/>canonical CE / PE"]
+
+    subgraph layer3_context["layer3-context"]
+        B["03 · State Store"]
+        C["04 · Detector"]
+        D["05 · Structure Context"]
+        E["06 · S/D Zone Context"]
+        F["07 · Liquidity Context"]
+        O["08 · Orderflow Context"]
+        G["09 · Snapshot Normalizer"]
+        H["10 · Fusion"]
+        I["11 · Evidence Compiler"]
+    end
+
+    J["12 · Layer 4"]
+
+    R -->|"cursor bar + fixed lookback"| A
+    R -->|"cursor heartbeat / current bar envelope"| B
+    A -->|"canonical CE / PE records"| B
+    B -->|"read active objects"| C
+    B -->|"anchors / ITR source policy"| O
+    C -->|"structure checks"| D
+    C -->|"zone checks"| E
+    C -->|"liquidity checks"| F
+    C -->|"orderflow checks"| O
+    D -->|"write SC / range / anchor sequence"| B
+    E -->|"write zone lifecycle state"| B
+    F -->|"write pool lifecycle state"| B
+    O -->|"write orderflow state"| B
+    B -->|"updated semantic object state"| G
+    G -->|"ContextSnapshot"| H
+    H -->|"fused snapshot"| I
+    H -->|"display fields · POI check"| J
+    I -->|"evidence candidates"| J
+
+    click R nodeClick
+    click A nodeClick
+    click B nodeClick
+    click C nodeClick
+    click D nodeClick
+    click E nodeClick
+    click F nodeClick
+    click O nodeClick
+    click G nodeClick
+    click H nodeClick
+    click I nodeClick
+    click J nodeClick
+    </div>
+    <button class="pan-reset" data-wrap="wrap-1">reset</button>
+    <div class="pan-hint">scroll to zoom · drag to pan</div>
+  </div>
+
+  <!-- ── PANEL ──────────────────────────────────────────────────────────── -->
+  <aside class="side-panel" id="panel-1">
+    <div class="panel-header" id="panel-1-header" style="display:none"></div>
+    <div class="panel-body"   id="panel-1-body"></div>
+    <div class="panel-empty"  id="panel-1-empty">
+      <div class="arrow-hint">←</div>
+      <div>Click a node to read<br>the layer contract.</div>
+    </div>
+  </aside>
+
+</div><!-- /.layout -->
+
+<script>
+  const DETAIL = {
+
+    R: {
+      num:   "01",
+      tag:   "Layer 1",
+      title: "Runtime Cursor — Current Bar Envelope",
+      meta:  "Direct per-bar heartbeat into Layer 2 and Layer 3",
+      body:  `
+<p>The runtime cursor is Layer 1 stream delivery. The replayer, backtester, or live adapter advances one bar and exposes the current-bar envelope.</p>
+<div class="code-block">RuntimeCursorContext:
+  cursorIndex / barIndex
+  cursorTimestamp
+  timeframe
+  currentBar OHLC
+  currentPrice = current closed bar close
+  lowerCursor / higherCursor in dual mode</div>
+<p>The cursor fans out. Layer 2 consumes it for primitive fixed-lookback detection. Layer 3 receives the same heartbeat directly so State Store and Detector can update current semantic lifecycles on the same bar.</p>
+<div class="rule-block">Layer 2 does not relay the cursor. It grabs the current bar, emits CE / PE records if conditions fire, and is done.</div>
+      `,
+    },
+
+    A: {
+      num:   "02",
+      tag:   "Input",
+      title: "Layer 2 Event Records — PE / CE Primitives",
+      meta:  "Primitive event handoff · no memory of prior confirmed levels",
+      body:  `
+<p>Layer 2 fires purely from the current bar and a fixed lookback. It has no knowledge of confirmed levels, open ranges, or remembered zones. That distinction is the dividing line between Layer 2 and Layer 3.</p>
+<p>These records do not carry the whole cursor forward. They are the primitive facts emitted after Layer 2 has inspected the cursor bar.</p>
+<div class="code-block">Event-stream pipeline:
+  Raw bars
+  → Layer 2 primitive events
+  → Layer 3 channel interpreters
+  → Fusion snapshot / label collapse
+  → Evidence Compiler
+  → evidence candidates / pattern candidates
+  → Layer 4 hypothesis DAG</div>
+<p><strong>Layer 2 handoff shape:</strong> every CE / PE event leaves this layer as a shared event envelope plus family-specific fields.</p>
+<div class="code-block">Shared envelope:
+  eventId, eventCode, eventName, eventGroup
+  timeframe, tier, side / direction
+  eventTimestamp, causalAvailableAt
+  anchorTimestamp, pivotTimestamp, price
+  levelTimestamp / levelPrice when relevant
+  sourceBarIndexes, sourceCandleRefs
+  metadata
+
+CE adds:
+  type, subType, gapTop, gapBottom, gapSize
+  bar1Timestamp, bar2Timestamp, bar3Timestamp
+
+PE adds:
+  pivotPrice, pivotSide, mode, survivalBars
+  confirmationTimestamp, confirmationEventTimestamp, relation</div>
+<div class="code-block">Pivot Events (PE)
+  PE01 / PE02  STR high / low  (noisy; not used for SC)
+  PE03 / PE04  ITR high / low  (primary structure tier)
+  PE05 / PE06  LTR high / low  (optional; slower)
+
+FVG Events (CE)
+  CE01  expansion bar — bar2 of FVG spotted
+  CE02  FVG confirmed — bar3 close confirms gap</div>
+<p>CE02 triggers S/D zone drawing. PE03 / PE04 feed the Structure Context registry and confirm pullback phase. PE05 / PE06 feed the LTR registry when enabled.</p>
+<div class="rule-block">Event Layer fires from current bar + fixed lookback only. No SC, no zone lifecycle, no liquidity pool state lives here.</div>
+      `,
+    },
+
+    B: {
+      num:   "03",
+      tag:   "Memory",
+      title: "State Store — Semantic Object Memory",
+      meta:  "Owns all remembered market objects and their explicit lifecycle history",
+      body:  `
+<p>State Store is not a bag of labels. Every meaningful semantic object moves through an explicit lifecycle with timestamped transitions, event history, and a consistent snapshot projection.</p>
+<p><strong>Layer 1 and Layer 2 both feed State Store:</strong> the Layer 1 cursor heartbeat registers the current-bar envelope, while Layer 2 canonical CE / PE records register primitive event facts. CE / PE seed or update semantic objects such as confirmed levels, S/D zones, and later liquidity references. Raw bars remain the heartbeat for Detector checks; they are not automatically long-term semantic memory unless a lifecycle transition records them.</p>
+<div class="code-block">Objects owned by State Store:
+  current cursor context       fed directly by Layer 1
+  confirmed pivot levels       fed by PE events
+  active S/D zones             fed by CE02
+  liquidity pools              fed by SC / P-D / EQ context
+  open P/D ranges              fed by SC lifecycle transitions
+  structure anchor sequence    fed by Structure Context
+  structure anchor probe       projected by active Structure Context
+  HTF / LTF ITR context        fed by selected PE tier
+  orderflow context            fed by anchor / ITR source policy
+  structure attempts           fed by remembered ITR/LTR anchors
+  expiration and archive state
+  object event history</div>
+<p>Every object must expose:</p>
+<div class="code-block">object identity
+lifecycle states
+timestamped lifecycle transitions
+current state
+event history
+consistent snapshot projection</div>
+<div class="rule-block">State Store carries object lifecycles forward across bars. It is the only layer allowed to remember confirmed levels across time.</div>
+      `,
+    },
+
+    C: {
+      num:   "04",
+      tag:   "Engine",
+      title: "Detector — Bar-by-Bar Lifecycle Engine",
+      meta:  "Reads State Store, fires on bar conditions, writes lifecycle transitions",
+      body:  `
+<p>Detector runs every bar against State Store. It turns bar conditions and Layer 2 events into semantic object lifecycle transitions. It reads first, then writes back.</p>
+<div class="code-block">on each bar:
+  register new PE / CE primitives into State Store
+  check active structure levels
+    → BoS / ChoCh lifecycle transition
+  check active S/D zones
+    → entered / held / bounced / expired
+  check liquidity pools
+    → approached / taken / reclaimed / failed
+  check configured orderflow source
+    → direction / live pressure / ChoCh monitor
+  check structure attempts
+    → started / failed / confirmed
+  check expirations
+    → stale / consumed / archived</div>
+<p>The channel engines are the writers: Structure, S/D Zone, and Liquidity update their own semantic objects in State Store. Snapshot Normalizer reads only after those writes finish.</p>
+<p>This is the Layer 3 version of run collapse. Do not model it as classic NMS peak picking first. Model it as semantic object lifecycle normalization: repeated bar conditions update the same object and produce timestamped lifecycle transitions.</p>
+<div class="rule-block">Repeated bar conditions must update the same semantic object lifecycle — never create ambiguous repeated facts for the same condition.</div>
+      `,
+    },
+
+    D: {
+      num:   "05",
+      tag:   "Channel",
+      title: "Structure Context (SC) — BoS · Range · P/D Lifecycle",
+      meta:  "SC01–SC04 · wick-based range · anchor sequence · pullback confirmation",
+      body:  `
+<p><strong>Event codes:</strong> SC01 = itrBosUp · SC02 = itrBosDown · SC03 = ltrBosUp · SC04 = ltrBosDown. Tier selected by config (<code>structure.tier: "itr"</code> or <code>"ltr"</code>).</p>
+<p><strong>BoS definition:</strong> Fires on CLOSE beyond the active structure level only. A wick-through is not a BoS — it is liquidity swept.</p>
+<div class="code-block">Phase lifecycle:
+  NEUTRAL (warmup)
+    PE registry seeded. SC detection vs registry_high/registry_low.
+    First SC fires → warmup gate crossed, NEUTRAL never re-entered.
+  OPEN
+    Bias set. range_high / range_low track live wick HH/LL.
+    Waits for ITR or SD confirmation to confirm pullback.
+  PULLBACK_CONFIRMED
+    phase = confirmed by itr (PE03/PE04) or sd_zone (CE02 in useful half).
+    Persistent until next SC resets the leg.
+    SC01 continuation: PULLBACK_CONFIRMED + close > range_high
+    SC02 ChoCh:        close < range_low (bias flip, no neutral state)</div>
+<p><strong>Range rules (wick-based):</strong></p>
+<div class="code-block">Bullish:
+  range_low  = wick floor for the leg (fixed)
+  range_high = running max(bar.high) while extending
+Bearish:
+  range_high = wick ceiling for the leg (fixed)
+  range_low  = running min(bar.low) while extending
+
+P/D midpoint = midpoint(range_low, range_high)
+pd_value_pct = bias-aware (0=discount, 100=premium)</div>
+<p><strong>Anchor sequence:</strong> Structure records confirmed swing anchors when structural points become semantic facts, and exposes a bounded <code>structure_anchor_sequence</code> plus a live <code>structure_anchor_probe</code>. This is structural fact memory, not an Orderflow verdict.</p>
+<div class="code-block">Structure snapshot exposes:
+  structure_anchor_sequence      last 8 confirmed anchors
+  recent_structure_anchor_points alias for readers
+  structure_anchor_probe         +1 live unconfirmed probe</div>
+<div class="rule-block">range_high and range_low NEVER decay on their own. Time alone is not a reset condition. Only SC01 / SC02 start a new leg.</div>
+<a class="panel-link" href="./302-structure-context.html">Open 302 Structure Context →</a>
+      `,
+    },
+
+    E: {
+      num:   "06",
+      tag:   "Channel",
+      title: "S/D Zone Context (SD) — FVG Zones · WATCHING → TAPPED",
+      meta:  "CE02 trigger · range mode · pivot mode · zone expiry",
+      body:  `
+<p>SD Context normalizes CE02 FVG events into supply/demand zone semantic objects. Repeated touches update the same zone object — they do not create disconnected facts.</p>
+<p><strong>Drawing modes (config choice, not TF-bound):</strong></p>
+<div class="code-block">Range mode:
+  Left boundary = prior CE02 confirmation bar (inclusive)
+  Right boundary = curr_anchor_bar (asymmetric: base-side in, expanded-side out)
+  Guard: back-to-back anchors (0 base bars) → skip
+
+Pivot mode:
+  Traces back from bar3 to find swing extreme (ex_bar)
+  Left boundary = ex_bar-1
+  Guard: same ex_bar as prior zone → skip (no new extreme)</div>
+<p><strong>Zone lifecycle:</strong></p>
+<div class="code-block">BORN → ALIVE
+  WATCHING (in_zone = False)
+    gap-past floor/ceiling     → EXPIRED (liquidity_run / liquidity_swept)
+    normal entry or gap-into   → TAPPED
+  TAPPED (in_zone = True)
+    close through zone floor   → EXPIRED (liquidity_run)
+    wick through, close inside → EXPIRED (liquidity_swept)
+    close out the entry side   → EXPIRED (bounced)</div>
+<p><strong>Expiry rules:</strong> store cap evicts oldest WATCHING zones only (TAPPED are protected). Mitigated zones removed immediately — no retention for breaker blocks.</p>
+<div class="code-block">Config:
+  sd_zones.max_zones_per_direction: 10  (default, override per TF)</div>
+<div class="rule-block">SD Context reports zone geometry, state, and distance only. It does not score significance, tag flip zones, or define P/D price range. Those belong to Evidence Compiler and Layer 4.</div>
+<a class="panel-link" href="./304-SD-context.html">Open 304 S/D Context →</a>
+      `,
+    },
+
+    F: {
+      num:   "07",
+      tag:   "Channel",
+      title: "Liquidity Context (LQ) — Pools · Sweeps · Inducement",
+      meta:  "HTF ITR grab → B.init · HTF P/D grab → D.pd_grab · bounded memory",
+      body:  `
+<p>Liquidity Context answers three factual questions and no more: <strong>Where is the bait? What was taken? What did the sweep leave behind?</strong></p>
+<p><strong>Two primitives:</strong></p>
+<div class="code-block">LiquidityPool
+  pool_id, side (buy_side / sell_side)
+  source: htf_swing | itr_level | range_boundary |
+          equal_high_low | pd_range | phase_e_extreme
+  status: active → taken → sweep_confirmed → invalidated
+  taken_at, take_type (wick / close), sweep_confirmed_at
+
+LiquidityRelation
+  factual relation between a pool and another context object
+  built only during PULLBACK_CONFIRMED, bounded to active P/D range
+  types: take_before_sd | sweep_confirmed_by_sd | inducement_above_sd | etc.</div>
+<p><strong>B-focus — HTF ITR grab/reclaim:</strong> When HTF ITR level or EQH/EQL is grabbed and reclaimed, Layer 3 emits the factual lifecycle. Evidence Compiler qualifies it as <code>B.initiation_watch</code> (casino-ticket node — uncertainty, not verdict).</p>
+<p><strong>D-focus — current HTF P/D / relevant EQ grab-reclaim:</strong> Liquidity emits a stable event identity plus HTF P/D epoch and trigger scope. Evidence Compiler qualifies the fresh pro-HTF attempt, neutral HTF expansion-extreme relevance, failed continuation, reclaim-inside-P/D, a fresh post-reclaim counter LTF ChoCh, and HTF close resolution. Layer 4 later selects the D subtype from valid origins. Phase E state never flows backward into Layer 3.</p>
+<div class="code-block">Required trajectory for ITR grab (buy-side):
+  price comes from below
+  trades above HTF ITR high / EQH band
+  rejects / leaves back below the band
+  came_from=below, take_side=above, leave_to=below
+
+Memory scope:
+  active_current_epoch: inside current HTF P/D range → may trigger B/D
+  carryover_recent: recent unresolved, overlaps current P/D → may trigger B/D
+  external_archive: old / out-of-P/D → target reached / thesis.over only
+
+Current-event identity:
+  liquidity_event_id = pool_id + "|" + confirmed_at
+  *_ready requires event membership in current triggerable set</div>
+<p><strong>Memory config already exists in <code>ultrab/src/ultrab/replayer/config.yaml</code>:</strong></p>
+<div class="code-block">liquidity:
+  event_log_limit: 50
+  grab:
+    evidence_window_bars: 8
+    ready_ttl_bars: 16
+  memory:
+    carryover_recent_pools: 3
+    carryover_requires_overlap_with_current_pd: true
+    max_active_itr_pools_per_side: 5
+    max_pool_age_htf_bars: 50
+    max_confirmed_anchor_watch_per_side: 3
+    anchor_watch_ttl_htf_bars: 20
+    external_archive_enabled: true
+    external_archive_can_trigger_hypothesis: false</div>
+<div class="rule-block">Sweep Zone = after the fact (pool taken, reaction appeared). Inducement = anticipatory (pool still active, likely taken before real POI reacts). Context stays factual; Layer 4 interprets the meaning.</div>
+<a class="panel-link" href="./303-liqudity-context.html">Open 303 Liquidity Context →</a>
+      `,
+    },
+
+    O: {
+      num:   "08",
+      tag:   "Channel",
+      title: "Orderflow Context (OF) — Anchor Sequence Pressure",
+      meta:  "Separate Layer 3 context channel over structure anchors / ITR source policy",
+      body:  `
+<p>Orderflow Context is its own Layer 3 semantic detector, not a submodule of Structure Context. Structure owns structural facts. Orderflow reads those facts and interprets directional pressure.</p>
+<p>LTF Orderflow consumes <code>structure_anchor_sequence</code> plus <code>structure_anchor_probe</code> by default. HTF Orderflow consumes the regular ITR sequence by default unless config chooses another source. It should not rescan raw OHLC.</p>
+<p>This is not a thesis decision. Orderflow is allowed to be a soft, messy read of anchor pressure. It can tilt Evidence Compiler candidates, but it must not select, invalidate, or phase-align a Layer 4 hypothesis by itself.</p>
+<div class="code-block">OrderflowSnapshot:
+  confirmed_direction = bullish | bearish | mixed | unknown
+  regime = directional | choch_watch | compression | sweep_range | unknown
+  live_pressure = none | pullback_extending | anchor_threat | reclaiming | breakaway_watch
+  choch_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
+  source = structure_anchor_sequence | itr_sequence | ltr_sequence
+  window_size = 6
+  confirmed_sequence = HH, HL, HH, HL...
+  sequence_with_probe = HH, HL, HH, HL, probe...
+  probe_label
+  last_shift_at
+  supporting_anchor_refs / supporting_itr_refs
+  protected_anchor_ref
+  disruption_point_ref
+  decision_point_ref
+  range_ref
+  probe_ref
+  probe_breaks_protected_anchor = true | false
+  probe_relation = above_active_high | below_active_low | upper_half | lower_half | inside_range | outside_range | unknown
+  choch_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
+  liquidity_annotations = EH / EL cluster refs only, not direction labels
+  timeframe
+  evaluated_at
+  blocked_reason = insufficient_points | stale_sequence | noisy_overlap | compression</div>
+<p><strong>Ownership:</strong> Structure emits anchor facts. State Store retains every active timeframe's bounded anchor sequence. Orderflow owns confirmed direction, regime, live pressure, ChoCh monitor, decision point, protected anchor, range reference, probe relation, and EH/EL annotations. Equal highs / equal lows do not become core direction labels; they may become Liquidity Context candidates.</p>
+<div class="code-block">EH / EL assignment rule:
+  if current high == previous same-side high within tolerance:
+    record EH annotation on nearest confirmed high anchor
+    do not count as HH or LH
+
+  if current low == previous same-side low within tolerance:
+    record EL annotation on nearest confirmed low anchor
+    do not count as HL or LL
+
+  EH / EL may:
+    lower continuation confidence
+    push regime toward compression or sweep_range
+    create liquidity_annotations for Liquidity Context
+
+  EH / EL must not:
+    flip confirmed_direction
+    confirm reversal
+    trigger entry by itself</div>
+<p><strong>Not owned by Orderflow:</strong> OTE posture belongs to Layer 5 after Layer 4 defines the active thesis leg. Phase alignment belongs to Layer 4 because alignment means "current thesis phase versus Layer 3 facts." FVG-after-sweep belongs to Evidence Compiler as a cross-channel pattern.</p>
+<div class="rule-block">Orderflow belongs beside Structure, S/D, and Liquidity as a separate context channel. Evidence Compiler consumes projected OrderflowSnapshot and qualifies it as soft support; it should not compute the raw sequence itself.</div>
+<a class="panel-link" href="./305-orderflow-context.html">Open 305 Orderflow Context →</a>
+      `,
+    },
+
+    G: {
+      num:   "09",
+      tag:   "Read-Only",
+      title: "Snapshot Normalizer — ContextSnapshot Projection",
+      meta:  "Projects updated State Store into a normalized snapshot per bar",
+      body:  `
+<p>Snapshot Normalizer reads State Store after Detector completes. It also receives the current runtime cursor price / timestamp so it can project distances, P/D position, and invalidation proximity. It is strictly read-only — it does not choose a trade thesis and does not modify State Store.</p>
+<p>By the time Snapshot Normalizer runs, Structure, S/D Zone, and Liquidity have already written their current lifecycle states back to State Store. Snapshot Normalizer is the projection step, not another detector.</p>
+<div class="code-block">ContextSnapshot fields:
+  currentTimestamp   current bar close timestamp
+  currentPrice       current bar close price
+  bias               bullish / bearish at ITR or LTR
+  biasTier           itr / ltr
+  rangeState         open / pullback_confirmed / none
+  currentLeg         impulse / pullback / ranging
+  pdPosition         premium / discount / midpoint
+  lastConfirmedHigh  tier · price · timestamp
+  lastConfirmedLow   tier · price · timestamp
+  nearestSupplyZones [SDZoneSnapshot, ...]  sorted by distance asc
+  nearestDemandZones [SDZoneSnapshot, ...]  sorted by distance asc
+  keyLevelsAbove     [StructureLevel, ...]
+  keyLevelsBelow     [StructureLevel, ...]
+  liquidity          pool status snapshot
+  orderflow          OrderflowSnapshot
+  structureAttempt   current or last attempt state
+  invalidationRefs   nearest thesis-relevant invalidation levels, if compiled</div>
+<p>SD zone distance field: demand = current_price − zone.high (negative = inside / below). Supply = zone.low − current_price (negative = inside / above). current_price = bar.close.</p>
+<p>Current price is not a Layer 2 event. It is the runtime cursor value used by Layer 3 projection. Layer 2 emits primitive CE / PE events; Layer 3 combines those event records with the current bar heartbeat to update and project semantic context.</p>
+<div class="rule-block">Snapshot Normalizer is read-only. It does not choose a trade thesis. Fusion, Evidence Compiler, and Layer 4 consume but do not modify this snapshot.</div>
+<a class="panel-link" href="./309-normalizer-context.html">Open 309 Snapshot Normalizer →</a>
+      `,
+    },
+
+    H: {
+      num:   "10",
+      tag:   "Collapse",
+      title: "Fusion — Current-State Collapse",
+      meta:  "Reads normalized ContextSnapshot(s) from 09 · answers: what is true on this bar?",
+      body:  `
+<p>Fusion is the current-state collapse. It reads normalized <code>ContextSnapshot</code>(s) produced by Snapshot Normalizer — it does not re-read raw channels.</p>
+<div class="code-block">Single TF mode:
+  fused_snapshot = context_snapshot  (identity pass-through)
+
+Dual TF mode:
+  lower_context_snapshot  = SnapshotNormalizer.project(LTF cursor + channels)
+  higher_context_snapshot = SnapshotNormalizer.project(HTF cursor + channels)
+  fused_snapshot          = Fusion.fuse_dual(lower, higher)</div>
+<p><strong>DualContextSnapshot shape:</strong></p>
+<div class="code-block">lower_context_snapshot    full ContextSnapshot for execution TF
+higher_context_snapshot   full ContextSnapshot for reference TF
+execution_context         alias → lower_context_snapshot
+reference_context         alias → higher_context_snapshot
+execution_tf              LTF label
+reference_tf              HTF label
+htf_bias                  bullish / bearish from higher_context_snapshot
+cross_tf_alignment        pullback | continuation | counter_trend | unknown
+narrative                 e.g. "LTF bullish pullback inside HTF bearish"
+execution_pd              LTF price position (premium / discount / midpoint)
+projected_htf_levels      HTF key levels projected onto LTF pane
+projected_htf_zones       HTF zones relevant to current LTF price
+confluence_zones          zones present on both TFs</div>
+<p>The fused snapshot is the <em>current tape print</em>. A single snapshot answers "what is true right now" — it does not record how many bars a condition has held or what the state was two bars ago. Timestamps on individual objects (levels, zones, anchors) are preserved in full. The history lives in the stream: Evidence Compiler reads consecutive fused snapshots bar by bar and detects transitions between them. That transition stream — not any single snapshot — is what becomes dated evidence records with <code>seen_at</code>, <code>confirmed_at</code>, and source object refs.</p>
+<div class="code-block">Fusion should answer:
+  What is the current combined tape print?
+  Which TF is execution? Which TF is reference?
+  Which HTF objects are relevant on the LTF pane?
+  What is the LTF state inside the HTF context?
+
+Fusion should not answer:
+  Is this evidence valid?
+  Did A happen before B?
+  Is this a Phase B / D setup?
+  Should we trade?</div>
+<div class="code-block">Clock rule in dual mode:
+  HTF ContextSnapshot = stored, latest available from HTF pipeline
+  LTF heartbeat = observes HTF pool interactions without waiting for HTF close
+  No lookahead: only use HTF levels that existed before the current LTF bar</div>
+<div class="rule-block">09 normalizes channels into ContextSnapshot. 10 fuses one or more ContextSnapshots into runtime current truth. 11 compiles transitions and evidence from those fused snapshots.</div>
+<a class="panel-link" href="./310-fusion-context.html">Open 310 Fusion Context →</a>
+      `,
+    },
+
+    I: {
+      num:   "11",
+      tag:   "Qualifier",
+      title: "Evidence Compiler — Qualified Candidate Emission",
+      meta:  "Tracks meaningful context chains · qualifies · emits compact candidates",
+      body:  `
+<p>The Evidence Compiler is the final Layer 3 component after Fusion. It consumes fused snapshots, detects snapshot field transitions, creates normalized evidence records with timestamps and source object refs, collapses repeated observations into evidence spans, records blocked reasons, and emits compact evidence candidates to Layer 4.</p>
+<p><strong>Mental model:</strong> The compiler is a cross-channel event-stream reader. It does not need to score every fact as weak or strong. The important information is where the event happened, what object it referenced, what followed it, and where the current probe sits relative to that story.</p>
+<div class="code-block">Evidence record fields:
+  event_id / evidence_id
+  event_type / kind
+  timeframe, direction, level, source
+  source_object_id, source_object_type
+  seen_at, confirmed_at, invalidated_at
+  bar_index
+  related_pool_id / zone_id / anchor_id
+  price_relation_when_seen
+  ltf_orderflow_when_seen
+  span_id, blocked_reasons, expires_at
+  metadata</div>
+<div class="code-block">Candidate state shape:
+  status = collecting | ready | invalidated | expired
+  pattern_id
+  evidence_refs
+  protected_anchor
+  location_context = htf_pd_boundary | htf_itr | ltf_anchor | premium | discount | unknown
+  relation_to_phase = supports | conflicts | neutral | unknown
+  relation_to_probe = near | inside | beyond | reclaiming | unknown
+  blocked_reasons
+  timing_floor / timing_ceiling
+  attention_window_refs</div>
+<p><strong>Cross-channel patterns belong here:</strong></p>
+<div class="code-block">sweep -> reclaim -> FVG away
+liquidity_grab_at_htf_pd
+liquidity_grab_at_htf_itr
+liquidity_grab_at_ltf_anchor
+fresh pro-HTF attempt -> current liquidity reclaim -> post-reclaim counter LTF ChoCh -> HTF close resolution
+orderflow_choch_watch -> reclaim
+sd_zone_tap -> bounce
+sd_zone_reaction_after_sweep
+fvg_after_sweep_as_partial_fill_footprint</div>
+<p><strong>Evidence weighting:</strong> V1 can treat evidence records as equal-weight facts. Importance should come from relation and location, not from premature confidence labels: what was grabbed, where it was grabbed, what followed, what phase Layer 4 sees, and where the probe is now.</p>
+<p><strong>Missing work to keep visible:</strong></p>
+<div class="code-block">1. Normalized evidence event schema
+2. Consistent event timestamps
+3. Event ids and source object refs
+4. Historical event records
+5. Lifecycle normalization / run collapse
+6. Blocked reasons and relation fields
+7. Candidate patterns with causal ordering
+8. Timing floors, ceilings, and expiry
+9. Rolling attention window over recent objects / candidates
+10. Compact candidate snapshots for Layer 4</div>
+<p><strong>Migration order for thesis chains:</strong></p>
+<div class="code-block">1. B.initiation_watch
+2. D.pd/eq grab reclaim test
+3. E.pullback_developing
+4. C.pullback.after_inducement / no_followthrough</div>
+<p><strong>Current code:</strong> <code>ultrab.core.smc.contextLedger.ContextLedger</code> — attach as <code>payload["context_ledger"]</code>. Target after migration: <code>payload["evidence_candidates"]</code>.</p>
+<div class="code-block">Layer 3 should answer:
+  What market events happened?
+  What evidence did those events create?
+  What quality / blocked reasons does that evidence carry?
+  Which candidate patterns exist inside the current attention window?
+  Are they alive, expired, or invalidated?
+  Which levels / zones / pools do they reference?
+
+Layer 3 should not answer:
+  Is this Phase B?
+  Should we trade?
+  Is this the active thesis?
+  Should C become B or E?</div>
+<div class="rule-block">Do not let Layer 4 rebuild raw evidence sequences from CE/PE events or channel flags. Layer 4 should read compact Layer 3 evidence candidates only.</div>
+<a class="panel-link" href="./311-EC-context.html">→ Open 311 Evidence Compiler Context</a>
+      `,
+    },
+
+    J: {
+      num:   "12",
+      tag:   "Output",
+      title: "Layer 4 — Hypothesis DAG",
+      meta:  "Deterministic thesis decisions from evidence candidates",
+      body:  `
+<p>Layer 4 receives compact evidence candidates from the Evidence Compiler and makes deterministic thesis decisions. It does not rebuild raw evidence sequences from CE/PE events.</p>
+<p><strong>Layer 4 owns:</strong></p>
+<ul>
+  <li>current node / previous node</li>
+  <li>origin evidence ids</li>
+  <li>invalidation rule</li>
+  <li>entry_policy</li>
+  <li>target_policy</li>
+  <li>budget meaning (e.g. casino_ticket for B.initiation_watch)</li>
+</ul>
+<p><strong>Layer 4 interprets context facts:</strong></p>
+<div class="code-block">Context says:
+  sell-side pool taken, then demand zone created
+
+Layer 4 says:
+  demand zone may be institutional footprint; consider long
+
+Context says:
+  current triggerable htf_pd grab/reclaim event exists
+
+Evidence Compiler says:
+  htf_counter_reaction liquidity candidate is ready
+  event has reclaim-inside-P/D + post-reclaim counter ChoCh + inside HTF close
+
+Layer 4 says:
+  from a valid origin, select D.htf_pd_grab_reclaim_test
+  consume liquidity_event_id when the D outcome resolves</div>
+<p><strong>Inducement vs genuine flip:</strong> SC02 ChoCh payload carries enough information (prior_range_high) for Layer 4 to decide. If it was inducement, price reclaims prior_range_high → SC01 fires → engine self-corrects mechanically.</p>
+<div class="rule-block">Layer 4 decides thesis meaning. Context Layer runs market facts freely. Fusion prints current truth. Evidence Compiler qualifies evidence candidates. Layer 4 makes the deterministic thesis decision.</div>
+<a class="panel-link" href="./401-hypothesis.html">→ Open 401 Hypothesis Dataflow</a>
+      `,
+    },
+
+  };
+
+  // ── Mermaid init ─────────────────────────────────────────────────────────
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });
+
+  // ── SVG-native pan / zoom ────────────────────────────────────────────────
+  function initSvgPanZoom(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    const resetBtn = wrap.querySelector('.pan-reset');
+    const svg = wrap.querySelector('.mermaid svg');
+    if (!svg) return;
+
+    const current = () => {
+      const vb = svg.viewBox.baseVal;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    };
+    const setViewBox = vb => {
+      svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+    };
+
+    let initialViewBox;
+    try {
+      const bbox = svg.getBBox();
+      const pad = Math.max(bbox.width, bbox.height) * 0.08;
+      initialViewBox = { x: bbox.x - pad, y: bbox.y - pad, width: bbox.width + pad * 2, height: bbox.height + pad * 2 };
+    } catch {
+      const vb = current();
+      initialViewBox = { x: vb.x, y: vb.y, width: vb.width || 1200, height: vb.height || 800 };
+    }
+    setViewBox(initialViewBox);
+
+    let dragging = false, moved = false, lastX = 0, lastY = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true; moved = false;
+      lastX = e.clientX; lastY = e.clientY;
+      wrap.classList.add('panning');
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const vb = current();
+      const rect = wrap.getBoundingClientRect();
+      setViewBox({ x: vb.x - dx * (vb.width / rect.width), y: vb.y - dy * (vb.height / rect.height), width: vb.width, height: vb.height });
+      lastX = e.clientX; lastY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      wrap.classList.remove('panning');
+    });
+
+    wrap.addEventListener('click', e => { if (moved) e.stopPropagation(); }, true);
+
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const vb = current();
+      const factor = e.deltaY < 0 ? 0.9 : 1.1;
+      const nextW = Math.min(Math.max(vb.width * factor, initialViewBox.width * 0.08), initialViewBox.width * 12);
+      const nextH = Math.min(Math.max(vb.height * factor, initialViewBox.height * 0.08), initialViewBox.height * 12);
+      const rx = mx / rect.width;
+      const ry = my / rect.height;
+      setViewBox({ x: vb.x + (vb.width - nextW) * rx, y: vb.y + (vb.height - nextH) * ry, width: nextW, height: nextH });
+    }, { passive: false });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', e => { e.stopPropagation(); setViewBox(initialViewBox); });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof mermaid.run === 'function') {
+      await mermaid.run();
+    } else {
+      mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    }
+    requestAnimationFrame(() => initSvgPanZoom('wrap-1'));
+  });
+
+  // ── Panel renderer ───────────────────────────────────────────────────────
+  function renderPanel(panelId, data) {
+    if (!data) return;
+    document.getElementById(`${panelId}-empty`).style.display = 'none';
+
+    const hdr = document.getElementById(`${panelId}-header`);
+    hdr.style.display = 'block';
+    hdr.innerHTML = `
+      <div class="node-num-row">
+        <span class="node-num">${data.num}</span>
+        <span class="layer-tag">${data.tag}</span>
+      </div>
+      <h2>${data.title}</h2>
+      <div class="meta">${data.meta}</div>
+    `;
+    document.getElementById(`${panelId}-body`).innerHTML = data.body;
+  }
+
+  window.nodeClick = function(nodeId) {
+    renderPanel('panel-1', DETAIL[nodeId]);
+  };
+</script>
+
+<!--
+  Source: ultrab/ln-notes/3context/301-Context.md
+          ultrab/ln-notes/3context/SMC/310-SMC-context.md
+          ultrab/ln-notes/3context/SMC/311-Structure-context.md
+          ultrab/ln-notes/3context/SMC/311-Structure-ambiguities.md
+          ultrab/ln-notes/3context/SMC/312-SD-context.md
+          ultrab/ln-notes/3context/SMC/312-SD-ambiguities.md
+          ultrab/ln-notes/3context/SMC/313-Liquidity-context.md
+          ultrab/ln-notes/3context/SMC/313-Liquidity-context-focus-on-B.md
+          ultrab/ln-notes/3context/SMC/313-Liquidity-context-focus-on-D.md
+          ultrab/ln-notes/3context/SMC/314-Evidence-Compiler.md
+          ultrab/ln-notes/3context/SMC/314-Strucutre-quicknote.md
+
+  Layer 1 (Visual) — Mermaid chart + side panel. Active.
+
+  Layer 2 (Hidden LLM text) — omitted. DETAIL object is plain readable
+  template-literal prose in <script>. No SPA minification, no API fetch.
+
+  Layer 3 (JSON-LD) — omitted. Plain static HTML; no CSR framework.
+-->
+</body>
+</html>

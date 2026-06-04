@@ -1,0 +1,761 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- source: ultrab/ln-notes/2marking/201-Events.md; ultrab/ln-notes/2marking/202-Candlestick-events.md; ultrab/ln-notes/2marking/203-Pivot-events.md -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Layer 2 Event Modelling - CE / PE Contracts</title>
+  <script src="../assets/mermaid.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #FAF9F5;
+      --surface: #ffffff;
+      --border: #D1CFC5;
+      --accent: #D97757;
+      --text: #3D3D3A;
+      --text-dim: #87867F;
+      --text-head: #141413;
+      --tag-bg: #E3DACC;
+      --panel-w: 390px;
+    }
+
+    body {
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 18px 32px 14px;
+      border-bottom: 1.5px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-head);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    .epigraph {
+      padding: 12px 32px;
+      background: #F0EEE6;
+      border-bottom: 1.5px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      font-style: italic;
+      flex-shrink: 0;
+    }
+    .epigraph span { display: block; }
+
+    .layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .diagram-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, #C8C4BA 1px, transparent 1px);
+      background-size: 28px 28px;
+      min-width: 0;
+    }
+    .diagram-wrap.panning { cursor: grabbing; }
+
+    .pan-surface {
+      position: absolute;
+      inset: 0;
+    }
+
+    .diagram-container {
+      width: 100%;
+      height: 100%;
+    }
+
+    .mermaid {
+      width: 100%;
+      height: 100%;
+    }
+
+    .mermaid svg {
+      display: block;
+      width: 100% !important;
+      height: 100% !important;
+      max-width: none !important;
+    }
+
+    .pan-reset {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pan-reset:hover { color: var(--text-head); border-color: var(--accent); }
+
+    .pan-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      font-size: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    .mermaid .node rect,
+    .mermaid .node polygon,
+    .mermaid .node circle,
+    .mermaid .node ellipse {
+      cursor: pointer;
+      transition: stroke 0.15s ease;
+      filter: none !important;
+    }
+    .mermaid .node:hover rect,
+    .mermaid .node:hover polygon {
+      stroke: var(--accent) !important;
+    }
+
+    .side-panel {
+      width: var(--panel-w);
+      min-width: var(--panel-w);
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 20px 22px 16px;
+      border-bottom: 1.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-header .node-num-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .panel-header .node-num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #C8C4BA;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      line-height: 1;
+      margin-right: 8px;
+    }
+    .panel-header .layer-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 2px 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      vertical-align: middle;
+    }
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-head);
+      line-height: 1.4;
+    }
+    .panel-header .meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 28px;
+    }
+    .panel-body p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      margin-top: 12px;
+    }
+    .panel-body p:first-child { margin-top: 0; }
+    .panel-body strong { color: var(--text-head); font-weight: 600; }
+    .panel-body ul {
+      margin-top: 10px;
+      padding-left: 16px;
+    }
+    .panel-body ul li {
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--text);
+      margin-top: 5px;
+    }
+    .rule-block {
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: #F0EEE6;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.7;
+      font-style: italic;
+    }
+    .code-block {
+      margin-top: 12px;
+      background: #F0EEE6;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+      font-style: italic;
+    }
+    .panel-empty .arrow-hint { font-size: 22px; opacity: 0.25; }
+
+    .panel-link {
+      display: inline-block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      border-bottom: 1px solid transparent;
+    }
+    .panel-link:hover { border-bottom-color: var(--accent); }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Layer 2 Event Modelling - CE / PE Contracts</h1>
+  <p>Click any node to read the event contract.</p>
+</header>
+
+<div class="epigraph">
+  <span>Events are observations, not strategy decisions.</span>
+  <span>Do not let future-confirmed knowledge leak backward into the trader decision.</span>
+</div>
+
+<div class="layout layout-single">
+  <div class="diagram-wrap" id="wrap-1">
+    <div class="pan-surface" id="surface-1">
+      <div class="diagram-container">
+        <div class="mermaid">
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":"#E3DACC",
+  "primaryTextColor":"#141413",
+  "primaryBorderColor":"#C8C4BA",
+  "lineColor":"#87867F",
+  "secondaryColor":"#F0EEE6",
+  "tertiaryColor":"#FAF9F5",
+  "edgeLabelBackground":"#FAF9F5",
+  "fontFamily":"ui-serif, Georgia, serif"
+}}}%%
+flowchart TB
+    A["01 - Market Data / Bars<br/>runtime cursor context<br/>time moves forward only"]
+    L3["12 - Layer 3 State Store / Intake<br/>cursor heartbeat + event records"]
+
+    subgraph L2["Layer 2 Event Layer"]
+      B["02 - Layer 2 Event Contract<br/>Primitive causal observations"]
+      C["03 - Shared Event Envelope<br/>canonical fields"]
+      D["04 - CE Engine<br/>FVG 3-bar check"]
+      E["05 - CE01 Expansion Spotted<br/>bar 2 decision"]
+      F["06 - CE02 FVG Confirmed<br/>bar 3 decision"]
+      G["07 - PE Engine<br/>Pivot survival chain"]
+      H["08 - STR Confirmed<br/>PE01 / PE02"]
+      I["09 - ITR Confirmed<br/>PE03 / PE04"]
+      J["10 - LTR Confirmed<br/>PE05 / PE06"]
+      K["11 - Event Emission Boundary<br/>emits canonical event records"]
+
+      B --> D
+      B --> G
+      B -. "defines payload shape" .-> C
+      D --> E
+      E -. "optional predecessor" .-> F
+      D --> F
+      G --> H
+      H --> I
+      I --> J
+      E --> K
+      F --> K
+      H --> K
+      I --> K
+      J --> K
+      C -. "event instances use this shape" .-> K
+    end
+
+    A -->|"cursor bar + fixed lookback"| B
+    A -->|"cursor heartbeat\ncurrent bar envelope"| L3
+    K -->|"canonical CE / PE records"| L3
+
+    click A nodeClick
+    click B nodeClick
+    click C nodeClick
+    click D nodeClick
+    click E nodeClick
+    click F nodeClick
+    click G nodeClick
+    click H nodeClick
+    click I nodeClick
+    click J nodeClick
+    click K nodeClick
+    click L3 nodeClick
+        </div>
+      </div>
+    </div>
+    <button class="pan-reset" data-wrap="wrap-1" data-surface="surface-1">reset</button>
+    <div class="pan-hint">scroll to zoom - drag to pan</div>
+  </div>
+
+  <aside class="side-panel" id="panel-1">
+    <div class="panel-header" id="panel-1-header" style="display:none"></div>
+    <div class="panel-body" id="panel-1-body"></div>
+    <div class="panel-empty" id="panel-1-empty">
+      <div class="arrow-hint">&lt;-</div>
+      <div>Click a node to read<br>the event contract.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+  const DETAIL = {
+    A: {
+      num: "01",
+      tag: "Input",
+      title: "Market Data / Bars",
+      meta: "Raw OHLC stream; time moves forward only",
+      body: `<p>Raw bars are the system boundary. The runtime delivers them as a cursor context: current bar index, timestamp, timeframe, OHLC, and current close price.</p>
+             <p>The cursor context fans out. Layer 2 consumes the cursor bar plus fixed lookback to emit primitive events. Layer 3 receives the same cursor heartbeat directly so it can update and project current semantic context.</p>
+             <div class="rule-block">No future-confirmed knowledge can be moved backward into the trader decision. Layer 2 does not relay the cursor; it only emits CE / PE event records.</div>`,
+    },
+    B: {
+      num: "02",
+      tag: "Layer 2",
+      title: "Event Layer Contract",
+      meta: "Primitive causal observations, not strategy decisions",
+      body: `<p>Layer 2 emits primitive event records. It has no memory of confirmed levels, no zone lifecycle, and no thesis meaning.</p>
+             <ul>
+               <li>CE events: FVG expansion and confirmation.</li>
+               <li>PE events: STR / ITR / LTR pivot confirmations.</li>
+               <li>SE-like events require remembered levels and therefore belong to Context Layer, not Event Layer.</li>
+             </ul>
+             <div class="rule-block">Question: is this thing an observation that became causally available at a specific time?</div>`,
+    },
+    C: {
+      num: "03",
+      tag: "Contract",
+      title: "Shared Event Envelope",
+      meta: "Canonical fields common to CE and PE records",
+      body: `<p>This is the shared envelope, not the full family-specific payload and not a runtime emission step. Actual CE and PE event records are emitted at node 11. Each emitted record should include this envelope, then add CE-specific or PE-specific fields.</p>
+             <div class="code-block">eventId
+eventCode
+eventName
+eventGroup
+timeframe
+tier
+side / direction
+eventTimestamp
+causalAvailableAt
+anchorTimestamp
+pivotTimestamp
+price
+levelTimestamp / levelPrice
+sourceBarIndexes
+sourceCandleRefs
+metadata</div>
+             <p><strong>Naming cleanup:</strong></p>
+             <div class="code-block">decision_ts -> eventTimestamp
+anchor_ts -> anchorTimestamp
+tf -> timeframe
+causal availability -> causalAvailableAt</div>`,
+    },
+    D: {
+      num: "04",
+      tag: "CE",
+      title: "CE Engine",
+      meta: "FVG event family; fixed 3-bar check",
+      body: `<p>The candlestick event engine produces FVG observations from a bar 1, bar 2, bar 3 story.</p>
+             <ul>
+               <li>Bar 2 is the anchor bar.</li>
+               <li>Bar 3 is the confirmation bar.</li>
+               <li>CE01 and CE02 are independent; CE02 does not require CE01.</li>
+             </ul>
+             <p><strong>CE event shape:</strong></p>
+             <div class="code-block">shared envelope:
+  eventId
+  eventCode
+  eventName
+  eventGroup = CE
+  timeframe
+  eventTimestamp
+  causalAvailableAt
+  anchorTimestamp
+  sourceBarIndexes
+  sourceCandleRefs
+  metadata
+
+CE-specific fields:
+  type = rally | drop
+  subType
+  pivotTimestamp
+  gapTop
+  gapBottom
+  gapSize
+  bar1Timestamp
+  bar2Timestamp
+  bar3Timestamp
+  bar1High
+  bar1Low
+  bar2Open
+  bar2Close</div>
+             <div class="rule-block">Layer 2 detects the primitive FVG event. FVG mitigation, quality, and context scoring belong later.</div>`,
+    },
+    E: {
+      num: "05",
+      tag: "CE01",
+      title: "Expansion Spotted",
+      meta: "Bar 2 close becomes the decision event",
+      body: `<p>CE01 fires on bar 2 close when bar 2 closes beyond bar 1.</p>
+             <div class="code-block">rally: bar2.close > bar1.high
+drop:  bar2.close < bar1.low</div>
+             <p>The event is early only. The FVG has not yet been confirmed.</p>
+             <div class="rule-block">eventTimestamp = bar 2 close. anchorTimestamp = bar 2.</div>`,
+    },
+    F: {
+      num: "06",
+      tag: "CE02",
+      title: "FVG Confirmed",
+      meta: "Bar 3 close confirms the preserved gap",
+      body: `<p>CE02 fires on bar 3 close when the gap between bar 1 and bar 3 remains preserved.</p>
+             <div class="code-block">rally: bar3.low > bar1.high
+drop:  bar3.high < bar1.low</div>
+             <p>CE02 is fully causal because all three source bars are closed when it emits.</p>
+             <div class="rule-block">eventTimestamp = bar 3 close. anchorTimestamp / pivotTimestamp = bar 2.</div>`,
+    },
+    G: {
+      num: "07",
+      tag: "PE",
+      title: "PE Engine",
+      meta: "Pivot survival and group compression",
+      body: `<p>The pivot event engine builds structure from causal survival checks.</p>
+             <div class="code-block">raw candles -> STR
+STR pivots -> ITR
+ITR pivots -> LTR</div>
+             <p><strong>PE event shape:</strong></p>
+             <div class="code-block">shared envelope:
+  eventId
+  eventCode
+  eventName
+  eventGroup = PE
+  timeframe
+  eventTimestamp
+  causalAvailableAt
+  anchorTimestamp
+  sourceBarIndexes
+  sourceCandleRefs
+  metadata
+
+PE-specific fields:
+  tier = str | itr | ltr
+  pivotTimestamp
+  pivotPrice
+  pivotSide
+  mode
+  survivalBars
+  sourceTier
+  sourceEventCode
+  confirmationTimestamp
+  confirmationEventTimestamp
+  confirmationPrice
+  relation
+  previousSameSideTimestamp
+  previousSameSidePrice</div>
+             <p>Each tier asks whether a high or low remained unbroken for enough future units.</p>
+             <div class="rule-block">eventTimestamp and pivotTimestamp are intentionally separated: one is when the event becomes usable, the other is where the pivot belongs on the chart.</div>`,
+    },
+    H: {
+      num: "08",
+      tag: "PE01 / PE02",
+      title: "STR Confirmed",
+      meta: "Short-range pivot confirmed by survival",
+      body: `<p>A candle high or low becomes STR only after it survives unbroken for N future candles.</p>
+             <ul>
+               <li>PE01 = strHighConfirmed</li>
+               <li>PE02 = strLowConfirmed</li>
+             </ul>
+             <div class="code-block">eventTimestamp = candle i + N
+pivotTimestamp = candidate candle i
+pivotPrice = candidate high / low</div>
+             <a class="panel-link" href="203-pivot-events.html">→ Algo note: STR / ITR / LTR</a>`,
+    },
+    I: {
+      num: "09",
+      tag: "PE03 / PE04",
+      title: "ITR Confirmed",
+      meta: "STR group compression into internal pivots",
+      body: `<p>ITR is confirmed when a right-shoulder STR shows that a same-side STR group has ended. The ITR lands on the group extreme, not on the right shoulder.</p>
+             <ul>
+               <li>PE03 = itrHighConfirmed</li>
+               <li>PE04 = itrLowConfirmed</li>
+             </ul>
+             <div class="rule-block">Repeated same-side ITR events are ignored until the opposite ITR side appears.</div>
+             <a class="panel-link" href="203-pivot-events.html">→ Algo note: STR / ITR / LTR</a>`,
+    },
+    J: {
+      num: "10",
+      tag: "PE05 / PE06",
+      title: "LTR Confirmed",
+      meta: "ITR group compression into long-range pivots",
+      body: `<p>LTR mirrors the ITR definition one tier higher. A right-shoulder ITR confirms that an ITR group has ended, and the LTR lands on the ITR group extreme.</p>
+             <ul>
+               <li>PE05 = ltrHighConfirmed</li>
+               <li>PE06 = ltrLowConfirmed</li>
+             </ul>
+             <div class="rule-block">LTR can only land on an existing ITR pivot. It does not land directly on STR or raw candles.</div>
+             <a class="panel-link" href="203-pivot-events.html">→ Algo note: STR / ITR / LTR</a>`,
+    },
+    K: {
+      num: "11",
+      tag: "Boundary",
+      title: "Event Emission Boundary",
+      meta: "Layer 2 emits canonical CE and PE event records",
+      body: `<p>This is the boundary where primitive events leave Layer 2. CE and PE instances are emitted here using the canonical payload shape from node 03.</p>
+             <ul>
+               <li>CE and PE are pure lookback and fixed-window.</li>
+               <li>SE requires remembered prior levels and belongs to Context Layer.</li>
+               <li>Layer 3 consumes raw CE / PE, normalizes semantic object lifecycles, and projects Fusion snapshots.</li>
+               <li>Layer 4 reads Evidence Compiler candidates, not raw CE / PE events directly.</li>
+             </ul>
+             <div class="code-block">Per-bar Layer 3 intake
+  Layer 1 cursor heartbeat
+  + Layer 2 canonical CE / PE records
+  -> Layer 3 State Store / Detector / Interpreter
+  -> Fusion snapshot
+  -> Evidence Compiler candidates
+  -> Layer 4 Hypothesis DAG</div>
+             <div class="rule-block">Data flow is one-way within a bar. State is carried forward by Context Layer, not Layer 2.</div>`,
+    },
+    L3: {
+      num: "12",
+      tag: "Layer 3",
+      title: "Layer 3 State Store / Intake",
+      meta: "Receives cursor heartbeat and Layer 2 records; owns memory and lifecycle normalization",
+      body: `<p>Layer 3 is the first layer allowed to remember prior confirmed levels, zones, pools, and structure attempts. It receives the Layer 1 cursor heartbeat directly, consumes canonical CE / PE records from node 11, and turns those inputs into semantic object lifecycle transitions.</p>
+             <div class="code-block">Layer 3 receives:
+  runtime cursor context for the current bar
+  CE01 / CE02 FVG primitive records
+  PE01-PE06 pivot confirmation records
+
+Layer 3 creates / updates:
+  structure registry and SC lifecycle
+  S/D zone lifecycle
+  liquidity pool lifecycle
+  P/D and HTF/LTF context
+  Fusion snapshot
+  Evidence Compiler candidates</div>
+             <div class="rule-block">Layer 4 does not read this raw intake directly. It reads Layer 3's fused context and Evidence Compiler candidates.</div>`,
+    },
+  };
+
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });
+
+  function initSvgPanZoom(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    const resetBtn = wrap.querySelector('.pan-reset');
+    const svg = wrap.querySelector('.mermaid svg');
+    if (!svg) return;
+
+    const current = () => {
+      const vb = svg.viewBox.baseVal;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    };
+
+    const setViewBox = vb => {
+      svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+    };
+
+    let initialViewBox;
+    try {
+      const bbox = svg.getBBox();
+      const pad = Math.max(bbox.width, bbox.height) * 0.08;
+      initialViewBox = {
+        x: bbox.x - pad,
+        y: bbox.y - pad,
+        width: bbox.width + pad * 2,
+        height: bbox.height + pad * 2,
+      };
+    } catch {
+      const vb = current();
+      initialViewBox = { x: vb.x, y: vb.y, width: vb.width || 1200, height: vb.height || 800 };
+    }
+
+    setViewBox(initialViewBox);
+
+    let dragging = false, moved = false;
+    let lastX = 0, lastY = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      wrap.classList.add('panning');
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const vb = current();
+      const rect = wrap.getBoundingClientRect();
+      setViewBox({
+        x: vb.x - dx * (vb.width / rect.width),
+        y: vb.y - dy * (vb.height / rect.height),
+        width: vb.width,
+        height: vb.height,
+      });
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      wrap.classList.remove('panning');
+    });
+
+    wrap.addEventListener('click', e => {
+      if (moved) e.stopPropagation();
+    }, true);
+
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const vb = current();
+      const factor = e.deltaY < 0 ? 0.9 : 1.1;
+      const nextWidth = Math.min(Math.max(vb.width * factor, initialViewBox.width * 0.08), initialViewBox.width * 12);
+      const nextHeight = Math.min(Math.max(vb.height * factor, initialViewBox.height * 0.08), initialViewBox.height * 12);
+      const rx = mx / rect.width;
+      const ry = my / rect.height;
+      setViewBox({
+        x: vb.x + (vb.width - nextWidth) * rx,
+        y: vb.y + (vb.height - nextHeight) * ry,
+        width: nextWidth,
+        height: nextHeight,
+      });
+    }, { passive: false });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        setViewBox(initialViewBox);
+      });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof mermaid.run === 'function') {
+      await mermaid.run();
+    } else {
+      mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    }
+    requestAnimationFrame(() => initSvgPanZoom('wrap-1'));
+  });
+
+  function renderPanel(panelId, data) {
+    if (!data) return;
+    document.getElementById(`${panelId}-empty`).style.display = 'none';
+    const hdr = document.getElementById(`${panelId}-header`);
+    hdr.style.display = 'block';
+    hdr.innerHTML = `
+      <div class="node-num-row">
+        <span class="node-num">${data.num}</span>
+        <span class="layer-tag">${data.tag}</span>
+      </div>
+      <h2>${data.title}</h2>
+      <div class="meta">${data.meta}</div>
+    `;
+    document.getElementById(`${panelId}-body`).innerHTML = data.body;
+  }
+
+  window.nodeClick = function(nodeId) {
+    renderPanel('panel-1', DETAIL[nodeId]);
+  };
+</script>
+
+<!--
+  Source:
+  - /Users/aimliu/Documents/git-no-drive/py-systemC-studies/ultrab/ln-notes/2marking/201-Events.md
+  - /Users/aimliu/Documents/git-no-drive/py-systemC-studies/ultrab/ln-notes/2marking/202-Candlestick-events.md
+  - /Users/aimliu/Documents/git-no-drive/py-systemC-studies/ultrab/ln-notes/2marking/203-Pivot-events.md
+
+  Layer 1 (Visual) - Mermaid chart + side panel. Active.
+
+  Layer 2 (Hidden LLM text) - omitted because DETAIL is plain readable
+  template-literal prose in the script above.
+
+  Layer 3 (JSON-LD) - omitted. Plain static HTML; no CSR framework.
+-->
+</body>
+</html>

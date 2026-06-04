@@ -1,0 +1,683 @@
+<!-- source: ultrab/docs/401-hypothesis-DAG.html
+     algo:   ultrab/src/ultrab/core/smc/hypothesis.py
+     algo:   ultrab/src/ultrab/core/smc/evidence_compiler.py
+     config: ultrab/src/ultrab/replayer/config.yaml
+     focus:  Phase C current implementation, especially hard/slow pullback separation -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis Phase C — Counter Pullback</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: 0;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 760px;
+  }
+  .tab-buttons {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tab-buttons button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .tab-buttons button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  pre {
+    display: none;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--surface);
+  }
+  pre.on { display: block; }
+  pre.block {
+    display: block;
+    max-width: 700px;
+    margin: 16px 0;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .hl { color: var(--accent); font-weight: 700; }
+  .cm { color: var(--text-dim); font-style: italic; }
+
+  .rule {
+    max-width: 700px;
+    margin: 18px 0;
+    padding: 12px 16px;
+    border-left: 3px solid var(--accent2);
+    background: var(--gray-150);
+    color: var(--text);
+    font-size: 14px;
+    font-style: italic;
+  }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .issue-card p { margin: 0; font-size: 13px; }
+
+  ::selection { background: var(--oat); }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#concept">00 Core Concept</a>
+    <a href="#inputs">01 EC Inputs</a>
+    <a href="#nodes">02 Current C Nodes</a>
+    <a href="#transitions">03 DAG Transitions</a>
+    <a href="#algorithm">04 Algorithm</a>
+    <a href="#config">05 Config</a>
+    <a href="#issues">06 Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>401-hypothesis-DAG.html</code>
+      <code>402-hypothesis-phE.html</code>
+      <code>hypothesis.py</code>
+      <code>evidence_compiler.py</code>
+      <code>config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase C</div>
+      <h1>Phase C — Counter Pullback</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - Phase C is the counter-pullback phase after Phase E expansion has been interrupted by D, by a direct tight-range hard pullback, by E.pullback_developing, or by failed B initiation. As coded now, C mostly reads one EC package, <code>ltf_counter_story</code>, then Layer 4 assigns the origin and sub-status.
+      </div>
+      <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis Dataflow</a>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
+      <a class="panel-link" href="./402-hypothesis-phE.html">→ Related: Phase E Detail</a>
+      <a class="panel-link" href="./402-hypothesis-phD.html">→ Related: Phase D Detail</a>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>
+      Phase C names the counter-trend pullback after the Phase E expansion leg stops being clean continuation. It is not the first reaction itself. It is the counter story that follows the reaction, with enough LTF structure to either watch for a counter POI or arm against one.
+    </p>
+    <p>
+      The classifier keeps the Phase E direction as <code>prior_phase_e_direction</code>, then Phase C trades the opposite direction. If Phase E was bullish, C is short. If Phase E was bearish, C is long.
+    </p>
+
+    <details open>
+      <summary>Discretionary read <span class="where">chart logic</span></summary>
+      <div class="body">
+        <p>
+          C is the moment where the pullback has a structure story of its own. The chart is no longer only saying “E stopped expanding”; it is saying “the counter leg has enough internal evidence to be tracked.”
+        </p>
+<pre class="block">Phase E bullish:
+  E expansion up
+  reaction / stall / pullback begins
+  LTF counter story turns bearish
+  Phase C direction = short
+
+Phase E bearish:
+  E expansion down
+  reaction / stall / pullback begins
+  LTF counter story turns bullish
+  Phase C direction = long</pre>
+      </div>
+    </details>
+
+    <div class="rule">
+      Phase C is counter to the prior Phase E direction. It can be <code>watching</code> with a story but no selected POI, or <code>armed</code> when a selected counter POI exists.
+    </div>
+
+    <h2 id="inputs"><span class="sec-num">01</span> EC Inputs</h2>
+    <p>
+      The current Phase C setup is deliberately thin. Layer 4 calls <code>_ec_candidate(snapshot, "ltf_counter_story")</code> and reads the resulting facts. The EC decides whether the counter story is ready; the DAG decides which C node name that story belongs to.
+    </p>
+
+    <details open>
+      <summary>EC package <span class="where">ltf_counter_story</span></summary>
+      <div class="body">
+<pre class="block">Gate:
+  c_gate.status == "ready"  → phase_c_story_ready
+
+Facts consumed by Layer 4:
+  selected_poi
+  ltf_counter_sd_zone_ids
+  ltf_counter_sd_returned_zone_ids
+  ltf_bias_counter_htf
+  ltf_counter_pd_break
+  ltf_counter_pullback_confirmed</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Status and entry policy <span class="where">Layer 4 output</span></summary>
+      <div class="body">
+<pre class="block">story_ready + no selected_poi:
+  phase = C
+  status = watching
+  entry_policy = wait
+
+story_ready + selected_poi:
+  phase = C
+  status = armed
+  entry_policy = hybrid only if pullback trading is enabled
+
+otherwise:
+  no Phase C promotion from this gate</pre>
+      </div>
+    </details>
+
+    <div class="rule">
+      EC should report counter evidence. It should not decide whether the node is <code>C.hard_pullback</code>, <code>C.slow_pullback</code>, or <code>C.htf_reaction_pullback</code>. That naming belongs to Layer 4 because it depends on DAG origin.
+    </div>
+
+    <h2 id="nodes"><span class="sec-num">02</span> Current C Nodes</h2>
+    <p>
+      The DAG currently names five Phase C variants. Some are implemented directly in the classifier. Others are present in the DAG note as intended vocabulary and need cleanup as migration continues.
+    </p>
+
+    <details open>
+      <summary>C.htf_reaction_pullback <span class="where">D → C</span></summary>
+      <div class="body">
+        <p>
+          This is the regular C node after a Phase D reaction. The classifier uses <code>_phase_c_sub_status_from_current_d()</code> and currently maps reaction-point, HTF zone reclaim, HTF P/D reclaim, and HTF EQ reclaim variants into <code>htf_reaction_pullback</code>.
+        </p>
+<pre class="block">Entry family:
+  D.reaction_point
+  D.htf_pd_grab_reclaim_test
+  D.htf_eq_grab_reclaim_test
+
+Required:
+  phase_c_story_ready
+  phase_d_reaction_confirmed</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.hard_pullback <span class="where">E fast path</span></summary>
+      <div class="body">
+        <p>
+          The implemented hard path is the tight P/D shortcut from Phase E. It fires when Phase E context is ready, the HTF P/D range stopped expanding, the LTF counter orderflow is clean and unbroken, and the pullback depth reaches the midpoint.
+        </p>
+<pre class="block">phase_c_origin_node = E.fast_hard_pullback
+phase_c_sub_status = hard_pullback
+phase_c_selection_reason = fast_midpoint_pullback_after_phase_e_expansion
+phase_c_quality = choppy_tight_range_fast_pullback
+threshold = ltf_pullback_depth_pct >= 50</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.slow_pullback <span class="where">E.pullback_developing → C</span></summary>
+      <div class="body">
+        <p>
+          The implemented slow path fires when the Phase E shadow node is already <code>E.pullback_developing</code> and the EC counter story becomes ready. It bypasses Phase D because the pullback has developed as a clean one-way counter process rather than a discrete D reaction.
+        </p>
+<pre class="block">phase_c_origin_node = E.pullback_developing
+phase_c_sub_status = slow_pullback
+phase_c_selection_reason =
+  ltf_pd_flipped_counter_after_failed_e_continuation_attempt</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.after_inducement / C.no_followthrough <span class="where">B failure → C</span></summary>
+      <div class="body">
+        <p>
+          When <code>B.initiation_watch</code> fails, the classifier can resolve back into Phase C. The current code emits <code>pullback.no_followthrough</code> when the B source anchor is run or when the B decision fails with LTF counter confirmation. It emits <code>pullback.after_inducement</code> when B initiation is rejected by HTF reaction plus LTF counter flow.
+        </p>
+<pre class="block">B.initiation_watch → C.pullback.no_followthrough
+B.initiation_watch → C.pullback.after_inducement</pre>
+      </div>
+    </details>
+
+    <h2 id="transitions"><span class="sec-num">03</span> DAG Transitions</h2>
+    <p>
+      Current DAG intent says Phase C can arrive from D, from fast Phase E pullback, from mature Phase E pullback, or from failed B initiation. Once C exists, the usual next step is B reclaim permission, while failed reaction can collapse back to E.
+    </p>
+
+    <details open>
+      <summary>Entry families <span class="where">DAG</span></summary>
+      <div class="body">
+<pre class="block">D.reaction_point              → C.htf_reaction_pullback
+D.htf_pd_grab_reclaim_test    → C.htf_reaction_pullback
+D.htf_eq_grab_reclaim_test    → C.htf_reaction_pullback
+
+E.seeking                     → C.hard_pullback
+E.stalling                    → C.hard_pullback
+E.pullback_developing         → C.hard_pullback
+E.pullback_developing         → C.slow_pullback
+
+B.initiation_watch failure    → C.pullback.no_followthrough
+B.initiation_watch rejection  → C.pullback.after_inducement</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Exit families <span class="where">C → B / D / E</span></summary>
+      <div class="body">
+<pre class="block">C → B.initiation_watch
+C → B.strict_reclaim
+C → B.shallow_reclaim
+
+C → D.* if a new reaction/liquidity boundary appears from current C
+C → E.seeking if the prior Phase E direction resumes and reaction fails</pre>
+      </div>
+    </details>
+
+    <div class="rule">
+      The DAG must preserve origin. A hard pullback from a tight Phase E range is not the same historical object as a C node produced after D, even if both use the same <code>ltf_counter_story</code> facts.
+    </div>
+
+    <h2 id="algorithm"><span class="sec-num">04</span> Algorithm</h2>
+    <p>
+      These snippets show the current classifier shape. Phase C setup is generic; the branch that calls it determines the C sub-status and origin debug fields.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tab-buttons">
+        <button class="on">E / D / C slice</button>
+        <button>_phase_c_setup()</button>
+        <button>_phase_c()</button>
+        <button>Fast hard path</button>
+      </div>
+<pre class="on"><span class="cm"># classify(), simplified</span>
+if previous_phase == <span class="hl">"D"</span>:
+    phase_c = self._phase_c_setup(snapshot, ltf, direction)
+    if phase_c["phase_c_story_ready"] and self._phase_d_reaction_confirmed(phase_c):
+        hyp = self._phase_c(..., phase_sub_status=<span class="hl">"htf_reaction_pullback"</span>)
+        return self._commit(hyp)
+
+phase_d = self._phase_d_setup(...)
+if phase_d["phase_d_ready"]:
+    return self._commit(self._phase_d(...))
+
+phase_c_from_e = self._phase_c_setup(snapshot, ltf, direction)
+fast_hard = self._phase_c_fast_hard_pullback_setup(debug, phase_c_from_e)
+if previous_phase != "B" and fast_hard["phase_c_fast_hard_pullback_ready"]:
+    hyp = self._phase_c(..., phase_sub_status=<span class="hl">"hard_pullback"</span>)
+    return self._commit(hyp)
+
+if previous_phase != "B" and phase_e_shadow_node == <span class="hl">"E.pullback_developing"</span>:
+    if phase_c_from_e["phase_c_story_ready"]:
+        hyp = self._phase_c(..., phase_sub_status=<span class="hl">"slow_pullback"</span>)
+        return self._commit(hyp)</pre>
+
+<pre>def _phase_c_setup(self, snapshot, ltf, prior_direction):
+    c_gate, facts = _ec_candidate(snapshot, <span class="hl">"ltf_counter_story"</span>)
+    selected_poi = facts.get("selected_poi")
+    story_ready = c_gate.get("status") == "ready"
+    armed = bool(story_ready and selected_poi)
+
+    return {
+        "phase_c_story_ready": story_ready,
+        "phase_c_status": "armed" if armed else ("watching" if story_ready else None),
+        "phase_c_direction": "short" if prior_direction == "long" else "long",
+        "phase_c_counter_zone_direction": counter_zone_direction,
+        "phase_c_selected_poi": selected_poi,
+        "phase_c_ltf_bias_counter_htf": bool(facts.get("ltf_bias_counter_htf")),
+        "phase_c_ltf_counter_pd_break": bool(facts.get("ltf_counter_pd_break")),
+        "phase_c_ltf_counter_pullback_confirmed": bool(facts.get("ltf_counter_pullback_confirmed")),
+    }</pre>
+
+<pre>def _phase_c(self, prior_direction, selected_poi, status, ts, debug, phase_sub_status=None):
+    trade_direction = "short" if prior_direction == "long" else "long"
+    entry_policy = (
+        "hybrid"
+        if status == "armed"
+        and (self.config.get("allow_pullback_trade")
+             or self.config.get("phase_c_allow_pullback_trade"))
+        else "skip"
+    )
+    if status == "watching":
+        entry_policy = <span class="hl">"wait"</span>
+
+    return Hypothesis(
+        phase="C",
+        status=status,
+        direction=trade_direction,
+        swing_alignment="counter_swing",
+        internal_alignment="pro_internal",
+        phase_sub_status=phase_sub_status,
+        entry_policy=entry_policy,
+    )</pre>
+
+<pre>ready = bool(
+    debug.get("phase_e_context_status") == "ready"
+    and not debug.get("phase_e_context_new_htf_extreme")
+    and debug.get("phase_e_context_htf_pd_stopped_expanding")
+    and debug.get("phase_e_context_ltf_counter_orderflow_clean")
+    and not debug.get("phase_e_context_ltf_counter_orderflow_broken")
+    and depth_value is not None
+    and depth_value >= <span class="hl">50.0</span>
+)</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">05</span> Config</h2>
+    <p>
+      The replayer config only enables the hypothesis layer and sets the first classifier slice. Phase C pullback trading permission is read from classifier config keys, but those keys are not present in the current replayer snippet.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tab-buttons">
+        <button class="on">config.yaml</button>
+        <button>HypothesisClassifier</button>
+      </div>
+<pre class="on">hypothesis:
+  enabled: true
+  first_slice: phase_e_d
+  reaction_confirmation: close_through_previous_htf_bar</pre>
+
+<pre>def __init__(self, config: dict[str, Any] | None = None) -> None:
+    self.config = config or {}
+    self.state = HypothesisClassifierState()
+
+<span class="cm"># Later, inside _phase_c()</span>
+entry_policy = "hybrid" if (
+    status == "armed"
+    and (
+        self.config.get("allow_pullback_trade")
+        or self.config.get("phase_c_allow_pullback_trade")
+    )
+) else "skip"</pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">06</span> Open Issues</h2>
+    <p>
+      This page only lists Phase C issues. Completed Phase E migration items stay on the Phase E note.
+    </p>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p>
+          <strong>C.slow_pullback and C.hard_pullback are still conflating with each other.</strong>
+          The current code uses <code>ltf_counter_story</code> for both and then assigns hard/slow mostly from origin path. Hard has a clear fast midpoint rule, but slow is currently “E.pullback_developing + story_ready,” which may describe maturity rather than true slowness/uncleanliness. This needs cleanup before Phase C can be trusted as a precise chart-language boundary.
+        </p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p>
+          <strong>Phase C quality language is incomplete.</strong>
+          <code>phase_c_quality</code> is set on the fast hard path, but the generic D-to-C and slow E-to-C paths do not yet carry a comparable quality field. That makes debug comparison between C variants uneven.
+        </p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p>
+          <strong>Watching C can exist without a selected POI.</strong>
+          This is probably correct, but it means a strong counter story can be visible in Layer 4 while Layer 5 still has no tradeable object. Replayer UI should make the difference between <code>watching</code> and <code>armed</code> obvious.
+        </p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p>
+          Reconcile Phase C with the Phase E shadow migration. C should consume cleanly named origin memory from Phase E/D/B instead of inferring too much from a single generic <code>ltf_counter_story</code> gate.
+        </p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+document.querySelectorAll('[data-tabs]').forEach(group => {
+  const buttons = Array.from(group.querySelectorAll('.tab-buttons button'));
+  const panes = Array.from(group.querySelectorAll('pre'));
+  buttons.forEach((button, index) => {
+    button.addEventListener('click', () => {
+      buttons.forEach(b => b.classList.remove('on'));
+      panes.forEach(p => p.classList.remove('on'));
+      button.classList.add('on');
+      panes[index].classList.add('on');
+    });
+  });
+});
+
+const navLinks = Array.from(document.querySelectorAll('nav a[href^="#"]'));
+const byId = new Map(navLinks.map(a => [a.getAttribute('href').slice(1), a]));
+const obs = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (!entry.isIntersecting) return;
+    navLinks.forEach(a => a.classList.remove('active'));
+    const link = byId.get(entry.target.id);
+    if (link) link.classList.add('active');
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+document.querySelectorAll('h2[id], h3[id]').forEach(h => obs.observe(h));
+</script>
+</body>
+</html>

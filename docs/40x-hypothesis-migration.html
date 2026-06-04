@@ -1,0 +1,576 @@
+<!-- source: user working session, hypothesis shadow-state migration discussion
+     algo:   ultrab/src/ultrab/core/smc/hypothesis.py
+     focus:  ShadowThesis, phase-owned shadows, _phase_d_setup(),
+             _phase_c_setup(), _phase_b_setup(), _phase_a_setup(),
+             _phase_a_finale()
+     config: ultrab/src/ultrab/replayer/config.yaml -> hypothesis block
+     related: ultrab/docs/401-hypothesis-DAG.html,
+              ultrab/docs/402-hypothesis-phE.html,
+              ultrab/docs/402-hypothesis-phD.html,
+              ultrab/docs/402-hypothesis-none.html,
+              ultrab/docs/311-EC-context.html -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>40x - Hypothesis Shadow Migration</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) {
+    body { padding: 36px 18px 96px; }
+    .page { grid-template-columns: 1fr; }
+    nav { display: none; }
+  }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent2);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+    margin-top: 16px;
+    max-width: 860px;
+  }
+  .issue-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .issue-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+  .issue-card p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.62;
+  }
+  .issue-card b { color: var(--text-head); }
+  .footer-note {
+    margin-top: 58px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 12px;
+    max-width: 700px;
+  }
+</style>
+</head>
+
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#boundary" class="active">00 Boundary</a>
+    <a href="#none">01 none / warmup</a>
+    <a href="#phase-e">02 Phase E · Closed</a>
+    <a href="#phase-d">03 Phase D</a>
+    <a href="#phase-c">04 Phase C</a>
+    <a href="#phase-b">05 Phase B</a>
+    <a href="#phase-a">06 Phase A</a>
+    <a href="#gating">07 Gating</a>
+
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>hypothesis.py</code>
+      <code>config.yaml</code>
+      <code>401-hypothesis-DAG.html</code>
+      <code>402-hypothesis-phE.html</code>
+      <code>402-hypothesis-phD.html</code>
+      <code>402-hypothesis-none.html</code>
+      <code>311-EC-context.html</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 / Hypothesis DAG / Shadow state</div>
+      <h1>40x - Hypothesis Shadow Migration</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - This page is intentionally only an open-issue ledger. Phase E migration is closed: EC facts, DAG ownership, and the phase-owned <code>PhaseEShadow</code> boundary are implemented. The next active phase is D. Remaining work belongs to <code>none</code>, D, C, B, A, and cross-phase gating.
+      </div>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">-&gt; Related: 401 Hypothesis DAG</a>
+      <a class="panel-link" href="./402-hypothesis-phE.html">-&gt; Related: 402 Phase E</a>
+      <a class="panel-link" href="./402-hypothesis-phD.html">-&gt; Next: 402 Phase D</a>
+      <a class="panel-link" href="./402-hypothesis-none.html">-&gt; Related: 402 none</a>
+      <a class="panel-link" href="./311-EC-context.html">-&gt; Related: 311 Evidence Compiler</a>
+    </header>
+
+    <section>
+      <h2 id="boundary"><span class="sec-num">00</span> Migration Boundary</h2>
+      <p>
+        This tracker keeps the open decisions visible while Layer 4 is rebuilt phase by phase. The target boundary is simple: EC emits facts, the DAG selects the phase node, and each phase shadow stores only the memory needed inside that phase.
+      </p>
+      <div class="rule-block">
+        Open migration rule: do not let a shadow thesis decide the global phase. Shadow state should explain the current phase's internal status, while the DAG remains responsible for phase transitions.
+      </div>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Define phase-owned shadow objects.</b> Decide whether each phase gets a small dataclass such as <code>PhaseEShadow</code>, <code>DShadow</code>, and <code>BShadowThesis</code>, instead of one generic <code>ShadowThesis</code> that quietly means B.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Stop legacy priority from leaking back in.</b> The old classifier searched E, D, C, B, A by priority. The migration needs an explicit rule for when that priority is still valid, and when the DAG must hold the active node.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fallback</div>
+          <p><b>Prefer one active phase during rebuild.</b> If cross-phase behavior becomes noisy, run the classifier with only E enabled first, then add D, C, B, and A back in order.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="none"><span class="sec-num">01</span> none / warmup</h2>
+      <p>
+        <code>none</code> is still the silence state, not a trading phase. The open work is making sure it only means warmup, no closed HTF structure, or genuinely no trade, instead of catching valid post-warmup phase states.
+      </p>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Open Issue</div>
+          <p><b>Allow warmup to self-locate into any current phase.</b> Once the first usable HTF structure exists, the DAG should be able to move from <code>none(warmup)</code> into <code>E</code>, <code>D</code>, <code>C</code>, <code>B</code>, or <code>A</code> from current EC/DAG evidence instead of only supporting <code>none → E.seeking</code>.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Separate silence reasons.</b> Keep warmup silence, missing 15m/4H close, no structure, and no trade as distinct <code>none_sub_status</code> values so a valid E origin does not disappear under the catch-all.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fallback</div>
+          <p><b>Debug blocked transitions.</b> If a bar stays <code>none</code> while EC has enough E facts, emit a blocked-transition reason such as <code>blocked_none_to_e</code>.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="phase-e"><span class="sec-num">02</span> Phase E · Closed</h2>
+      <p>
+        Phase E migration is closed. Price remains in expansion monitoring while the HTF P/D
+        level is extending, stalling, or developing a clean counter pullback. Only an explicit
+        destination-phase contract may move the DAG out of E.
+      </p>
+      <p>
+        The completed ownership split is explicit. EC owns observable facts,
+        Layer 4 owns phase choice, and the Phase E shadow thesis owns only the internal
+        <code>E.seeking</code> / <code>E.stalling</code> / <code>E.pullback_developing</code>
+        memory.
+      </p>
+      <div class="rule-block">
+        <b>Migration status: Closed.</b> There are no remaining Phase E migration items in this
+        ledger. References to E inside <code>none</code>, D, and C describe the origin boundary
+        for those destination phases; they do not reopen Phase E migration. Lower-risk Phase E
+        runtime oddities remain documented as edge cases in
+        <a href="./402-hypothesis-phE.html">402 Phase E</a>.
+      </div>
+
+      <pre class="block">EC owns:
+  - phase_e_context candidate, emitted when HTF direction is known
+  - active_phase_e_extreme_price / active_phase_e_extreme_time
+  - new_htf_extreme
+  - HTF stopped-extending fact
+  - LTF probe outside current HTF PD range
+  - HTF close outside current HTF PD range
+  - clean unbroken LTF counter orderflow after E.stalling
+  - LTF pullback depth / displacement as supporting metrics, not the first trigger
+  - reaction_warning / reaction_confirmed / reaction_failed
+  - raw evidence refs and debug facts explaining those observations
+
+Layer 4 DAG owns:
+  - whether current hypothesis phase is none, E, D, C, B, or A
+  - none/warmup -> current best phase transition once usable HTF structure exists
+    (E, D, C, B, or A)
+  - holding E when LTF probes outside PD range before HTF close
+  - E -> D transition only on the agreed counter-reaction contract
+  - E.stalling -> E.pullback_developing when clean unbroken LTF counter orderflow appears
+  - E -> C slow-pullback transition only after shadow reports pullback_developing and the LTF counter story matures
+  - disabled-phase blocked-transition debug during phase-by-phase replay
+
+Phase E shadow thesis owns:
+  - current E shadow node: E.seeking, E.stalling, or E.pullback_developing
+  - previous E shadow node and bars_in_node
+  - source LTF counter-orderflow leg id / started_at for pullback_developing
+  - consumed source id so one clean orderflow event does not double-fire
+  - phase_sub_status output derived from the current E shadow node
+
+Phase E shadow thesis must not own:
+  - global phase selection
+  - HTF/LTF fact detection
+  - D/C/B/A transition priority
+  - raw snapshot reads</pre>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Archived · Completed</div>
+          <p><b>LTF probe outside P/D range no longer becomes <code>none</code>.</b>
+          Layer 4 holds Phase E while an LTF probe moves outside the active HTF P/D range before
+          an explicit HTF-close transition fires.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Archived · Completed</div>
+          <p><b>Clean orderflow facts drive <code>E.pullback_developing</code>.</b>
+          EC emits whether LTF counter orderflow is clean, unbroken, and counter to HTF after
+          <code>E.stalling</code>. Pullback depth remains a supporting metric, not the first
+          trigger.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Archived · Completed</div>
+          <p><b>No additional Phase E subphase is required.</b>
+          Phase E stays with <code>E.seeking</code>, <code>E.stalling</code>, and
+          <code>E.pullback_developing</code>; no <code>E.LTF-seeking</code> migration item
+          remains.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="phase-d"><span class="sec-num">03</span> Phase D</h2>
+      <p>
+        D should be reintroduced only after the E boundary is clean. The open work is defining the exact evidence that turns expansion monitoring into counter-reaction monitoring.
+      </p>
+      <p>
+        The proposed failed-continuation path is a sibling of the existing HTF reaction-point
+        and liquidity-test paths. Its provisional node is
+        <code>D.continuation_failure_test</code>: a first clean counter leg was disrupted by a
+        distinct pro-aligned continuation leg, then a fresh clean counter leg appeared before
+        any strict new HTF extreme. The second counter leg is the D origin event; the
+        intervening unresolved interval remains <code>E.stalling</code>.
+      </p>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Define the failed-continuation E-to-D contract.</b> Add a phase-neutral EC candidate such as <code>ltf_pro_continuation_failure</code> that records the first counter leg, distinct pro-aligned continuation leg, fresh failure counter leg, and whether a strict new HTF extreme occurred before failure. Layer 4 should select <code>D.continuation_failure_test</code> only when those EC facts match Phase E shadow lineage.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Migration Issue</div>
+          <p><b>Do not treat every broken counter leg as a pro-continuation attempt.</b> Current <code>ltf_counter_orderflow_broken</code> also covers compression, sweep-range, and broken-quality regimes. EC needs an objective pro-aligned leg fact before Layer 4 can arm the continuation-failure path.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Migration Issue</div>
+          <p><b>Track explicit leg lineage in phase-owned shadow memory.</b> Replace an ambiguous pullback-cycle count with first-counter, pro-continuation, and failure-counter leg IDs plus consumed state. The shadow records Layer 4 history; EC remains unaware of <code>E.pullback_developing</code> and other DAG nodes.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Current Behavior Conflict</div>
+          <p><b>Revisit <code>new_htf_extreme_with_ltf_counter_bias</code> as a D trigger.</b> A strict new HTF extreme normally proves successful Phase E continuation and should return or hold <code>E.seeking</code>. It should open D only when a separate explicit liquidity or reaction footprint justifies that transition.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Current Behavior Conflict</div>
+          <p><b>Keep <code>reaction_failed</code> separate from continuation failure.</b> The current fact means an existing D/C reaction collapsed because price resumed through the Phase E extreme. It must not be reused to mean that a resumed pro-continuation attempt failed before creating a new extreme.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Handle probe versus close.</b> A wick/probe against the expansion level and a closed HTF counter-reaction should not both trigger the same D origin.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fallback</div>
+          <p><b>Keep D disabled during E-only replay.</b> Until E stops falling to <code>none</code>, D should be unavailable or logged as blocked so its legacy branch cannot hide the E bug.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="phase-c"><span class="sec-num">04</span> Phase C</h2>
+      <p>
+        C is the slow pullback and reaction-development phase. Its migration should make the path from <code>E.pullback_developing</code> or D explicit, without requiring B's shadow state to be alive.
+      </p>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Define the slow C origin.</b> Decide when <code>E.pullback_developing</code> is mature enough to become C, and which EC facts carry that maturity.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Block direct E-to-B walking.</b> <code>E.pullback_developing</code> should not move directly to <code>B.initiation_watch</code>. The pullback must first mature into C; only then can B evaluate a pro-side reclaim or initiation attempt.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Separate D-to-C from E-to-C.</b> A confirmed counter-reaction after D and a slow pullback directly from E may share evidence, but the DAG should log which origin created C.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fallback</div>
+          <p><b>Do not depend on B shadow.</b> During the C pass, keep B disabled so C cannot appear correct only because B's current <code>ShadowThesis</code> absorbed ambiguous bars.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="phase-b"><span class="sec-num">05</span> Phase B</h2>
+      <p>
+        B is currently the only extracted shadow thesis, but that object is really B-specific. The clean migration path is to gate it off, rename or reshape it, and bring it back after E, D, and C are explicit.
+      </p>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Disable B while rebuilding earlier phases.</b> Add a config or classifier gate so B cannot take priority while E, D, and C contracts are being verified in the replayer.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Rename generic <code>ShadowThesis</code>.</b> If the fields remain B-only, rename it to <code>BShadowThesis</code> or split it into phase-owned state before adding D/C/A shadow logic.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Split initiation from shallow reclaim.</b> The B migration still needs a crisp boundary between the B setup candidate and the shallow-reclaim memory that survives across bars.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fallback</div>
+          <p><b>Reset rules need proof in replay.</b> B shadow should define exactly when it survives, resets, or gets consumed by A, with debug fields showing the reason.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="phase-a"><span class="sec-num">06</span> Phase A</h2>
+      <p>
+        A should be last because it is the trade-objective phase. The open question is not just how to detect A, but how to prove it came from the right upstream phase.
+      </p>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Migrate <code>_phase_a_setup()</code> off raw snapshots.</b> A setup needs an EC candidate or an explicit deferral note before it can be trusted inside the DAG.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Define A origin from B.</b> The DAG should reject an A candidate that does not have a valid B lineage, unless a separate exceptional origin is deliberately defined.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fallback</div>
+          <p><b>Revalidate A finale after B returns.</b> Even if <code>_phase_a_finale()</code> already has EC wiring, it should be replay-checked after B shadow rules are renamed and gated back in.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="gating"><span class="sec-num">07</span> Config / Gating</h2>
+      <p>
+        The migration needs a temporary switchboard so the replayer can study one phase at a time without legacy branches stealing priority.
+      </p>
+
+      <pre class="block">hypothesis:
+  enabled: true
+  first_slice: phase_e_d
+  reaction_confirmation: close_through_previous_htf_bar
+  enabled_phases:
+    E: true
+    D: false
+    C: false
+    B: false
+    A: false</pre>
+
+      <div class="issue-grid">
+        <div class="issue-card">
+          <div class="issue-label">Next Milestone</div>
+          <p><b>Pass hypothesis config into the classifier.</b> Runtime wiring should construct <code>HypothesisClassifier</code> with the hypothesis block, so phase gates are available in replay.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Edge Case</div>
+          <p><b>Blocked phases should leave evidence.</b> When a disabled D/C/B/A candidate would have fired, the DAG should log the blocked candidate rather than silently falling through to <code>none</code>.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Out of Scope</div>
+          <p><b>Do not tune strategy thresholds here.</b> This page tracks state-boundary migration only. Instrument choice, ranging-market filtering, and trade profitability tuning belong in separate notes.</p>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer-note">
+      Every issue card on this page is open by design. Completed migration work should be moved into the phase-specific notes or archived with an explicit completed label.
+    </div>
+  </main>
+</div>
+
+<script>
+  const navLinks = Array.from(document.querySelectorAll('nav a[href^="#"]'));
+  const headings = Array.from(document.querySelectorAll('h2[id]'));
+  const byId = new Map(navLinks.map(link => [link.getAttribute('href').slice(1), link]));
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      navLinks.forEach(link => link.classList.remove('active'));
+      const link = byId.get(entry.target.id);
+      if (link) link.classList.add('active');
+    });
+  }, { rootMargin: '-20% 0px -70% 0px', threshold: 0 });
+
+  headings.forEach(heading => observer.observe(heading));
+</script>
+</body>
+</html>

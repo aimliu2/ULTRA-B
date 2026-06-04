@@ -1,0 +1,1187 @@
+<!-- source: ultrab/src/ultrab/core/smc/evidence_compiler.py
+     tests:  ultrab/tests/test_evidence_compiler.py
+     wired:  ultrab/src/ultrab/runtime/dual_smc.py
+     layer4: ultrab/src/ultrab/core/smc/hypothesis.py -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>311 · Evidence Compiler — Layer 3 Candidate Emission</title>
+
+<!-- KaTeX — local copy -->
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  /* ── nav ── */
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  /* ── header ── */
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  /* ── section headings ── */
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ── details / collapsible ── */
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "▸";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  /* ── tabs ── */
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  /* ── plain pre/code blocks ── */
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  /* ── callout ── */
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  /* ── step list ── */
+  ol.steps {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ol.steps li {
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  ol.steps li b { color: var(--text-head); }
+
+  ul.plain {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ul.plain li {
+    margin-bottom: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  /* ── chip ── */
+  .chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--tag-bg);
+    color: var(--text-dim);
+    border: 1.5px solid var(--border);
+    border-radius: 22px;
+    padding: 2px 10px;
+    font-family: var(--sans);
+    vertical-align: middle;
+  }
+
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+
+  /* ── open issues ── */
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+
+  /* KaTeX display override */
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── side nav ── -->
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core Concept</a>
+    <a href="#concept" class="l2">6 patterns</a>
+    <a href="#concept" class="l2">Epoch boundary</a>
+    <a href="#schema">EvidenceCandidate Schema</a>
+    <a href="#b-initiation">B-initiation Chain</a>
+    <a href="#b-initiation" class="l2">Step 1 · Source grab</a>
+    <a href="#b-initiation" class="l2">Step 2 · Opposite grab</a>
+    <a href="#b-initiation" class="l2">Step 3 · Decision zone</a>
+    <a href="#counter-reaction">HTF Counter-reaction</a>
+    <a href="#ltf-story">LTF Counter-story</a>
+    <a href="#b-setup">HTF B-phase Setup</a>
+    <a href="#pd-objective">HTF P/D Objective</a>
+    <a href="#phase-e">Phase-E Context</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/evidence_compiler.py</code>
+      <code>core/smc/hypothesis.py</code>
+      <code>runtime/dual_smc.py</code>
+      <code>tests/test_evidence_compiler.py</code>
+      <code>tests/test_hypothesis_classifier.py</code>
+    </div>
+  </nav>
+
+  <!-- ── main ── -->
+  <main>
+    <header>
+      <div class="eyebrow">Layer 3 · Node 11 · Evidence Compiler</div>
+      <h1>Evidence Compiler — Qualified Candidate Emission</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — The Evidence Compiler is the final Layer 3 stage after Fusion.
+        It reads the <code>DualContextSnapshot</code> bar-by-bar, accumulates multi-bar evidence chains,
+        and emits typed <code>EvidenceCandidate</code> objects for Layer 4 (DAG Navigator) to consume.
+        It asks <em>"what did the market do?"</em> — emitting facts with timestamps and source object refs,
+        not phase decisions. Six patterns cover the full trade lifecycle from B-initiation through Phase-E expansion.
+        Stateful only for the B-initiation 3-step chain and the Phase-E extreme tracker; all other patterns are per-bar gates.
+      </div>
+      <a class="panel-link" href="./301-context.html">→ Back to 301 Layer 3 Context</a>
+      <a class="panel-link" href="./310-fusion-context.html">→ Related: 310 Fusion Context</a>
+      <a class="panel-link" href="./401-hypothesis.html">→ Forward: 401 Hypothesis DAG</a>
+    </header>
+
+    <!-- ── §00 Core Concept ── -->
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>
+      The Evidence Compiler sits between <strong>Fusion</strong> (which prints the current-bar truth snapshot)
+      and <strong>Layer 4</strong> (which makes thesis decisions).
+      Fusion is stateless — it answers "what is true now."
+      The EC is stateful — it answers "what has the market been doing across bars, and what does that chain of evidence look like?"
+    </p>
+    <p>
+      The EC does not decide phase. It does not read hypothesis state. It reads consecutive fused snapshots
+      and emits a list of <code>EvidenceCandidate</code> objects on every bar — one per active pattern.
+      Layer 4 decides which candidates to act on.
+    </p>
+
+    <h3>Six patterns</h3>
+    <pre class="block">htf_b_initiation      3-step chain: source ITR grab → opposite ITR grab → HTF decision zone
+                      Stateful — accumulates across bars. Resets on epoch boundary.
+
+htf_counter_reaction  Counter-reaction facts: HTF P/D stopped expanding + opposing SD tapped/resolved
+                      + LTF counter SD created. Liquidity variant requires current grab/reclaim
+                      + reclaim inside active P/D + post-reclaim LTF ChoCh + HTF close resolution.
+
+ltf_counter_story     C-phase gate: LTF bias flipped counter to HTF direction.
+                      Emits selected POI if a counter LTF SD zone is available.
+
+htf_b_phase_setup     B-phase direct entry gate: LTF turned back toward HTF direction
+                      + pro-trend LTF SD zone inside HTF P/D half.
+                      Sub-types: strict (deep pullback) vs shallow (50–70% P/D).
+
+htf_pd_objective      A-phase finale: current HTF bar touched the P/D range extreme.
+                      Sub-flag: phase_a_finale_closed_beyond for confirmed close past objective.
+
+phase_e_context       Always emitted when HTF direction is known. Tracks the running
+                      E-cycle extreme, two-bar reaction signal, and reaction_failed flag.</pre>
+
+    <h3>Epoch boundary</h3>
+    <p>
+      The EC derives an epoch ID from the HTF structure's <code>last_sc</code> event — specifically the
+      event timestamp, event code, break direction, and <code>phase_start_ts</code>.
+      When this ID changes, a new HTF P/D leg has started.
+      The B-initiation accumulator resets and the Phase-E extreme tracker clears.
+      This ensures cross-bar chains never leak across legs.
+    </p>
+    <pre class="block">epoch_id = f"{last_sc.eventTimestamp}|{last_sc.eventCode}|{last_sc.breakDirection}|{phase_start_ts}"</pre>
+
+    <div class="rule-block">
+      EC reads from <code>fused["context_snapshot"]</code> (DualContextSnapshot) and HTF OHLCV bars.
+      It does not re-read raw channel snapshots. It asks "what did the market do?" — it emits facts, not phase decisions.
+      DAG Navigator holds <code>previous_phase / current_node</code> state and decides which phase applies.
+    </div>
+
+    <!-- ── §01 EvidenceCandidate Schema ── -->
+    <h2 id="schema"><span class="sec-num">01</span> EvidenceCandidate Schema</h2>
+    <p>
+      Every pattern emits a single <code>EvidenceCandidate</code> dataclass per bar.
+      The schema is uniform across all patterns — the <code>pattern</code> field and <code>debug_facts</code>
+      carry pattern-specific fields.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">EvidenceCandidate</button>
+        <button data-t="1">EvidenceRef</button>
+        <button data-t="2">to_dict() shape</button>
+      </div>
+<pre class="on"><span class="cm"># evidence_compiler.py</span>
+@dataclass
+<span class="hl">class EvidenceCandidate</span>:
+    candidate_id: str           <span class="cm"># stable per epoch (B-init) or uuid per bar</span>
+    pattern: str                <span class="cm"># one of the 6 pattern names</span>
+    status: <span class="hl">CandidateStatus</span>    <span class="cm"># "collecting" | "ready" | "invalidated" | "expired"</span>
+    direction: <span class="hl">Direction</span>       <span class="cm"># "long" | "short" | "none"</span>
+    timeframe: str | None       <span class="cm"># reference_tf (HTF) or execution_tf (LTF)</span>
+    evidence_refs: list[EvidenceRef]           <span class="cm"># typed pointers to market events</span>
+    source_object_refs: list[dict[str, Any]]   <span class="cm"># zone_ids, pool_ids, level prices</span>
+    location_context: dict[str, Any]           <span class="cm"># price, timestamp, pd_position</span>
+    blocked_reasons: list[str]                 <span class="cm"># why status != ready</span>
+    first_seen_at: str | None   <span class="cm"># when pattern first activated this epoch</span>
+    ready_at: str | None        <span class="cm"># timestamp when status flipped to ready</span>
+    debug_facts: dict[str, Any] <span class="cm"># pattern-specific raw flags for inspection</span></pre>
+<pre><span class="cm"># A typed pointer to a specific piece of market evidence</span>
+@dataclass
+<span class="hl">class EvidenceRef</span>:
+    ref_id: str | None          <span class="cm"># pool_id, zone_id, or None</span>
+    kind: str                   <span class="cm"># "liquidity_pool" | "sd_zone" | "pd_level" | "structure_event"</span>
+    source: str | None          <span class="cm"># e.g. "htf_itr_high", "htf_itr_eqh"</span>
+    direction: str | None       <span class="cm"># "bullish" | "bearish"</span>
+    price: float | None         <span class="cm"># level price</span>
+    seen_at: str | None         <span class="cm"># confirmed_at or taken_at</span>
+    variant: str | None         <span class="cm"># "level" | "eq" | None</span>
+    side: str | None            <span class="cm"># "high" | "low" | None</span></pre>
+<pre><span class="cm"># payload["evidence_candidates"] is a list of dicts</span>
+{
+  <span class="hl">"candidate_id"</span>:      "a1b2c3d4...",
+  "pattern":           "htf_b_initiation",
+  <span class="hl">"status"</span>:            "collecting",   <span class="cm"># or "ready"</span>
+  "direction":         "long",
+  "timeframe":         "4h",
+  "evidence_refs":     [{...}, ...],
+  "source_object_refs":[{"kind":"sd_zone","zone_id":"z42","timeframe":"4h"}],
+  <span class="hl">"location_context"</span>: {"timestamp": "2024-09-01T08:00:00Z", "current_price": 51200.0},
+  "blocked_reasons":   ["opposite_itr_grab_not_seen"],
+  "first_seen_at":     "2024-09-01T04:00:00Z",
+  "ready_at":          null,
+  "debug_facts":       {<span class="cm">/* pattern-specific */</span>}
+}</pre>
+    </div>
+
+    <!-- ── §02 B-initiation chain ── -->
+    <h2 id="b-initiation"><span class="sec-num">02</span> HTF B-initiation Chain</h2>
+    <p>
+      The B-initiation pattern is the most complex: it is a three-step <em>multi-bar accumulator</em>.
+      Unlike gate patterns that evaluate fresh each bar, this chain carries state from bar to bar.
+      The candidate ID is stable across bars until an epoch boundary resets the accumulator.
+    </p>
+    <p>
+      Mental model: the market is setting up Phase B (the trade entry zone) when it
+      grabs a source liquidity pool in the P/D direction, then grabs the opposite ITR level,
+      and finally enters a counter-direction HTF SD zone (the "decision zone" where institutional
+      orders are likely waiting).
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>Step 1 · Source ITR grab — P/D-direction liquidity taken <span class="where">_observe_b_init_source_grab()</span></summary>
+      <div class="body">
+        <p>
+          For a bullish market (<code>direction == "long"</code>), the source grab is a <em>bullish</em>
+          grab-reclaim of an HTF ITR low or equal-low (<code>htf_itr_low</code> / <code>htf_itr_eql</code>).
+          For bearish, it's a bearish grab of HTF ITR high or equal-high.
+        </p>
+        <p>
+          The EC checks <code>liquidity["htf_itr_grab_reclaim_ready"]</code> and the direction/source keys.
+          When matched, an <code>_ITRGrabRef</code> is stored in <code>_BInitiationState.source_itr_grab</code>.
+          The grab ref is idempotent — once step 1 fires, re-checks are ignored.
+        </p>
+        <pre class="block">direction == "long"  → expected grab: bullish, source in {htf_itr_low, htf_itr_eql}
+direction == "short" → expected grab: bearish, source in {htf_itr_high, htf_itr_eqh}</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Step 2 · Opposite ITR grab — counter-direction liquidity taken <span class="where">_observe_b_init_opposite_grab()</span></summary>
+      <div class="body">
+        <p>
+          After step 1 fires, the market must also take the opposite ITR level.
+          For bullish: a bearish grab of HTF ITR high or equal-high.
+          This confirms the sweep-and-reverse pattern — both sides of the range have been tagged.
+        </p>
+        <p>
+          Step 2 only activates when step 1 is complete.
+          The opposite grab ref is stored in <code>_BInitiationState.opposite_itr_grab</code>.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Step 3 · Decision zone — counter-direction HTF SD zone entered <span class="where">_observe_b_init_decision_zones()</span></summary>
+      <div class="body">
+        <p>
+          After steps 1 and 2, the EC checks whether price is currently <em>inside</em> any counter-direction
+          HTF SD zone (<code>in_zone == true</code>).
+          For bullish: a supply zone on the HTF timeframe. For bearish: a demand zone.
+        </p>
+        <p>
+          Zone IDs are accumulated into <code>decision_zone_ids</code> — a running list, not replaced bar-by-bar.
+          The candidate transitions to <code>ready</code> when all three steps have fired.
+        </p>
+        <pre class="block">direction == "long"  → counter zone direction: "supply"
+direction == "short" → counter zone direction: "demand"
+
+Status: "collecting" (steps 1–2 done, zone not yet entered)
+        "ready"      (all 3 steps complete)</pre>
+      </div>
+    </details>
+
+    <p>The formal readiness condition for the B-initiation chain:</p>
+    $$
+    \text{B-init ready} \iff \text{source\_grab} \;\wedge\; \text{opposite\_grab} \;\wedge\; |\text{decision\_zone\_ids}| > 0
+    $$
+
+    <div class="rule-block">
+      The B-initiation candidate ID is stable once step 1 fires. It persists until the epoch boundary resets.
+      <code>blocked_reasons</code> carry exactly which steps are still missing so the DAG can track progress
+      without re-reading raw snapshots.
+    </div>
+
+    <!-- ── §03 HTF Counter-reaction ── -->
+    <h2 id="counter-reaction"><span class="sec-num">03</span> HTF Counter-reaction Candidate</h2>
+    <p>
+      This neutral Layer 3 candidate describes when HTF expansion has stalled and counter evidence has
+      appeared. It does not decide that Phase D is valid; Layer 4 later checks the origin and selects a node.
+    </p>
+    <p>
+      Three sub-conditions combine: the HTF P/D stopped expanding (no new extreme this bar),
+      an opposing SD zone was tapped or resolved, and a counter-direction LTF SD zone has been created.
+      A special variant fires even on a new extreme if LTF bias has already flipped counter.
+      The target liquidity-grab variant does not fire from a matching grab alone. It qualifies a current
+      HTF P/D or relevant HTF EQ grab/reclaim against reclaim location, a fresh post-reclaim LTF ChoCh,
+      and the resolving HTF close.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>Normal path — stopped expansion + opposing reaction + LTF counter SD <span class="where">_compile_htf_counter_reaction()</span></summary>
+      <div class="body">
+        <p>
+          <code>htf_pd_stopped_expanding</code>: the current bar did not set a new running extreme
+          (tracked by <code>active_phase_e_extreme_price</code>).
+        </p>
+        <p>
+          <code>htf_opposing_sd_reaction</code>: any of — HTF pullback confirmed by SD zone,
+          counter HTF zone currently <code>in_zone</code>, or last resolved zone was counter-direction.
+        </p>
+        <p>
+          <code>ltf_counter_sd_created</code>: at least one counter-direction LTF SD zone exists.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Special path — new HTF extreme + LTF already counter-biased <span class="where">_compile_htf_counter_reaction()</span></summary>
+      <div class="body">
+        <p>
+          Even when the HTF is still making new extremes, if the LTF bias is already running counter
+          to the HTF direction, the counter-reaction candidate fires as a warning signal.
+          This catches early-rotation setups before the HTF stops expanding.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Liquidity-grab variant — current reclaim plus post-reclaim ChoCh <span class="where">target contract</span></summary>
+      <div class="body">
+        <p>
+          EC reads every currently triggerable HTF P/D and HTF EQ grab/reclaim event. It derives
+          relation to the active HTF expansion extreme, checks that price reclaimed inside the active HTF P/D,
+          and orders the latest confirmed LTF ChoCh after <code>reclaimed_at</code>. It keeps qualified
+          events in <code>liquidity_reclaim_candidates[]</code>; EC does not select P/D before EQ and
+          does not name a Layer 4 D node.
+        </p>
+        <pre class="block">liquidity_reclaim_candidate
+  liquidity_event_id
+  liquidity_event_is_current
+  liquidity_relation_to_htf_expansion_extreme
+
+  fresh_pro_htf_continuation_attempt
+  pro_attempt_reached_liquidity_event
+  pro_attempt_failed_to_establish_continuation
+
+  price_reclaimed_inside_active_htf_pd
+  current_probe_inside_active_htf_pd
+  htf_close_inside_active_htf_pd
+  htf_close_outside_active_htf_pd
+
+  ltf_counter_choch_after_reclaim
+  ltf_counter_choch_event_at
+  ltf_counter_choch_direction
+  ltf_counter_choch_level</pre>
+      </div>
+    </details>
+
+    <h3>Liquidity chronology qualification</h3>
+    <pre class="block">current event:
+  liquidity event belongs to current triggerable scope
+  P/D event belongs to active HTF P/D epoch
+  EQ event is pro-side and near active HTF expansion extreme/current external range
+
+pro-attempt chronology:
+  fresh pro-HTF continuation attempt starts after the reaction/pullback origin
+  pro attempt reaches this liquidity event before reclaim
+  pro attempt fails to establish continuation
+
+EQ relevance:
+  relation = at_active_extreme | near_active_extreme |
+             pro_side_external_range | unrelated | unknown
+  near distance &lt;= max(event pool tolerance, current HTF EQ tolerance)
+
+post-reclaim counter ChoCh:
+  ltf.last_sc.choch == true
+  ltf.last_sc.breakDirection is counter to HTF direction
+  ltf.last_sc.eventTimestamp >= liquidity.reclaimed_at
+
+candidate collecting:
+  current relevant grab/reclaim exists
+  but post-reclaim ChoCh or HTF close resolution is incomplete
+
+candidate ready:
+  current relevant grab/reclaim
+  + fresh pro-HTF attempt reached the event and failed
+  + reclaim inside active HTF P/D
+  + post-reclaim counter LTF ChoCh
+  + HTF close inside active HTF P/D
+
+continuation accepted:
+  HTF close outside active HTF P/D</pre>
+
+    <div class="rule-block">
+      A matching grab alone must remain <code>collecting</code>. Clean counter Orderflow is not required:
+      one confirmed counter-direction LTF ChoCh after reclaim is the intended structural confirmation.
+      Layer 4 later checks valid origins, selects a D subtype, and consumes the stable
+      <code>liquidity_event_id</code>.
+    </div>
+
+    <div class="rule-block">
+      Layer 3 never receives Phase E state back from Layer 4. The target neutral tracker is
+      <code>htf_expansion_context</code> with <code>htf_expansion_extreme_price</code>,
+      <code>htf_expansion_extreme_at</code>, and <code>htf_expansion_epoch_id</code>.
+      Current <code>phase_e_context</code> and <code>active_phase_e_extreme_*</code> names are
+      compatibility aliases pending runtime migration.
+    </div>
+
+    <!-- ── §04 LTF Counter-story ── -->
+    <h2 id="ltf-story"><span class="sec-num">04</span> LTF Counter-story Gate</h2>
+    <p>
+      The C-phase gate. Fires when the LTF bias has fully flipped counter to the HTF direction.
+      This represents the lower-timeframe building its own story against the higher-timeframe trend —
+      an inducement / counter-move that the B-phase entry will eventually exploit.
+    </p>
+    <p>
+      The gate requires only one condition: <code>ltf_struct.bias</code> is counter to HTF direction.
+      The candidate is <code>ready</code> when a counter LTF SD zone also exists (the POI to trade from).
+      If no zone exists yet, it emits as <code>collecting</code> with <code>blocked_reasons: ["no_ltf_counter_sd_zone_available"]</code>.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>POI selection — oldest counter-direction LTF SD zone, prefer returned <span class="where">_compile_ltf_counter_story()</span></summary>
+      <div class="body">
+        <p>
+          LTF counter zones are sorted by <code>created_at</code> ascending. Zones with <code>in_zone == true</code>
+          (price currently inside) are preferred as the selected POI. If none are in-zone, the oldest
+          available zone is selected.
+        </p>
+        <p>
+          The <code>location_context</code> carries <code>selected_poi_id</code> and <code>selected_poi_touched</code>
+          so the DAG can see which zone is the target and whether it is currently being tested.
+        </p>
+        <pre class="block">selected_poi = returned_zones[0] if returned_zones else ltf_counter_zones[0]
+location_context["selected_poi_touched"] = bool(selected_poi and selected_poi["in_zone"])</pre>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      The LTF counter-story candidate is always emitted fresh per bar (new uuid). Status is <code>ready</code>
+      when both LTF bias is counter and at least one counter SD zone exists. The DAG decides whether
+      C-phase is active or whether the story resolves without a trade.
+    </div>
+
+    <!-- ── §05 HTF B-phase Setup ── -->
+    <h2 id="b-setup"><span class="sec-num">05</span> HTF B-phase Setup Gate</h2>
+    <p>
+      Direct B-phase entry gate. Fires when the LTF has turned back toward the HTF direction
+      with a pro-trend LTF SD zone available inside the HTF P/D pullback zone.
+      This is the simpler entry path — no three-step chain needed, just structural alignment.
+    </p>
+    <p>
+      Two sub-types based on depth of the HTF pullback:
+    </p>
+    <ul class="plain">
+      <li><strong>strict</strong> — HTF P/D value percent &lt; 50%. Price is deep in the pullback, close to the source zone. Higher conviction entry.</li>
+      <li><strong>shallow</strong> — HTF P/D value percent between 50% and 70%. Shallower retrace, acceptable only with additional pullback confirmation.</li>
+    </ul>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>LTF turned back — LTF bias matches HTF bias <span class="where">_compile_htf_b_phase_setup()</span></summary>
+      <div class="body">
+        <p>
+          <code>ltf_struct.bias</code> must match the HTF bias direction.
+          For bullish HTF: LTF bias must be bullish. This confirms the lower-timeframe
+          has reversed its counter-move and is now aligned with the trend.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>HTF pro-SD reaction — HTF demand/supply tapped or resolved <span class="where">_compile_htf_b_phase_setup()</span></summary>
+      <div class="body">
+        <p>
+          Either the current price is inside a pro-direction HTF SD zone (<code>in_zone == true</code>)
+          or the last resolved HTF zone was pro-direction. This provides evidence that the HTF level
+          is reacting to the pullback zone.
+        </p>
+        <p>
+          <code>strict_ready</code>: location is strict AND HTF pro-SD is reacting.
+          <code>shallow_ready</code>: location is shallow AND HTF pro-SD is reacting AND pullback confirmed.
+        </p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      The B-phase setup candidate only emits when the <code>base_candidate</code> condition is met —
+      pullback context is present, location is in the valid P/D half, LTF turned back, and an LTF pro-SD zone exists.
+      Below this threshold the pattern is silent, keeping the candidate list clean.
+    </div>
+
+    <!-- ── §06 HTF P/D Objective ── -->
+    <h2 id="pd-objective"><span class="sec-num">06</span> HTF P/D Objective Gate</h2>
+    <p>
+      The A-phase finale gate. Fires when the current HTF bar touches the P/D range extreme —
+      the objective price level where the trend is expected to reach its target.
+      This is the simplest pattern: purely price-level based, requires HTF bar data.
+    </p>
+    <p>
+      For bullish direction, the objective is <code>htf_struct["range_high"]</code>.
+      The bar high must reach or exceed it. The sub-flag
+      <code>phase_a_finale_closed_beyond</code> is true when the HTF bar close is past the objective —
+      indicating a breakout rather than a test.
+    </p>
+
+    $$
+    \text{touched}_\text{long} = \text{bar.high} \ge \text{range\_high}
+    $$
+    $$
+    \text{closed\_beyond}_\text{long} = \text{bar.close} > \text{range\_high}
+    $$
+
+    <div class="rule-block">
+      <code>htf_pd_objective</code> only emits when the bar actually touches the objective — no
+      suppression logic, no partial state. If no HTF bars are passed to <code>update()</code> or
+      the structure has no <code>range_high</code> / <code>range_low</code>, the pattern is silent.
+    </div>
+
+    <!-- ── §07 Phase-E Context ── -->
+    <h2 id="phase-e"><span class="sec-num">07</span> Phase-E Context</h2>
+    <p>
+      The always-on context emitter. Every bar when HTF direction is known, this pattern fires with
+      status <code>ready</code>. It gives the DAG a running summary of the current E-cycle state
+      without the DAG needing to read HTF bars directly.
+    </p>
+    <p>
+      Three signals packed into <code>debug_facts</code>:
+    </p>
+    <ul class="plain">
+      <li><strong>Extreme tracker</strong> — running high (long) or low (short) of the current P/D expansion: <code>active_phase_e_extreme_price</code>, <code>active_phase_e_extreme_time</code>.</li>
+      <li><strong>Two-bar reaction signal</strong> — compares previous HTF bar vs current bar: <code>reaction_confirmed</code> (bar closed past the prior bar's extreme) and <code>reaction_warning</code> (wick crossed but close reversed). Used by DAG to detect D-phase inception.</li>
+      <li><strong>Reaction-failed flag</strong> — <code>reaction_failed</code> is true when the current bar close is past the <em>pre-update</em> extreme watermark. Detects D→E failure: price swept the prior extreme and kept going.</li>
+    </ul>
+
+    <h3>Pre-update extreme ordering</h3>
+    <p>
+      A subtle ordering issue: <code>_update_phase_e_extreme()</code> is called before
+      <code>_compile_phase_e_context()</code>, so if both run in the same bar, the extreme is already
+      updated to include the current bar's movement when the context compiler runs.
+      This would cause <code>reaction_failed</code> to compare the close against the current bar's
+      <em>new</em> watermark rather than the <em>previous</em> watermark — always false.
+    </p>
+    <p>
+      Fix: the extreme is snapped before the update call and passed as <code>pre_update_extreme</code>:
+    </p>
+    <pre class="block">pre_update_extreme = self.active_phase_e_extreme_price      # save before
+self._update_phase_e_extreme(fused, htf_struct, direction, htf_bar)
+# ...
+phase_e = self._compile_phase_e_context(..., pre_update_extreme=pre_update_extreme)</pre>
+
+    <div class="rule-block">
+      <code>phase_e_context</code> is the DAG's heartbeat signal for the expansion cycle. It is emitted
+      every bar regardless of whether the other patterns fire. The DAG should read it first to understand
+      the current E-phase state, then interpret the other candidates against it.
+    </div>
+
+    <!-- ── §08 Algorithm ── -->
+    <h2 id="algo"><span class="sec-num">08</span> Algorithm</h2>
+    <p>
+      <code>EvidenceCompiler.update()</code> is called once per bar from <code>dual_smc.py</code>.
+      It returns the full candidate list — one object per active pattern.
+      Callers store the result in <code>payload["evidence_candidates"]</code>.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">update() outer loop</button>
+        <button data-t="1">_compile_b_initiation()</button>
+        <button data-t="2">_compile_phase_e_context()</button>
+      </div>
+<pre class="on"><span class="cm"># EvidenceCompiler.update() — called once per bar</span>
+<span class="hl">def</span> update(self, fused, *, higher_bars=None) -> list[EvidenceCandidate]:
+    htf_struct  = _htf_struct(fused)
+    direction   = _direction_from_bias(_htf_ctx(fused).get("bias"))
+    timestamp   = _current_timestamp(fused)
+
+    <span class="cm"># 1. Epoch boundary — reset stateful accumulators</span>
+    epoch_id = _epoch_id(htf_struct)
+    if epoch_id and epoch_id != self.htf_pd_epoch_id:
+        self.htf_pd_epoch_id = epoch_id
+        self._b_init.reset()
+        self.active_phase_e_direction  = "none"
+        self.active_phase_e_extreme_price = None
+
+    htf_bar, htf_prev_bar = _htf_bars_current_and_previous(higher_bars)
+    if direction == "none" or htf_struct is None:
+        return []
+
+    <span class="cm"># 2. Save extreme BEFORE updating (for reaction_failed)</span>
+    pre_update_extreme = self.active_phase_e_extreme_price
+    self._update_phase_e_extreme(fused, htf_struct, direction, htf_bar)
+
+    candidates = []
+    <span class="cm"># 3. Run all six pattern compilers</span>
+    for fn in [
+        lambda: self._compile_b_initiation(fused, direction, timestamp),
+        lambda: self._compile_htf_counter_reaction(fused, htf_struct, direction, htf_bar, timestamp),
+        lambda: self._compile_ltf_counter_story(fused, direction, timestamp),
+        lambda: self._compile_htf_b_phase_setup(fused, htf_struct, direction, timestamp),
+        lambda: self._compile_htf_pd_objective(fused, htf_struct, direction, htf_bar, timestamp),
+        lambda: self._compile_phase_e_context(fused, htf_struct, direction,
+                    htf_bar, htf_prev_bar, timestamp,
+                    pre_update_extreme=pre_update_extreme),
+    ]:
+        result = fn()
+        if result is not None:
+            candidates.append(result)
+    return candidates</pre>
+<pre><span class="cm"># Multi-bar accumulator — stateful across bars via _BInitiationState</span>
+<span class="hl">def</span> _compile_b_initiation(self, fused, direction, timestamp):
+    liquidity = _htf_liquidity(fused)
+    htf_label = _reference_tf(fused)
+
+    <span class="cm"># Try to advance each step (idempotent once a step fires)</span>
+    self._observe_b_init_source_grab(liquidity, direction, timestamp)
+    self._observe_b_init_opposite_grab(liquidity, direction, timestamp)
+    current_decision_zones = self._observe_b_init_decision_zones(fused, direction, htf_label)
+
+    b = self._b_init
+    if not b.source_itr_grab and not b.opposite_itr_grab and not b.decision_zone_ids:
+        return None  <span class="cm"># Nothing yet — suppress until step 1 fires</span>
+
+    status = <span class="hl">"ready"</span> if b.ready else <span class="hl">"collecting"</span>
+
+    return EvidenceCandidate(
+        candidate_id = b.candidate_id,  <span class="cm"># STABLE per epoch</span>
+        pattern      = "htf_b_initiation",
+        status       = status,
+        direction    = direction,
+        timeframe    = htf_label,
+        evidence_refs = [
+            r.to_evidence_ref()
+            for r in [b.source_itr_grab, b.opposite_itr_grab]
+            if r is not None
+        ],
+        source_object_refs = [
+            {"kind": "sd_zone", "zone_id": zid, "timeframe": htf_label}
+            for zid in b.decision_zone_ids
+        ],
+        blocked_reasons = [] if b.ready else [
+            s for s in [
+                None if b.source_itr_grab else "source_itr_grab_not_seen",
+                None if (not b.source_itr_grab or b.opposite_itr_grab) else "opposite_itr_grab_not_seen",
+                None if (not (b.source_itr_grab and b.opposite_itr_grab) or b.decision_zone_ids) else "decision_zone_not_seen",
+            ] if s is not None
+        ],
+        ...
+    )</pre>
+<pre><span class="cm"># Phase-E emitted every bar when direction is known</span>
+<span class="hl">def</span> _compile_phase_e_context(self, fused, htf_struct, direction,
+                               htf_bar, htf_prev_bar, timestamp,
+                               *, pre_update_extreme=None):
+    <span class="cm"># Two-bar reaction signal</span>
+    reaction_confirmed = reaction_warning = False
+    if htf_bar and htf_prev_bar:
+        if direction == "long":
+            prev_low  = float(htf_prev_bar["low"])
+            cur_low   = float(htf_bar["low"])
+            cur_close = float(htf_bar["close"])
+            <span class="cm"># Bearish bar breaks below previous low — D-phase inception signal</span>
+            reaction_confirmed = cur_low &lt; prev_low and cur_close &lt; prev_low
+            reaction_warning   = cur_low &lt; prev_low and cur_close >= prev_low
+
+    <span class="cm"># Reaction-failed against PRE-UPDATE watermark</span>
+    reaction_failed = False
+    if htf_bar and pre_update_extreme is not None:
+        close = float(htf_bar["close"])
+        if direction == "long":
+            reaction_failed = close > pre_update_extreme
+            <span class="cm"># close above previous E-extreme → D-phase failed, trend resumed</span>
+
+    return EvidenceCandidate(
+        pattern  = "phase_e_context",
+        status   = <span class="hl">"ready"</span>,
+        debug_facts = {
+            "active_phase_e_extreme_price": self.active_phase_e_extreme_price,
+            "new_htf_extreme":    self._new_phase_e_extreme(direction, htf_bar),
+            "reaction_confirmed": reaction_confirmed,
+            "reaction_warning":   reaction_warning,
+            <span class="hl">"reaction_failed"</span>:   reaction_failed,
+            ...
+        }, ...
+    )</pre>
+    </div>
+
+    <h3>Wire-up in dual_smc</h3>
+    <p>The EC is instantiated in <code>_init_engines()</code> and called after every Fusion snapshot:</p>
+    <pre class="block"><span class="cm"># runtime/dual_smc.py — after Fusion call in snapshot()</span>
+if self.evidence_compiler is not None:
+    candidates = self.evidence_compiler.update(
+        payload["context_snapshot"],
+        higher_bars=payload.get("higher_bars"),
+    )
+    payload["evidence_candidates"] = [c.to_dict() for c in candidates]
+    payload["evidence_compiler_epoch_id"] = self.evidence_compiler.htf_pd_epoch_id</pre>
+
+    <!-- ── Open Issues ── -->
+    <h2 id="issues"><span class="sec-num">09</span> Open Issues · Edge Cases · Next Milestone</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>htf_itr_grab_reclaim key collision in liquidity_variant.</b>
+        The <code>_htf_counter_reaction_liquidity_variant()</code> dict spread used to overwrite
+        the locally computed <code>"trigger"</code> key with a potentially-None value from the spread.
+        Fixed: <code>**liq_grab</code> is now spread first in <code>debug_facts</code> so named keys
+        take precedence. Verify if new liquidity keys are added to the passthrough dict.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>higher_bars not always available.</b>
+        If the caller omits <code>higher_bars</code>, <code>htf_pd_objective</code> silently returns
+        <code>None</code> and <code>phase_e_context</code> emits with no reaction signal.
+        The replayer and dual_smc must ensure at least 2 recent HTF bars are always passed.
+        Currently not enforced at the EC boundary.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Orderflow integration into candidates.</b>
+        The EC does not yet consume an OrderflowSnapshot. The 301-context design says EC
+        should accept a projected orderflow read as soft support for candidate tilting.
+        Deferred until Orderflow Context (305) is production-ready and consistently populated.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Candidate expiry and invalidation.</b>
+        Status values <code>"invalidated"</code> and <code>"expired"</code> exist in the type alias
+        but are not emitted by any pattern today. The DAG is expected to track expiry itself.
+        Add EC-driven expiry once the DAG's attention window logic is defined.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Epoch boundary too sensitive.</b>
+        If <code>last_sc</code> timestamps vary slightly between bars (e.g. rounding), the epoch ID
+        may flip every bar, resetting B-initiation on every tick. If B-init never accumulates,
+        check that <code>htf_struct["last_sc"]["eventTimestamp"]</code> is stable across bars for
+        the same structural event. Use the replayer's debug log to inspect epoch_id drift.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>DAG Navigator consumption — remaining detection methods.</b>
+        The DAG now reads EC candidates for
+        <code>_phase_b_initiation_setup()</code>,
+        <code>_phase_d_setup()</code>, <code>_phase_c_setup()</code>, <code>_phase_b_setup()</code>,
+        <code>_phase_a_finale()</code>, and <code>_phase_e_reaction()</code>.
+        EC debug payloads were aligned to preserve the existing hypothesis debug key names.
+        Focused boundary suite passes: hypothesis classifier, evidence compiler, and headless runtime reuse.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Implement trustworthy liquidity reclaim qualification.</b>
+        Current EC accepts any ready P/D or EQ grab with matching direction, selects P/D first by
+        append order, and emits Layer 4 D-node names. Replace that behavior with neutral
+        <code>liquidity_reclaim_candidates[]</code> carrying current-scope, HTF-expansion-extreme relation,
+        reclaim-inside-P/D, post-reclaim ChoCh, and HTF-close-resolution facts.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Migrate Phase E-colored Layer 3 aliases.</b>
+        Rename target Layer 3 facts from <code>phase_e_context</code> and
+        <code>active_phase_e_extreme_*</code> to neutral <code>htf_expansion_context</code> and
+        <code>htf_expansion_extreme_*</code>. Keep compatibility aliases temporarily so Layer 4 can
+        migrate without sending Phase E state backward.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue · Chronology</div>
+        <p><b>Decide whether same-timestamp reclaim and ChoCh is allowed.</b>
+        The proposed comparison uses <code>last_sc.eventTimestamp &gt;= liquidity.reclaimed_at</code>,
+        while the intended language says a fresh ChoCh confirms after reclaim. Use strict
+        <code>&gt;</code> or a later-bar/event-id guard if one LTF candle must not breach, reclaim,
+        and provide the confirming ChoCh.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Replace remaining flat snapshot reads in hypothesis.py.</b>
+        Only <code>_phase_a_setup()</code> remains on flat LTF/pro-zone reads.
+        It needs a dedicated EC setup candidate before the public
+        <code>HypothesisClassifier.classify()</code> signature can be narrowed to a candidate list.
+        <code>_phase_a_finale()</code> is already migrated through <code>htf_pd_objective</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Wire HypothesisClassifier.classify() to accept candidate list.</b>
+        Once the detection methods are migrated, the public interface of
+        <code>HypothesisClassifier.classify()</code> should change its signature to accept
+        <code>evidence_candidates: list[dict]</code> instead of the raw snapshot dict.
+        This severs the direct Layer 3 channel dependency from Layer 4 and makes the
+        boundary testable with synthetic candidate lists alone.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>EC implementation and 30 tests.</b>
+        <code>EvidenceCompiler</code>, <code>EvidenceCandidate</code>, <code>EvidenceRef</code>,
+        and <code>_BInitiationState</code> implemented. 30 tests across 7 test classes
+        (BasicContract, PhaseE, CounterReaction, LtfStory, PdObjective, BInitiation, Epoch, Serialisation).
+        All pass. Wired into <code>dual_smc.py</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Extract ShadowThesis from HypothesisClassifierState.</b>
+        The 8 <code>phase_b_shadow_*</code> fields were extracted from
+        <code>HypothesisClassifierState</code> into a dedicated <code>ShadowThesis</code> dataclass
+        with short field names and a <code>reset()</code> lifecycle method.
+        <code>HypothesisClassifierState</code> now holds one field: <code>shadow_thesis: ShadowThesis</code>.
+        Five private methods (<code>_reset_phase_b_shadow</code>, <code>_open_phase_b_shallow_shadow</code>,
+        <code>_phase_b_shadow_debug</code>, <code>_phase_b_shallow_shadow_facts</code>,
+        <code>_phase_b_same_level_return</code>) updated to use <code>self.state.shadow_thesis.*</code>.
+        Output dict key names unchanged. 114 tests pass.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Migrate hypothesis.py off contextLedger.</b>
+        Migration complete. Added <code>_ec_b_initiation()</code> helper in <code>hypothesis.py</code>
+        that reads <code>payload["evidence_candidates"]</code> and looks up the <code>htf_b_initiation</code>
+        candidate by pattern name.
+        <code>_phase_b_initiation_setup()</code> now reads <code>b_init.status == "ready"</code>
+        from the EC candidate instead of <code>context_ledger["b_initiation"]["ready"]</code>.
+        <code>contextLedger.py</code> and <code>test_context_ledger.py</code> deleted.
+        <code>HypothesisClassifier</code> re-enabled in <code>dual_smc.py</code>.
+        All 114 tests pass.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ── Tab switcher ── */
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns  = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+/* ── Active nav link on scroll ── */
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks  = document.querySelectorAll("nav a[href^='#']");
+const observer  = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

@@ -1,0 +1,968 @@
+<!-- source: ultrab/ln-notes/3context/SMC/313-Liquidity-context.md
+     source: ultrab/ln-notes/3context/SMC/313-Liquidity-context-focus-on-B.md
+     source: ultrab/ln-notes/3context/SMC/313-Liquidity-context-focus-on-D.md
+     source: ultrab/ln-notes/3context/SMC/313-Liquidity-ambiguities.md
+     algo: ultrab/src/ultrab/core/smc/liquidity.py
+     config: ultrab/src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>303 · Liquidity Context</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .backlink {
+    margin: 12px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .backlink a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .rule {
+    border-left: 3px solid var(--accent2);
+    background: rgba(120, 140, 93, 0.08);
+    padding: 12px 14px;
+    margin: 16px 0;
+    max-width: 680px;
+    font-style: italic;
+    color: var(--text-head);
+  }
+  .block {
+    max-width: 700px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    margin: 16px 0;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 720px) { .mini-grid { grid-template-columns: 1fr; } }
+  .mini-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 13px 14px;
+  }
+  .mini-card b {
+    display: block;
+    color: var(--text-head);
+    font-family: var(--serif);
+    font-size: 15px;
+    margin-bottom: 5px;
+  }
+  .mini-card span {
+    display: block;
+    color: var(--text-dim);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  figure {
+    max-width: 700px;
+    margin: 18px 0;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 440px;
+    object-fit: contain;
+    background: #fff;
+  }
+  figcaption {
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+  }
+  .tabbar button.active {
+    color: var(--accent);
+    background: var(--surface);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+  .tabs pre {
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .hl { color: var(--accent); font-weight: 700; }
+  .cm { color: var(--text-dim); }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 700px;
+  }
+  @media (max-width: 720px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 15px;
+  }
+  .issue-label {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .issue b {
+    display: block;
+    color: var(--text-head);
+    margin-bottom: 6px;
+  }
+  .issue p { font-size: 13.5px; margin-bottom: 0; }
+</style>
+</head>
+
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#core">00 Core Concept</a>
+    <a href="#objects">01 Object Model</a>
+    <a class="l2" href="#monitored-locations">Monitored Locations</a>
+    <a class="l2" href="#line-and-pool-math">Line + Pool Math</a>
+    <a href="#memory">02 Memory Scope</a>
+    <a href="#d-focus">03 HTF P/D Snapshot</a>
+    <a href="#b-focus">04 HTF ITR Snapshot</a>
+    <a href="#relations">05 Relations</a>
+    <a href="#snapshot">06 Snapshot Contract</a>
+    <a href="#algorithm">07 Algorithm</a>
+    <a href="#config">08 Config</a>
+    <a href="#issues">09 Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>313-Liquidity-context.md</code>
+      <code>313-Liquidity-focus-B.md</code>
+      <code>313-Liquidity-focus-D.md</code>
+      <code>313-Liquidity-ambiguities.md</code>
+      <code>core/smc/liquidity.py</code>
+      <code>replayer/config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 3 · Context · Liquidity</div>
+      <h1>Liquidity Context - Pools, Grabs, Reclaims</h1>
+      <div class="tldr">
+        <b>TL;DR.</b> Liquidity Context is a semantic object lifecycle detector. The current monitored liquidity locations are HTF P/D boundaries, HTF EQH/EQL clusters, HTF ITR levels, and HTF ITR EQ clusters. It owns each confirmed event's stable identity, HTF P/D epoch, and current trigger scope so stale grabs cannot impersonate fresh evidence. It does not decide whether the thesis is B, D, inducement, or reversal.
+      </div>
+      <p class="backlink"><a href="./301-context.html">Back to 301 Layer 3 Context</a></p>
+    </header>
+
+    <section>
+      <h2 id="core"><span class="sec-num">00</span>Core Concept</h2>
+      <p>Liquidity Context answers three factual questions: where resting liquidity likely sits, whether price has taken it, and whether that take left a usable reclaim footprint. The job is not to call the market. The job is to preserve the lifecycle of each pool cleanly enough that Fusion, Evidence Compiler, and Layer 4 can read it without rescanning raw candles.</p>
+
+      <figure>
+        <img src="../assets/313-buy-sell-liquidity.png" alt="Buy-side and sell-side liquidity sketch">
+        <figcaption>Liquidity pools exist around remembered highs and lows. The context layer converts those areas into tracked objects with lifecycle state.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>Discretionary idea <span class="where">notes</span></summary>
+        <div class="body">
+          <p>A trader sees a prior high, prior low, equal high cluster, equal low cluster, or HTF ITR anchor and asks: did price take it, fail to stay beyond it, and return with rejection?</p>
+        </div>
+      </details>
+      <details>
+        <summary>Algorithm translation <span class="where">Layer 3</span></summary>
+        <div class="body">
+          <p>Turn each candidate level into a <code>LiquidityPool</code>. Each LTF cursor bar updates the pool from <code>active</code> to <code>breached_outside_level</code>, reclaimed status, and finally <code>liquidity_grab_confirmed</code> when the reclaim and evidence conditions are met.</p>
+        </div>
+      </details>
+
+      <div class="rule">Liquidity owns factual lifecycle state. Layer 4 owns interpretation. A grab can support B, D, inducement, or a target-reached condition, but the pool itself should not choose the hypothesis node.</div>
+    </section>
+
+    <section>
+      <h2 id="objects"><span class="sec-num">01</span>Object Model</h2>
+      <p>The implemented engine centers on <code>LiquidityPool</code> and <code>LiquidityEvent</code>. Pools are remembered semantic objects; events are timestamped lifecycle transitions emitted as the LTF heartbeat interacts with those objects.</p>
+
+      <div class="mini-grid">
+        <div class="mini-card">
+          <b>Pool kinds</b>
+          <span><code>htf_pd</code>, <code>htf_eq</code>, and <code>htf_itr</code> separate P/D boundary liquidity, general HTF equal highs/lows, and HTF ITR level or ITR EQ pools.</span>
+        </div>
+        <div class="mini-card">
+          <b>Pool sides</b>
+          <span><code>buy_side</code> sits above highs and implies bearish reaction after reclaim. <code>sell_side</code> sits below lows and implies bullish reaction after reclaim.</span>
+        </div>
+        <div class="mini-card">
+          <b>Pool variants</b>
+          <span><code>level</code> uses a single remembered price. <code>eq</code> uses ATR tolerance around comparable pivots.</span>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Lifecycle status <span class="where">pool.status</span></summary>
+        <div class="body">
+          <p><code>active</code> means the pool is remembered but untouched. <code>breached_outside_level</code> means liquidity was taken. Reclaim states indicate price returned to the origin side. <code>liquidity_grab_confirmed</code> requires take, reclaim, close-back-inside, and rejection evidence.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Event records <span class="where">LiquidityEvent</span></summary>
+        <div class="body">
+          <p>Event records keep <code>event_type</code>, <code>pool_id</code>, <code>pool_kind</code>, <code>variant</code>, <code>source</code>, <code>side</code>, <code>direction</code>, <code>level_price</code>, <code>timestamp</code>, <code>confirmed_by</code>, <code>take_type</code>, and approach/leave fields for HTF ITR trajectory checks. A confirmed grab/reclaim event receives the stable identity <code>liquidity_event_id = pool_id + "|" + confirmed_at</code>.</p>
+        </div>
+      </details>
+
+      <pre class="block">LiquidityPool
+  pool_id
+  pool_kind = htf_pd | htf_eq | htf_itr
+  variant = level | eq
+  source = range_high | range_low | eqh | eql | htf_itr_high | htf_itr_low | htf_itr_eqh | htf_itr_eql
+  side = buy_side | sell_side
+  direction = bearish | bullish
+  price, tolerance, upper, lower
+  scope = active_current_epoch | carryover_recent | external_archive
+  htf_pd_epoch_id
+  status, taken_at, reclaimed_at, confirmed_at
+  evidence, confirmed_by, take_type
+  approached_from, left_to
+
+Confirmed grab/reclaim event
+  liquidity_event_id = pool_id + "|" + confirmed_at
+  is_triggerable</pre>
+
+      <h3 id="monitored-locations">Current Monitored Locations</h3>
+      <p>The current engine monitors four liquidity families. Two are single-line levels and two are ATR-width pools around equal or comparable pivots. The LTF cursor bar observes all of them as the live heartbeat.</p>
+
+      <div class="mini-grid">
+        <div class="mini-card">
+          <b>HTF P/D levels</b>
+          <span><code>range_high</code> and <code>range_low</code> from the active HTF P/D range. Snapshot Normalizer projects these as boundary grab/reclaim facts.</span>
+        </div>
+        <div class="mini-card">
+          <b>HTF ITR levels</b>
+          <span><code>htf_itr_high</code> and <code>htf_itr_low</code> from confirmed HTF ITR pivots. Snapshot Normalizer projects these as ITR grab/reclaim facts.</span>
+        </div>
+        <div class="mini-card">
+          <b>HTF equal pools</b>
+          <span><code>eqh</code> and <code>eql</code> from comparable HTF pivots inside ATR tolerance. Snapshot Normalizer projects them as factual sweep/reclaim pool state.</span>
+        </div>
+        <div class="mini-card">
+          <b>HTF ITR equal pools</b>
+          <span><code>htf_itr_eqh</code> and <code>htf_itr_eql</code> from comparable HTF ITR pivots inside ATR tolerance. Snapshot Normalizer projects them as factual ITR liquidity pool state.</span>
+        </div>
+        <div class="mini-card">
+          <b>Future LTF anchors</b>
+          <span>LTF anchored swing liquidity can be added as a separate local source for controlled chase. It should not replace HTF ITR macro context.</span>
+        </div>
+        <div class="mini-card">
+          <b>Not monitored in V1</b>
+          <span>Trendline liquidity, session highs/lows, arbitrary weak pivots, and generic equal points remain out of scope.</span>
+        </div>
+      </div>
+
+      <pre class="block">current_liquidity_locations:
+  htf_pd:
+    range_high -> buy_side line, reaction_direction = bearish
+    range_low  -> sell_side line, reaction_direction = bullish
+  htf_itr:
+    htf_itr_high -> buy_side line, reaction_direction = bearish
+    htf_itr_low  -> sell_side line, reaction_direction = bullish
+  htf_eq:
+    eqh -> buy_side ATR pool
+    eql -> sell_side ATR pool
+  htf_itr_eq:
+    htf_itr_eqh -> buy_side ATR pool
+    htf_itr_eql -> sell_side ATR pool</pre>
+
+      <h3 id="line-and-pool-math">Liquidity Line + ATR Pool Math</h3>
+      <p>Level liquidity is a remembered line. Equal-high/equal-low liquidity is a pool centered on a remembered level with tolerance derived from HTF ATR and a multiplier. In the current config, the multiplier is <code>eq_threshold</code> or <code>itr.eq_threshold</code>.</p>
+
+      $$ tolerance = ATR_{htf}(n) \times multiplier $$
+      $$ buySidePool = [level - tolerance,\ level + tolerance] $$
+      $$ sellSidePool = [level - tolerance,\ level + tolerance] $$
+      $$ comparable(p_a, p_b) \Longleftrightarrow |p_a - p_b| \le tolerance $$
+
+      <pre class="block">implemented breach price:
+  level pool:
+    tolerance = 0
+    buy_side breach  = high > level
+    sell_side breach = low < level
+
+  eq pool:
+    tolerance = ATR_htf(atr_period) * threshold
+    buy_side breach  = high > level + tolerance
+    sell_side breach = low < level - tolerance
+
+  reclaim:
+    buy_side reclaim  = close < level
+    sell_side reclaim = close > level</pre>
+
+      <div class="rule">HTF P/D and HTF ITR are line liquidity. HTF EQ and HTF ITR EQ are ATR-width pool liquidity. Both are monitored by the LTF heartbeat, but they serve different downstream jobs.</div>
+    </section>
+
+    <section>
+      <h2 id="memory"><span class="sec-num">02</span>Memory Scope</h2>
+      <p>Liquidity memory is scoped by the active HTF P/D epoch. Current pools can contribute triggerable events. Recent carryover pools can still contribute only when they remain relevant. External archive is retained for context, but cannot trigger downstream evidence.</p>
+
+      <details open>
+        <summary>Active current epoch <span class="where">normal trigger scope</span></summary>
+        <div class="body">
+          <p>When HTF structure projects the current P/D range, the engine upserts <code>range_high</code> and <code>range_low</code> P/D pools and scopes matching ITR pools into the current epoch.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Carryover recent <span class="where">limited trigger scope</span></summary>
+        <div class="body">
+          <p>Recent pools survive a range reset only when allowed by memory config. This preserves useful nearby ITR liquidity without letting every historical level compete forever.</p>
+        </div>
+      </details>
+      <details>
+        <summary>External archive <span class="where">context only</span></summary>
+        <div class="body">
+          <p>Archived pools can explain that an old target was reached or that a distant level exists, but <code>external_archive_can_trigger_hypothesis</code> is false by default.</p>
+        </div>
+      </details>
+
+      <pre class="block">triggerable_pool =
+  pool.scope in {"active_current_epoch", "carryover_recent"}
+  and pool.status != "archived"
+  and pool passes current epoch / carryover relevance policy
+
+current_triggerable_event =
+  confirmed event is inside ready TTL
+  and event.pool belongs to triggerable_pool set
+
+*_grab_reclaim_ready = current_triggerable_event exists</pre>
+
+      <div class="rule">Memory is not infinite. When the HTF P/D epoch changes, cached confirmed P/D events from the old epoch must stop being ready. HTF EQ pools must be rescoped or aged so historical unrelated EQ cannot impersonate fresh evidence.</div>
+    </section>
+
+    <section>
+      <h2 id="d-focus"><span class="sec-num">03</span>HTF P/D Boundary Grab Snapshot</h2>
+      <p>This section is a factual Liquidity + Snapshot Normalizer contract. Liquidity Context detects the lifecycle of HTF P/D boundary and HTF EQ pools and exposes only events that still belong to the current triggerable set. Snapshot Normalizer projects those facts into <code>ContextSnapshot</code>. Evidence Compiler qualifies cross-channel chronology; Layer 4 later decides whether a qualified candidate matters to a thesis.</p>
+
+      <figure>
+        <img src="../assets/313-sweep-zone.png" alt="Sweep zone example">
+        <figcaption>P/D and EQ grabs are sweep/reclaim facts first. Any D interpretation is downstream.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>HTF P/D boundary pools <span class="where">range_high / range_low</span></summary>
+        <div class="body">
+          <p><code>range_high</code> creates buy-side liquidity with bearish reaction direction after reclaim. <code>range_low</code> creates sell-side liquidity with bullish reaction direction after reclaim. The LTF heartbeat observes these HTF levels without waiting for the next HTF close.</p>
+        </div>
+      </details>
+      <details>
+        <summary>HTF EQ pools <span class="where">eqh / eql</span></summary>
+        <div class="body">
+          <p>Comparable HTF pivots create an EQH/EQL pool when their distance is inside ATR tolerance. The implemented tolerance is <code>HTF ATR * eq_threshold</code>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Confirmation <span class="where">take + reclaim + evidence</span></summary>
+        <div class="body">
+          <p>Confirmation requires a breach, a close back inside the level, and at least one rejection clue: rejection wick, hammer-like rejection, or counter FVG from CE02 events.</p>
+        </div>
+      </details>
+
+      <p>Formal EQ tolerance:</p>
+      $$ |pivot_a - pivot_b| \le ATR_{htf}(n) \times threshold $$
+
+      <pre class="block">Snapshot Normalizer-projected fields
+  htf_pd_grab_reclaim_ready
+  htf_pd_grab_reclaim_event_id
+  htf_pd_grab_reclaim_htf_pd_epoch_id
+  htf_pd_grab_reclaim_scope
+  htf_pd_grab_reclaim_is_triggerable
+  htf_pd_grab_reclaim_side
+  htf_pd_grab_reclaim_direction
+  htf_pd_grab_reclaim_level
+  htf_pd_grab_reclaim_source
+  htf_pd_grab_reclaim_taken_at
+  htf_pd_grab_reclaim_reclaimed_at
+  htf_pd_grab_reclaim_confirmed_at
+  htf_pd_grab_reclaim_confirmed_by
+
+  htf_eq_grab_reclaim_ready
+  htf_eq_grab_reclaim_event_id
+  htf_eq_grab_reclaim_htf_pd_epoch_id
+  htf_eq_grab_reclaim_scope
+  htf_eq_grab_reclaim_is_triggerable
+  htf_eq_grab_reclaim_side
+  htf_eq_grab_reclaim_direction
+  htf_eq_grab_reclaim_level
+  htf_eq_grab_reclaim_source
+  htf_eq_grab_reclaim_taken_at
+  htf_eq_grab_reclaim_reclaimed_at
+  htf_eq_grab_reclaim_confirmed_at</pre>
+
+      <div class="rule">Liquidity owns event identity, epoch, scope, and triggerable membership. Evidence Compiler owns <code>liquidity_relation_to_htf_expansion_extreme</code> because EC owns the neutral HTF expansion tracker. Layer 3 must not receive Phase E state back from Layer 4. Layer 4 later selects a D node from qualified candidates.</div>
+    </section>
+
+    <section>
+      <h2 id="b-focus"><span class="sec-num">04</span>HTF ITR Level / EQ Grab Snapshot</h2>
+      <p>This section is also a factual Liquidity + Snapshot Normalizer contract. Liquidity Context detects HTF ITR level and HTF ITR EQ pool lifecycle. Snapshot Normalizer projects readiness, source, level, variant, direction, and trajectory fields. Evidence Compiler may later qualify those facts into a candidate pattern; Layer 4 decides whether it supports a hypothesis.</p>
+
+      <figure>
+        <img src="../assets/313-liquidity-pool.jpg" alt="Liquidity pool example">
+        <figcaption>HTF ITR pools are not generic pivots. Their source and approach direction matter as factual context.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>ITR level grab <span class="where">htf_itr_high / htf_itr_low</span></summary>
+        <div class="body">
+          <p>A confirmed HTF ITR high creates buy-side liquidity. A confirmed HTF ITR low creates sell-side liquidity. The engine requires the grab to approach from the correct side and leave back to the origin side.</p>
+        </div>
+      </details>
+      <details>
+        <summary>ITR EQ grab <span class="where">htf_itr_eqh / htf_itr_eql</span></summary>
+        <div class="body">
+          <p>Comparable HTF ITR highs/lows can create ITR-specific EQ pools. These keep HTF ITR clustered liquidity distinct from broader HTF EQ pool facts.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Anchor run after confirmation <span class="where">confirmed_itr_anchor_run</span></summary>
+        <div class="body">
+          <p>After a HTF ITR grab/reclaim is confirmed, a later run through that same confirmed anchor can emit <code>confirmed_itr_anchor_run</code>. This lets Layer 4 separate the initial grab from a later continuation or target reach event.</p>
+        </div>
+      </details>
+
+      <pre class="block">Required ITR trajectory
+  sell-side ITR low / EQL:
+    came_from = above
+    left_to = above
+    direction = bullish
+
+  buy-side ITR high / EQH:
+    came_from = below
+    left_to = below
+    direction = bearish</pre>
+
+      <pre class="block">Snapshot Normalizer-projected fields
+  htf_itr_grab_reclaim_ready
+  htf_itr_level_grab_reclaim_ready
+  htf_itr_eq_grab_reclaim_ready
+  htf_itr_grab_reclaim_variant
+  htf_itr_grab_reclaim_side
+  htf_itr_grab_reclaim_direction
+  htf_itr_grab_reclaim_level
+  htf_itr_grab_reclaim_source
+  htf_itr_grab_reclaim_came_from
+  htf_itr_grab_reclaim_left_to
+
+  htf_itr_anchor_run_ready
+  htf_itr_level_anchor_run_ready
+  htf_itr_eq_anchor_run_ready</pre>
+
+      <div class="rule">Snapshot Normalizer language: HTF ITR level/EQ grab/reclaim facts. Evidence Compiler language: candidate pattern such as <code>grab_reclaim_at_htf_itr_level</code>. Layer 4 language, if chosen later: a possible B-related initiation-watch node.</div>
+    </section>
+
+    <section>
+      <h2 id="relations"><span class="sec-num">05</span>Relations</h2>
+      <p>The ambiguity notes proposed richer relation objects: sweep zones, inducement candidates, and relations such as <code>sweep_before_sd</code> or <code>inducement_near_sd</code>. The current engine implements the pool/grab/reclaim core first; these richer relation objects remain a follow-on Evidence Compiler or Liquidity Context expansion.</p>
+
+      <figure>
+        <img src="../assets/313-inducement-after-sd-zone.png" alt="Inducement after supply demand zone example">
+        <figcaption>Inducement is best treated as a relation between liquidity, S/D, and structure, not as a raw candle fact.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>Sweep zone <span class="where">candidate relation</span></summary>
+        <div class="body">
+          <p>A sweep zone can summarize the price band made by a take/reclaim. This is useful when multiple later bars interact with the footprint rather than the exact pool price.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Inducement candidate <span class="where">candidate relation</span></summary>
+        <div class="body">
+          <p>Inducement needs proximity and ordering: a liquidity event before/near an S/D zone, followed by reaction or continuation. That relationship should be compiled from existing context facts instead of guessed directly from one candle.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Layer boundary <span class="where">Evidence Compiler</span></summary>
+        <div class="body">
+          <p>Liquidity Context should expose pool lifecycle facts. Evidence Compiler can later qualify relation patterns such as <code>sweep_before_sd</code>, <code>inducement_near_sd</code>, or <code>grab_reclaim_at_pd_boundary</code>.</p>
+        </div>
+      </details>
+    </section>
+
+    <section>
+      <h2 id="snapshot"><span class="sec-num">06</span>Snapshot Contract</h2>
+      <p>The target runtime snapshot exposes active pool collections, event logs, current triggerable events, source levels, direction, confirmation method, and ITR trajectory fields. A readiness flag is valid only while its identified event remains in the current triggerable set.</p>
+
+      <pre class="block">Liquidity snapshot
+  active_htf_pd_pools[]
+  active_htf_eq_pools[]
+  active_htf_itr_pools[]        # filtered to triggerable scope
+  current_triggerable_liquidity_events[]
+  events[]
+  event_log[]
+
+  htf_pd_grab_reclaim_ready
+  htf_eq_grab_reclaim_ready
+  htf_itr_grab_reclaim_ready
+  htf_itr_level_grab_reclaim_ready
+  htf_itr_eq_grab_reclaim_ready
+
+  htf_itr_anchor_run_ready
+  htf_itr_level_anchor_run_ready
+  htf_itr_eq_anchor_run_ready
+
+  *_side
+  *_direction
+  *_level
+  *_source
+  *_pool_id
+  *_event_id                    # pool_id + "|" + confirmed_at
+  *_htf_pd_epoch_id
+  *_scope
+  *_is_triggerable
+  *_take_type
+  *_taken_at
+  *_reclaimed_at
+  *_confirmed_at
+  *_confirmed_by
+  htf_itr_grab_reclaim_came_from
+  htf_itr_grab_reclaim_left_to</pre>
+
+      <div class="rule">Fusion should print the current liquidity truth. Evidence Compiler should qualify reclaim, current scope, active-extreme relevance, and post-reclaim ChoCh chronology. Layer 4 should select and consume candidates, not rescan liquidity history from raw OHLC.</div>
+    </section>
+
+    <section>
+      <h2 id="algorithm"><span class="sec-num">07</span>Algorithm</h2>
+      <p>The current implementation is a two-heartbeat design. Higher-timeframe bars create or rescope pools. Lower-timeframe bars update the lifecycle of those pools.</p>
+
+      <div class="tabs" data-tabs>
+        <div class="tabbar">
+          <button class="active" type="button">higher heartbeat</button>
+          <button type="button">lower heartbeat</button>
+          <button type="button">confirmation</button>
+        </div>
+        <div class="tabpanel active">
+<pre>def on_higher_bar(row, pivot_events, higher_structure):
+    self._higher_index += 1
+    self._update_atr(row)
+    self.observe_higher_structure(higher_structure)
+
+    if <span class="hl">itr_enabled</span>:
+        self._observe_itr_pivots(pivot_events)
+
+    if <span class="hl">eq_enabled</span>:
+        self._observe_eq_pivots(pivot_events)
+
+    self._limit_confirmed_itr_anchor_watch()</pre>
+        </div>
+        <div class="tabpanel">
+<pre>def on_lower_bar(row, ce02_events=None, lower_index=None):
+    self._current_lower_index = lower_index
+
+    for pool in pd_pools + eq_pools + itr_pools:
+        self._observe_pool_interaction(
+            pool,
+            row,
+            ce02_events or [],
+            lower_index,
+        )
+
+    self._limit_confirmed_itr_anchor_watch()</pre>
+        </div>
+        <div class="tabpanel">
+<pre>def _can_confirm_grab(pool):
+    evidence = pool.evidence
+    return (
+        pool.taken_at is not None
+        and pool.reclaimed_at is not None
+        and evidence.get("close_back_inside")
+        and (
+            evidence.get("rejection_wick")
+            or evidence.get("hammer_like_rejection")
+            or evidence.get("counter_fvg")
+        )
+    )</pre>
+        </div>
+      </div>
+
+      <details open>
+        <summary>Take detection <span class="where">_observe_pool_interaction</span></summary>
+        <div class="body">
+          <p>Buy-side pools are breached when the LTF high trades above the breach price. Sell-side pools are breached when the LTF low trades below the breach price. EQ pools adjust breach price by tolerance.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Reclaim detection <span class="where">close-based</span></summary>
+        <div class="body">
+          <p>Buy-side pools reclaim when close returns below the pool price. Sell-side pools reclaim when close returns above the pool price.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Expiry and reset <span class="where">grab window</span></summary>
+        <div class="body">
+          <p>If the grab does not produce confirmation within <code>grab.evidence_window_bars</code>, the unconfirmed take is reset back to <code>active</code>.</p>
+        </div>
+      </details>
+    </section>
+
+    <section>
+      <h2 id="config"><span class="sec-num">08</span>Config</h2>
+      <p>The current config already defines liquidity memory limits, grab windows, EQ tolerance, ITR pool behavior, and archive trigger rules.</p>
+
+      <div class="tabs" data-tabs>
+        <div class="tabbar">
+          <button class="active" type="button">config.yaml</button>
+          <button type="button">engine init</button>
+        </div>
+        <div class="tabpanel active">
+<pre>liquidity:
+  enabled: true
+  event_log_limit: 50
+  grab:
+    evidence_window_bars: 8
+    ready_ttl_bars: 16
+  eq:
+    enabled: true
+    atr_period: 14
+    eq_threshold: 0.1
+    calculation_timeframe: htf
+    pivot_tier: itr
+  itr:
+    enabled: true
+    eq_enabled: true
+    eq_threshold: 0.1
+    calculation_timeframe: htf
+    pivot_tier: itr
+  memory:
+    carryover_recent_pools: 3
+    carryover_requires_overlap_with_current_pd: true
+    max_active_itr_pools_per_side: 5
+    max_pool_age_htf_bars: 50
+    max_confirmed_anchor_watch_per_side: 3
+    anchor_watch_ttl_htf_bars: 20
+    external_archive_enabled: true
+    external_archive_can_trigger_hypothesis: false</pre>
+        </div>
+        <div class="tabpanel">
+<pre>grab_cfg = cfg.get("grab", {})
+self.grab_evidence_window_bars = max(1, int(grab_cfg.get("evidence_window_bars", 8)))
+self.ready_ttl_bars = max(1, int(grab_cfg.get("ready_ttl_bars", 16)))
+self.event_log_limit = max(1, int(cfg.get("event_log_limit", 50)))
+
+eq_cfg = cfg.get("eq", {})
+self.eq_enabled = bool(eq_cfg.get("enabled", True))
+self.eq_atr_period = max(1, int(eq_cfg.get("atr_period", 14)))
+self.eq_threshold = float(eq_cfg.get("eq_threshold", 0.1))
+
+itr_cfg = cfg.get("itr", {})
+self.itr_enabled = bool(itr_cfg.get("enabled", True))
+self.itr_eq_enabled = bool(itr_cfg.get("eq_enabled", True))
+self.itr_eq_threshold = float(itr_cfg.get("eq_threshold", self.eq_threshold))
+
+memory_cfg = cfg.get("memory", {})
+self.carryover_recent_pools = max(0, int(memory_cfg.get("carryover_recent_pools", 3)))
+self.max_active_itr_pools_per_side = max(1, int(memory_cfg.get("max_active_itr_pools_per_side", 5)))
+self.max_pool_age_htf_bars = max(1, int(memory_cfg.get("max_pool_age_htf_bars", 50)))</pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="issues"><span class="sec-num">09</span>Open Issues</h2>
+      <div class="issue-grid">
+        <div class="issue">
+          <span class="issue-label">Out of Scope</span>
+          <b>Archived B/D-focus wording</b>
+          <p>Old wording called these sections <code>D-Focus Grabs</code> and <code>B-Focus Grabs</code>. Archived meaning: HTF P/D boundary grab/reclaim may later support a D candidate; HTF ITR level/EQ grab/reclaim may later support a B initiation-watch candidate. That interpretation now belongs to Evidence Compiler and Layer 4, not Liquidity or Snapshot Normalizer.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Edge Case</span>
+          <b>Almost touch and explicit buffers</b>
+          <p>The D note describes <code>almost_touch</code>, <code>sweep_buffer</code>, and <code>touch_tolerance</code>. The current engine uses direct level breach plus EQ tolerance, so explicit buffer tuning is still pending.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Out of Scope</span>
+          <b>Arbitrary liquidity sources</b>
+          <p>Trendline liquidity, session highs/lows, weak pivots, and fully generic swing liquidity remain outside V1. Current scope is HTF P/D, HTF EQ, and HTF ITR.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Fallback</span>
+          <b>When EQ is noisy</b>
+          <p>Disable <code>eq.enabled</code> or <code>itr.eq_enabled</code>, raise ATR tolerance selectivity, or keep only P/D boundary and ITR level pools until the market structure is cleaner.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Next Milestone</span>
+          <b>Implement current-event projection</b>
+          <p>Add <code>*_event_id</code>, <code>*_htf_pd_epoch_id</code>, <code>*_scope</code>, <code>*_is_triggerable</code>, and <code>current_triggerable_liquidity_events[]</code>. Clear or archive cached confirmed P/D events on epoch change and apply scope/age policy to HTF EQ pools.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Boundary Decision</span>
+          <b>Keep neutral HTF expansion relation in EC</b>
+          <p>Liquidity cannot author <code>relation_to_htf_expansion_extreme</code> without reading an EC-owned tracker. The target boundary keeps event geometry and scope here, then lets Evidence Compiler derive the relation from its neutral HTF expansion watermark. Do not emit Phase E state back into Layer 3.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  document.querySelectorAll('[data-tabs]').forEach((tabs) => {
+    const buttons = Array.from(tabs.querySelectorAll('.tabbar button'));
+    const panels = Array.from(tabs.querySelectorAll('.tabpanel'));
+    buttons.forEach((button, index) => {
+      button.addEventListener('click', () => {
+        buttons.forEach((item) => item.classList.remove('active'));
+        panels.forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        panels[index].classList.add('active');
+      });
+    });
+  });
+
+  const links = Array.from(document.querySelectorAll('nav a[href^="#"]'));
+  const headings = links
+    .map((link) => document.querySelector(link.getAttribute('href')))
+    .filter(Boolean);
+
+  const observer = new IntersectionObserver((entries) => {
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (!visible) return;
+    links.forEach((link) => {
+      link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`);
+    });
+  }, { rootMargin: '-20% 0px -70% 0px', threshold: 0.01 });
+
+  headings.forEach((heading) => observer.observe(heading));
+</script>
+</body>
+</html>

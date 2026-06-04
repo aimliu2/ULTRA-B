@@ -7,7 +7,8 @@ data:
   # root: move to .env file
   symbol: EURUSD
   timeframe: 1d
-  window_bars: 500  # number of bars to load into memory for the replay, should be enough to cover the warmup bars and the replay duration without needing to load more bars from disk
+  start_time: "2026-01-27T22:00:00Z" # or specific time i.e.  "2024-05-14T00:00:00Z"
+  window_bars: 500  # attention span in bars, for replay and structure detection
   mode: dual
   dual_combo: 15m_4h
 
@@ -29,6 +30,34 @@ dual_mode:
       lower_tf: 1m
       higher_tf: 15m
       label: 1m/15m
+
+liquidity:
+  enabled: true
+  event_log_limit: 50
+  grab:
+    evidence_window_bars: 8
+    ready_ttl_bars: 16
+  eq:
+    enabled: true
+    atr_period: 14
+    eq_threshold: 0.1
+    calculation_timeframe: htf
+    pivot_tier: itr
+  itr:
+    enabled: true
+    eq_enabled: true
+    eq_threshold: 0.1
+    calculation_timeframe: htf
+    pivot_tier: itr
+  memory:
+    carryover_recent_pools: 3
+    carryover_requires_overlap_with_current_pd: true
+    max_active_itr_pools_per_side: 5
+    max_pool_age_htf_bars: 50
+    max_confirmed_anchor_watch_per_side: 3
+    anchor_watch_ttl_htf_bars: 20
+    external_archive_enabled: true
+    external_archive_can_trigger_hypothesis: false
 
 replay:
   event_log_enabled: true
@@ -65,7 +94,7 @@ replay:
       501:
         bullish: {}
         bearish: {}
-  warmup_bars: 200            # number of bars to load before the replay start time, to provide context for indicators and markers
+  warmup_bars: 200            # structural guardrail through ~1 week sideways; applied independently per timeframe
   initial_visible_bars: 150   # number of bars visible when replay starts, can be increased with "show more bars" button
   chart_padding_bars: 10      # number of bars to keep as padding on the right side of the chart, to prevent markers from being too close to the edge
   tooltip_opacity: 0.5
@@ -164,6 +193,7 @@ replay:
   structure:
     enabled: true
     tier: "itr"          # "itr" (default) or "ltr"
+    anchor_sequence_limit: 8 # confirmed structure anchors retained for Orderflow + 1 live probe
     dual_display: dual # dual mode: higher | lower | both | projected | dual
     # dual draws projected HTF P/D on the LTF pane plus dashed native LTF P/D.
     pd_lines:

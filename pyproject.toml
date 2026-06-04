@@ -24,7 +24,7 @@ ultrab-replay = "ultrab.replayer.app:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"ultrab.replayer" = ["config.yaml", "templates/*.html", "static/icons/*.svg"]
+"ultrab.replayer" = ["config.yaml", "templates/*.html", "static/icons/*.svg", "static/vendor/flatpickr/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

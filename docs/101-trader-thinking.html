@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trader Thinking — Layer Architecture</title>
+  <script src="../assets/mermaid.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #FAF9F5;
+      --surface:   #ffffff;
+      --border:    #D1CFC5;
+      --accent:    #D97757;
+      --accent2:   #788C5D;
+      --text:      #3D3D3A;
+      --text-dim:  #87867F;
+      --text-head: #141413;
+      --tag-bg:    #E3DACC;
+      --tag-text:  #3D3D3A;
+      --panel-w:   360px;
+    }
+
+    body {
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    header {
+      padding: 20px 32px 16px;
+      border-bottom: 1.5px solid var(--border);
+      background: var(--surface);
+    }
+    header h1 {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--text-head);
+      text-transform: uppercase;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      font-style: italic;
+    }
+
+    .epigraph {
+      padding: 14px 32px;
+      background: #F0EEE6;
+      border-bottom: 1.5px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      font-style: italic;
+    }
+    .epigraph span { display: block; }
+
+    .layout {
+      display: flex;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* ── diagram area ── */
+    .diagram-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      background-image:
+        radial-gradient(circle, #C8C4BA 1px, transparent 1px);
+      background-size: 28px 28px;
+      background-color: var(--bg);
+    }
+    .diagram-wrap.panning { cursor: grabbing; }
+
+    #pan-surface {
+      position: absolute;
+      inset: 0;
+    }
+
+    #diagram-container {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      padding: 0;
+    }
+
+    .diagram-wrap .mermaid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .diagram-wrap .mermaid svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* reset button */
+    #pan-reset {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      letter-spacing: 0.04em;
+    }
+    #pan-reset:hover { color: var(--text-head); border-color: var(--accent); }
+
+    /* zoom hint */
+    #pan-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      font-size: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    /* Mermaid node hover */
+    .mermaid .node rect,
+    .mermaid .node polygon,
+    .mermaid .node circle,
+    .mermaid .node ellipse {
+      cursor: pointer;
+      transition: stroke 0.15s ease;
+    }
+    .mermaid .node:hover rect,
+    .mermaid .node:hover polygon {
+      stroke: #D97757 !important;
+    }
+
+    /* dashed edges (feedback arrows) */
+    .mermaid .edgePath.dashed path {
+      stroke-dasharray: 6 4;
+      stroke: #B8B4AA;
+    }
+
+    /* ── side panel ── */
+    .side-panel {
+      width: var(--panel-w);
+      min-width: var(--panel-w);
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 22px 22px 0;
+      border-bottom: 1.5px solid var(--border);
+      padding-bottom: 16px;
+    }
+    .panel-header .layer-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 2px 10px;
+      margin-bottom: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-head);
+      line-height: 1.4;
+    }
+    .panel-header .meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 28px;
+    }
+
+    .panel-body p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      margin-top: 12px;
+    }
+
+    .panel-body strong {
+      color: var(--text-head);
+      font-weight: 600;
+    }
+
+    .panel-body ul {
+      margin-top: 10px;
+      padding-left: 16px;
+    }
+    .panel-body ul li {
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--text);
+      margin-top: 5px;
+    }
+
+    .panel-body .rule-block {
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: #F0EEE6;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: #3D3D3A;
+      line-height: 1.7;
+      font-style: italic;
+    }
+
+    .panel-body .code-block {
+      margin-top: 12px;
+      background: #F0EEE6;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: #3D3D3A;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+      font-style: italic;
+    }
+    .panel-empty .arrow-hint {
+      font-size: 22px;
+      opacity: 0.25;
+    }
+
+    /* scrollbar */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Trader Thinking — Layer Architecture</h1>
+  <p>Click any node in the flowchart to read the layer contract.</p>
+</header>
+
+<div class="epigraph">
+  <span>When the tape is clean, act. · When the tape is messy, reduce permissions.</span>
+  <span>When the tape breaks the story, reclassify. · When unsure, record the null case.</span>
+</div>
+
+<div class="layout">
+
+  <div class="diagram-wrap" id="diagram-wrap">
+    <div id="pan-surface">
+      <div id="diagram-container">
+        <div class="mermaid">
+%%{init: {"theme": "base", "themeVariables": {"primaryColor":"#E3DACC","primaryTextColor":"#141413","primaryBorderColor":"#C8C4BA","lineColor":"#87867F","secondaryColor":"#F0EEE6","tertiaryColor":"#FAF9F5","edgeLabelBackground":"#FAF9F5","clusterBkg":"#F0EEE6","fontFamily":"ui-serif, Georgia, serif"}}}%%
+flowchart TB
+    A["01 · Market Data / Bars\nRuntime cursor context\nTime moves forward only"]
+    B["02 · Event Layer\nObjective observations · CE01/CE02 · PE01–PE06"]
+    C["03 · LTF Context Layer\nMemory-bearing processor\nState Store → Detector → Interpreter → Fusion → Evidence Compiler"]
+    C2["04 · HTF Context Layer\nOptional dual mode\nState Store → Detector → Interpreter"]
+    D["05 · Hypothesis Layer\nForm trade idea\nbearish mitigation · bullish continuation · invalidation"]
+    E["06 · Trigger Layer\nEntry permission\nsetup armed · trigger valid · trade fires"]
+    F["07 · Trade Launched\nNo emotional recall mid-air"]
+    G["08 · Null Case / Measurement\nMeasure outcome and non-outcome\nwin · loss · timeout · no trigger · invalidated"]
+    H["09 · Research / Review\nOffline improvement"]
+
+    A -->|"cursor bar + fixed lookback"| B
+    A -->|"cursor heartbeat\ncurrent bar envelope"| C
+    A -->|"cursor heartbeat\ncurrent bar envelope"| C2
+    B -->|"canonical CE / PE event records"| C
+    B -->|"canonical CE / PE event records"| C2
+    C2 -. "HTF context snapshot\nread reference every LTF bar" .-> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G -. "records only\ndoes not overrule live decision" .-> H
+    H -. "future version update\nnot same trade loop" .-> B
+
+    click A nodeClick
+    click B nodeClick
+    click C nodeClick
+    click C2 nodeClick
+    click D nodeClick
+    click E nodeClick
+    click F nodeClick
+    click G nodeClick
+    click H nodeClick
+        </div>
+      </div>
+    </div>
+    <button id="pan-reset" title="Reset view">reset</button>
+    <div id="pan-hint">scroll to zoom · drag to pan</div>
+  </div>
+
+  <aside class="side-panel">
+    <div id="panel-header" class="panel-header" style="display:none"></div>
+    <div id="panel-body" class="panel-body"></div>
+    <div id="panel-empty" class="panel-empty">
+      <div class="arrow-hint">←</div>
+      <div>Click a node to read<br>the layer contract.</div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+  const DETAIL = {
+    A: {
+      num: "01",
+      tag: "Layer 1 Input",
+      title: "Market Data / Bars",
+      meta: "System boundary — time moves forward only",
+      body: `<p>Raw price bars entering the system. The only source of truth. Time is strictly forward — no lookahead, no future knowledge.</p>
+             <p><strong>Runtime Cursor Context:</strong> the replayer, backtester, or live adapter materializes Layer 1 as a current-bar stream envelope.</p>
+             <div class="code-block">cursorIndex / barIndex
+cursorTimestamp
+timeframe
+currentBar OHLC
+currentPrice = current closed bar close
+lowerCursor / higherCursor in dual mode</div>
+             <p>This is not a Layer 2 event and not an out-of-architecture shortcut. It is the clock and current-bar payload that lets the system advance one bar at a time.</p>
+             <div class="rule-block">Rule: all downstream layers must treat bar arrival as a one-way, irreversible stream. Layer 2 detects primitive events from the cursor bar plus fixed lookback; Layer 3 uses the cursor heartbeat to update semantic object lifecycles and project current context.</div>`,
+    },
+    B: {
+      num: "02",
+      tag: "Layer 2",
+      title: "Event Layer Contract",
+      meta: "Objective observations · pure lookback only",
+      body: `<p>Fires from the Layer 1 cursor bar plus a fixed lookback window only. It has no memory of confirmed levels and no zone state.</p>
+             <p><strong>Outputs:</strong></p>
+             <ul>
+               <li>CE01 / CE02 — Fair Value Gap events</li>
+               <li>PE01–PE06 — Pivot confirmation events</li>
+             </ul>
+             <a href="./201-event.html" class="panel-link">→ Layer 2 Event Modelling</a>
+             <div class="rule-block">Rule: if detection requires remembering a prior confirmed level → it does not belong here. Move it to the Context Layer.</div>`,
+    },
+    C: {
+      num: "03",
+      tag: "Layer 3 · LTF",
+      title: "LTF Context Layer Contract",
+      meta: "Market structure memory — bounded by a configurable attention window",
+      body: `<p>Receives Event Layer output plus the Layer 1 runtime cursor heartbeat, then interprets semantic context over time. Each active timeframe runs its own Context Layer instance.</p>
+             <p><strong>Sub-components (in order):</strong></p>
+             <div class="code-block">Raw bars
+→ Event Layer primitive events
+→ Context Layer channel interpreters
+→ Fusion snapshot / label collapse
+→ Evidence Compiler
+→ evidence candidates / pattern candidates
+→ Hypothesis DAG</div>
+             <p><strong>Responsibilities:</strong></p>
+             <ul>
+               <li>Level registry (confirmed ITR / LTR pivots)</li>
+               <li>BoS detection → emits SE01–SE04</li>
+               <li>Range open / close tracking (triggered by SE)</li>
+               <li>Premium / Discount zone (derived from range)</li>
+               <li>S/D zone creation, lifecycle tracking, and quality scoring</li>
+               <li>Liquidity / P-D / ITR lifecycle tracking</li>
+               <li>Current-price projection from the runtime cursor context</li>
+               <li>Fusion — projects HTF zones into LTF picture, emits one unified DualContextSnapshot</li>
+               <li>Evidence Compiler — final sub-component; normalizes evidence, collapses repeated observations, emits compact evidence candidates</li>
+             </ul>
+             <div class="rule-block">Layer 3 holds <strong>market structure memory</strong>, bounded by a configurable attention window (e.g. 500 bars). Objects older than the window expire, are archived, or are evicted. The window is not a limitation — it is a design assertion that market structure beyond it is a past life, not relevant to current decisions. Memory within the window is durable and can be reconstructed from historical bars.</div>`,
+    },
+    C2: {
+      num: "04",
+      tag: "Layer 3 · HTF",
+      title: "HTF Context Layer Contract",
+      meta: "Optional · dual-mode only",
+      body: `<p>Runs in parallel with the LTF Context Layer when dual-timeframe mode is active. Shares the same internal architecture minus the Fusion and Evidence Compiler sub-components.</p>
+             <p><strong>Sub-components:</strong></p>
+             <ul>
+               <li>State Store</li>
+               <li>Detector</li>
+               <li>Interpreter</li>
+             </ul>
+             <p>Outputs a snapshot directly. On every LTF bar, the LTF Fusion sub-component reads this snapshot as a read reference and projects it into the unified picture.</p>
+             <div class="rule-block">HTF Context Layer has no Fusion sub-component — it outputs its snapshot directly.</div>`,
+    },
+    D: {
+      num: "05",
+      tag: "Layer 4",
+      title: "Hypothesis Layer Contract",
+      meta: "Commitment memory — bounded by episode and structural epoch",
+      body: `<p>Reads evidence candidates from the Context Layer and runs the hypothesis DAG. Maintains two parallel components: the DAG Navigator (where am I?) and the Shadow Thesis (what did I commit to?).</p>
+             <div class="code-block">DAG Navigator:
+  current_node → allowed_edges → candidate_nodes → selected_node
+
+Shadow Thesis:
+  poi_id · entry_policy · invalidation_ref
+  episode_status · failure_reason · suppression</div>
+             <p><strong>Hypothesis types:</strong></p>
+             <ul>
+               <li>Bearish mitigation</li>
+               <li>Bullish continuation</li>
+               <li>Invalidation</li>
+             </ul>
+             <p><strong>Layer 4 commitment memory — bounded by whichever ends first:</strong></p>
+             <ul>
+               <li><strong>thesis.over</strong> — episode confirmed or failed; commitment closes cleanly. Suppression flag lingers briefly, then lifts when a new structural candidate arrives.</li>
+               <li><strong>htf_pd_epoch_id changes</strong> — new HTF P/D leg opened; prior structural context is void. Shadow Thesis clears, DAG resets to E.seeking.</li>
+             </ul>
+             <div class="rule-block">Layer 4 holds <strong>commitment memory</strong>, bounded by the current session and structural epoch. It does not persist across cold starts — on restart the system re-derives position from current EC output, like a hiker re-orienting after losing consciousness. The market memory (Layer 3) survives; the belief memory (Layer 4) does not.</div>`,
+    },
+    E: {
+      num: "06",
+      tag: "Layer 5",
+      title: "Trigger Layer Contract",
+      meta: "Entry permission — deterministic, no memory",
+      body: `<p>Has explicit permission rules. Only fires when both conditions are met simultaneously:</p>
+             <ul>
+               <li>Setup is armed (from Hypothesis Layer)</li>
+               <li>Trigger condition is valid on the current bar</li>
+             </ul>
+             <div class="rule-block">No memory. No interpretation. Layer 4 makes deterministic thesis decisions — it does not re-evaluate the hypothesis. It only gates execution.</div>`,
+    },
+    F: {
+      num: "07",
+      tag: "Layer 5 Execution",
+      title: "Trade Launched",
+      meta: "No emotional recall mid-air",
+      body: `<p>Once the trade fires, the decision loop is closed. The system does not revisit context, re-weight evidence, or second-guess the hypothesis while the trade is live.</p>
+             <div class="rule-block">No emotional recall mid-air. The trade executes under the thesis that was formed. Changes to context are recorded by the Null Case layer — they do not overrule the live decision.</div>`,
+    },
+    G: {
+      num: "08",
+      tag: "Layer 6",
+      title: "Null Case / Measurement Layer",
+      meta: "Records truth · does not talk back during the trade",
+      body: `<p>Measures both outcomes and non-outcomes after the trade resolves.</p>
+             <p><strong>Recorded states:</strong></p>
+             <ul>
+               <li>Win</li>
+               <li>Loss</li>
+               <li>Timeout</li>
+               <li>No trigger (setup armed but never fired)</li>
+               <li>Invalidated (thesis broke before entry)</li>
+             </ul>
+             <div class="rule-block">Does not talk back during the same trade. Feeds Research / Review offline only. The null case records truth — it does not influence the live decision loop.</div>`,
+    },
+    H: {
+      num: "09",
+      tag: "Offline",
+      title: "Research / Review",
+      meta: "Offline improvement — not same trade loop",
+      body: `<p>Consumes Null Case records after the fact. Identifies systematic patterns, recalibrates thresholds, updates layer contracts for future versions.</p>
+             <p>Feeds back into the <strong>Event Layer</strong> as a future version update — never into the live decision chain of the current trade.</p>
+             <div class="rule-block">Research runs outside the trade loop. Improvements are versioned and applied to the next system iteration, not injected mid-session.</div>`,
+    },
+  };
+
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'loose',
+    theme: 'base',
+  });
+
+  // ── SVG-native pan / zoom ────────────────────────────────────────────────
+  function initSvgPanZoom(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    const resetBtn = wrap.querySelector('#pan-reset');
+    const svg = wrap.querySelector('.mermaid svg');
+    if (!svg) return;
+
+    const current = () => {
+      const vb = svg.viewBox.baseVal;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    };
+    const setViewBox = vb => {
+      svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+    };
+
+    let initialViewBox;
+    try {
+      const bbox = svg.getBBox();
+      const pad = Math.max(bbox.width, bbox.height) * 0.08;
+      initialViewBox = { x: bbox.x - pad, y: bbox.y - pad, width: bbox.width + pad * 2, height: bbox.height + pad * 2 };
+    } catch {
+      const vb = current();
+      initialViewBox = { x: vb.x, y: vb.y, width: vb.width || 1200, height: vb.height || 800 };
+    }
+    setViewBox(initialViewBox);
+
+    let dragging = false, moved = false, lastX = 0, lastY = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      wrap.classList.add('panning');
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const vb = current();
+      const rect = wrap.getBoundingClientRect();
+      setViewBox({ x: vb.x - dx * (vb.width / rect.width), y: vb.y - dy * (vb.height / rect.height), width: vb.width, height: vb.height });
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      wrap.classList.remove('panning');
+    });
+
+    // suppress click after a drag so Mermaid node clicks still fire normally
+    wrap.addEventListener('click', e => {
+      if (moved) e.stopPropagation();
+    }, true);
+
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const vb = current();
+      const factor = e.deltaY < 0 ? 0.9 : 1.1;
+      const nextW = Math.min(Math.max(vb.width * factor, initialViewBox.width * 0.08), initialViewBox.width * 12);
+      const nextH = Math.min(Math.max(vb.height * factor, initialViewBox.height * 0.08), initialViewBox.height * 12);
+      const rx = mx / rect.width;
+      const ry = my / rect.height;
+      setViewBox({ x: vb.x + (vb.width - nextW) * rx, y: vb.y + (vb.height - nextH) * ry, width: nextW, height: nextH });
+    }, { passive: false });
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', e => { e.stopPropagation(); setViewBox(initialViewBox); });
+    }
+  }
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof mermaid.run === 'function') {
+      await mermaid.run();
+    } else {
+      mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    }
+    requestAnimationFrame(() => initSvgPanZoom('diagram-wrap'));
+  });
+
+  window.nodeClick = function(nodeId) {
+    const data = DETAIL[nodeId];
+    if (!data) return;
+
+    document.getElementById('panel-empty').style.display = 'none';
+
+    const hdr = document.getElementById('panel-header');
+    hdr.style.display = 'block';
+    hdr.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+        <span style="font-size:22px;font-weight:700;color:#C8C4BA;font-family:ui-monospace,monospace;line-height:1;">${data.num}</span>
+        <span class="layer-tag">${data.tag}</span>
+      </div>
+      <h2>${data.title}</h2>
+      <div class="meta">${data.meta}</div>
+    `;
+
+    document.getElementById('panel-body').innerHTML = data.body;
+  };
+</script>
+
+<!--
+  Layer 2 (Hidden LLM text) — intentionally omitted.
+  The DETAIL object in the <script> above is plain readable template-literal prose,
+  fully indexed by node num and key. Any LLM fetching raw HTML reads <script> content
+  and can match node IDs to descriptions without a separate <pre class="llm-context"> block.
+
+  Add Layer 2 only if:
+  - The page migrates to a SPA (React/Vue) where the DETAIL bundle becomes minified/unreadable.
+  - Node content is fetched from an API and never present in the HTML source.
+  - A fetcher pipeline is confirmed to strip <script> tags before LLM ingestion.
+
+  Layer 3 (JSON-LD) — intentionally omitted.
+  This is plain static HTML. JSON-LD is only needed for CSR pages where
+  Layers 1 and 2 are invisible to a fetcher (React, Vue, etc.).
+-->
+</body>
+</html>

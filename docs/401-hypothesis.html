@@ -1,0 +1,711 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- source: ultrab/ln-notes/4trade-identify/401.hypothesis.md -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>401 · Layer 4 Hypothesis — Dataflow</title>
+
+  <!-- Local Mermaid — no CDN -->
+  <script src="../assets/mermaid.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #FAF9F5;
+      --surface:   #ffffff;
+      --border:    #D1CFC5;
+      --accent:    #D97757;
+      --accent2:   #788C5D;
+      --text:      #3D3D3A;
+      --text-dim:  #87867F;
+      --text-head: #141413;
+      --tag-bg:    #E3DACC;
+      --tag-text:  #3D3D3A;
+      --panel-w:   400px;
+    }
+
+    body {
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 18px 32px 14px;
+      border-bottom: 1.5px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-head);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    .epigraph {
+      padding: 12px 32px;
+      background: #F0EEE6;
+      border-bottom: 1.5px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      font-style: italic;
+      flex-shrink: 0;
+    }
+    .epigraph span { display: block; }
+
+    .layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .layout-single { flex-direction: row; }
+
+    /* ── Diagram canvas ── */
+    .diagram-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, #C8C4BA 1px, transparent 1px);
+      background-size: 28px 28px;
+      min-width: 0;
+    }
+    .diagram-wrap.panning { cursor: grabbing; }
+
+    .diagram-wrap .mermaid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .diagram-wrap .mermaid svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pan-reset {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pan-reset:hover { color: var(--text-head); border-color: var(--accent); }
+
+    .pan-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      font-size: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    .mermaid .node rect,
+    .mermaid .node polygon,
+    .mermaid .node circle,
+    .mermaid .node ellipse {
+      cursor: pointer;
+      transition: stroke 0.15s ease;
+    }
+    .mermaid .node:hover rect,
+    .mermaid .node:hover polygon {
+      stroke: var(--accent) !important;
+    }
+    .mermaid .edgePath.dashed path {
+      stroke-dasharray: 6 4;
+      stroke: #B8B4AA;
+    }
+
+    /* ── Side panel ── */
+    .side-panel {
+      width: var(--panel-w);
+      min-width: var(--panel-w);
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-header {
+      padding: 20px 22px 16px;
+      border-bottom: 1.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-header .node-num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #C8C4BA;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      line-height: 1;
+      margin-right: 8px;
+    }
+    .panel-header .layer-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 2px 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      vertical-align: middle;
+    }
+    .panel-header .node-num-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-head);
+      line-height: 1.4;
+    }
+    .panel-header .meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      font-style: italic;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 28px;
+    }
+
+    .panel-body p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      margin-top: 12px;
+    }
+    .panel-body p:first-child { margin-top: 0; }
+    .panel-body strong { color: var(--text-head); font-weight: 600; }
+
+    .panel-body ul {
+      margin-top: 10px;
+      padding-left: 16px;
+    }
+    .panel-body ul li {
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--text);
+      margin-top: 5px;
+    }
+
+    .panel-body .rule-block {
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: #F0EEE6;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.7;
+      font-style: italic;
+    }
+
+    .panel-body .code-block {
+      margin-top: 12px;
+      background: #F0EEE6;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    .panel-body .panel-link {
+      display: inline-block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      border-bottom: 1px solid transparent;
+    }
+    .panel-body .panel-link:hover { border-bottom-color: var(--accent); }
+
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+      font-style: italic;
+    }
+    .panel-empty .arrow-hint { font-size: 22px; opacity: 0.25; }
+
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    @keyframes shimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position:  200% 0; }
+    }
+    .diagram-loader {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      background: linear-gradient(
+        90deg,
+        var(--tag-bg) 25%,
+        #F5F2EC    50%,
+        var(--tag-bg) 75%
+      );
+      background-size: 200% 100%;
+      animation: shimmer 1.6s ease-in-out infinite;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+    .diagram-loader.done { opacity: 0; pointer-events: none; }
+
+    .diagram-wrap.loading .mermaid {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>401 · Layer 4 Hypothesis — Dataflow</h1>
+  <p>Click any component to read its contract. Layer 3 feeds Layer 4; Layer 4 feeds Layer 5.</p>
+</header>
+
+<div class="epigraph">
+  <span>Evidence Compiler answers: "what did the market do?" · DAG answers: "which phase am I in?" · Shadow Thesis answers: "what local memory am I carrying, and did it work?"</span>
+</div>
+
+<div class="layout layout-single">
+
+  <div class="diagram-wrap loading" id="wrap-1">
+    <div class="diagram-loader" id="loader-1"></div>
+    <div class="mermaid">
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":"#E3DACC",
+  "primaryTextColor":"#141413",
+  "primaryBorderColor":"#C8C4BA",
+  "lineColor":"#87867F",
+  "secondaryColor":"#F0EEE6",
+  "tertiaryColor":"#FAF9F5",
+  "edgeLabelBackground":"#FAF9F5",
+  "fontFamily":"ui-serif, Georgia, serif"
+}}}%%
+flowchart TD
+  subgraph SG3["Layer 3 — Evidence Compiler"]
+    direction LR
+    EC["01 · ec · Evidence Compiler"]
+    SNAP["02 · snap · DualContextSnapshot"]
+  end
+
+  subgraph SG4["Layer 4 — Hypothesis"]
+    direction TB
+    DAG["03 · dag · DAG Navigator"]
+    SHADOW["04 · shadow · Shadow Thesis"]
+    OUT["05 · out · Output Constructor"]
+    DAG -->|"current_node · phase · episode_id"| OUT
+    SHADOW -->|"episode_status · poi_id · failure_reason"| OUT
+    SHADOW -.->|"suppression signal"| DAG
+    DAG -->|"phase committed"| SHADOW
+  end
+
+  subgraph SG5["Layer 5 — Output"]
+    direction LR
+    L5H["06 · hyp · Hypothesis dict"]
+    L5S["07 · ep · Shadow episode fields"]
+  end
+
+  EC -->|"evidence_candidates"| DAG
+  EC -->|"evidence_candidates"| OUT
+  SNAP -->|"display fields · POI validation"| OUT
+  OUT --> L5H
+  OUT --> L5S
+
+  click EC nodeClick
+  click SNAP nodeClick
+  click DAG nodeClick
+  click SHADOW nodeClick
+  click OUT nodeClick
+  click L5H nodeClick
+  click L5S nodeClick
+    </div>
+    <button class="pan-reset" data-wrap="wrap-1">reset</button>
+    <div class="pan-hint">scroll to zoom · drag to pan</div>
+  </div>
+
+  <aside class="side-panel" id="panel-1">
+    <div class="panel-header" id="panel-1-header" style="display:none"></div>
+    <div class="panel-body"   id="panel-1-body"></div>
+    <div class="panel-empty"  id="panel-1-empty">
+      <div class="arrow-hint">←</div>
+      <div>Click a component to read<br>its layer contract.</div>
+    </div>
+  </aside>
+
+</div><!-- /.layout -->
+
+<script>
+  const DETAIL = {
+    EC: {
+      num:   "01",
+      tag:   "Layer 3",
+      title: "Evidence Compiler",
+      meta:  "reads fused snapshots bar-by-bar; emits EvidenceCandidates",
+      body:  `
+<p>The Evidence Compiler is the final Layer 3 module after Fusion. It reads the fused <code>ContextSnapshot</code> facts and turns meaningful transitions or cross-channel chains into compact candidates for Layer 4.</p>
+<p>It does <strong>not</strong> detect primitive events. It does <strong>not</strong> own channel state. It does <strong>not</strong> choose the active hypothesis node.</p>
+<div class="code-block">Inputs:
+  structure · bias · phase · P/D position
+  S/D zones · liquidity pools (HTF P/D, EQ, ITR)
+  orderflow · ChoCh monitor
+  runtime cursor (timestamp · price · bar_index)
+
+Outputs → EvidenceCandidate:
+  candidate_id · pattern · status
+  direction · timeframe
+  evidence_refs · source_object_refs
+  location_context · relation_to_phase
+  relation_to_probe · blocked_reasons
+  first_seen_at · ready_at · expires_at</div>
+<p><strong>Key chains it accumulates:</strong></p>
+<ul>
+  <li><code>b_initiation_watch</code> — three-step chain: source ITR grab → opposite ITR grab → decision zone tap</li>
+  <li><code>phase_d_ready</code> — HTF P/D stopped expanding + opposing SD zone reacted</li>
+  <li><code>phase_c_ready</code> — phase_d_ready + LTF bias counter to HTF</li>
+  <li><code>phase_b_ready</code> — b_initiation chain ready + LTF half check + SD bounce</li>
+  <li><code>phase_a_ready</code> — LTF aligned + LTF P/D expanding (POI gate in Layer 4)</li>
+</ul>
+<div class="rule-block">Pattern status: <code>collecting</code> | <code>ready</code> | <code>invalidated</code> | <code>expired</code>. Layer 4 reads only <code>ready</code> candidates when evaluating transitions.</div>
+<div class="rule-block" style="border-left-color: var(--accent2); margin-top: 12px;"><strong>Analogy:</strong> the weather + terrain reporter. It reads the environment bar by bar and reports structured facts — "sun, no wind, trail ahead is clear" or "storm developing, HTF counter zone reacting." It does not tell you where to go.</div>
+<a class="panel-link" href="./301-context.html">→ Back to 301 Layer 3 Context</a>
+<a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
+<a class="panel-link" href="./402-hypothesis-phE.html">→ Open 402 Phase E Detail</a>`,
+    },
+
+    SNAP: {
+      num:   "02",
+      tag:   "Layer 3",
+      title: "DualContextSnapshot",
+      meta:  "from Fusion; display fields + POI validation only",
+      body:  `
+<p>The <code>DualContextSnapshot</code> is the Fusion layer output. It carries both the HTF and LTF context snapshots merged into a single current-truth view per bar.</p>
+<p>Layer 4 may read this snapshot for two purposes only:</p>
+<ul>
+  <li><strong>Display fields</strong> — symbol, current timestamp, current price (for the Hypothesis dict output)</li>
+  <li><strong>POI validation</strong> — confirming that a selected POI zone is still inside a valid range (zone not run through, not expired)</li>
+</ul>
+<div class="rule-block">Layer 4 must <em>not</em> re-inspect raw <code>higher_structure</code>, <code>zones</code>, or <code>liquidity</code> fields for structural reasoning. All structural reasoning goes through EvidenceCandidates from the Evidence Compiler.</div>
+<p>Any direct snapshot read inside a transition guard is design debt. It must be replaced by an EvidenceCandidate read as the Evidence Compiler is built out.</p>
+<a class="panel-link" href="./301-context.html">→ Back to 301 Layer 3 Context</a>`,
+    },
+
+    DAG: {
+      num:   "03",
+      tag:   "Layer 4",
+      title: "DAG Navigator",
+      meta:  "phase state machine; navigates current_node → selected_node each bar",
+      body:  `
+<p>The DAG Navigator is the core of Layer 4. It maintains a position inside the predefined phase graph and advances it bar-by-bar based on which EvidenceCandidates are ready.</p>
+<div class="code-block">Per bar:
+  1. Check if htf_pd_epoch_id changed → epoch reset
+  2. From current_node, enumerate allowed_edges
+  3. For each edge, check if matching EvidenceCandidate.status == "ready"
+  4. Collect candidate_nodes
+  5. Apply priority among candidates
+  6. Set selected_node + selection_reason
+  7. Advance current_node</div>
+<p><strong>Phase nodes:</strong> E (3 sub-states) · D (4 variants) · C (5 variants) · B (3 variants + watch) · A (2 sub-states) · thesis.over · none</p>
+<p>Multiple candidates may be observable in the same bar — only edges from the current node are evaluated. All matched candidates are stored for audit in <code>candidate_nodes</code>.</p>
+<div class="rule-block">The DAG is a map of where you are. It navigates structure but does not remember what you tried or whether it worked. That is the Shadow Thesis's job.</div>
+<div class="rule-block" style="border-left-color: var(--accent2); margin-top: 12px;"><strong>Analogy:</strong> the trail map + hiker. The DAG is the predefined trail map — fixed paths, fixed gates between nodes. The Navigator is the hiker who reads the map alongside the weather report (EC) and picks the next step. The map does not change based on weather; the hiker decides which trail to take.
+<br><br>
+<strong>On restart:</strong> the DAG self-locates from current EC candidates and L3 window. It does not blindly reset to E.seeking. EC reads whatever structural facts survived in the L3 window, emits the appropriate candidates, and the DAG places itself at the most fitting node — B, C, A, or wherever the evidence points. The hiker woke up downstream; he reads the weather, checks the terrain visible around him, consults the map, and concludes where he is. He does not assume he teleported to the trailhead.</div>
+<a class="panel-link" href="./401-hypothesis-DAG.html">→ Open full DAG node graph</a>`,
+    },
+
+    SHADOW: {
+      num:   "04",
+      tag:   "Layer 4",
+      title: "Shadow Thesis",
+      meta:  "parallel episode memory; phase-local journals · suppression · belief tracking",
+      body:  `
+<p>The Shadow Thesis runs alongside the DAG as a parallel episode journal. It is <strong>not</strong> a DAG node — it never appears on the phase graph. It tracks the local memory Layer 4 needs while navigating: what was seen, what was tried, what was consumed, and whether the current read is still valid.</p>
+<p>It is one Layer 4 component, but internally it should be split into phase-owned ledgers rather than one flat object. Each phase owns only the memory required by that phase's local node machine.</p>
+<div class="code-block">ShadowThesis
+  phase_e → E.seeking / E.stalling / E.pullback_developing memory
+  phase_d → reaction-point / liquidity-test memory
+  phase_c → pullback-story memory
+  phase_b → B initiation / reclaim / suppression memory
+  phase_a → continuation / finale memory</div>
+<p><strong>Why it is necessary despite the DAG:</strong></p>
+<ul>
+  <li><strong>Phase-local memory</strong> — Phase E needs to remember whether a clean LTF counter orderflow leg was already consumed, whether it was disrupted, and whether the next pullback should still be soft E-memory or should graduate to a global D/C decision.</li>
+  <li><strong>Suppression</strong> — after a failed Phase B, the EvidenceCandidate for <code>b_initiation_watch</code> may still be <code>ready</code>. Without suppression, the DAG immediately re-enters B, creating an infinite loop. Shadow Thesis blocks re-entry until a new candidate with a later <code>first_seen_at</code> arrives.</li>
+  <li><strong>POI persistence</strong> — one trade idea spans B_init → B_strict → A_cont → A_fin → thesis.over. The DAG advances its node; the Shadow Thesis carries <code>poi_id</code>, <code>entry_policy</code>, and <code>invalidation_ref</code> across all those transitions.</li>
+  <li><strong>Belief vs. market fact</strong> — Evidence Compiler records what the market did. Shadow Thesis records what Layer 4 believed and staked. Both are necessary and distinct.</li>
+</ul>
+<div class="code-block">Root implementation shape:
+  state.shadow_thesis.phase_e
+  state.shadow_thesis.phase_d
+  state.shadow_thesis.phase_c
+  state.shadow_thesis.phase_b
+  state.shadow_thesis.phase_a
+
+Projected episode fields:
+  episode_status:
+  open | confirming | confirmed | failed | suppressed | expired
+
+  fields carried:
+  phase_episode_id · poi_id
+  entry_policy · target_policy · invalidation_ref
+  expected_next_phase · failure_reason
+  fallback_phase
+  b_shadow_suppressed · b_suppression_expires_at</div>
+<div class="rule-block">Shadow thesis stays in Layer 4. Do not move it to Evidence Compiler. The compiler answers "what did the market do" — not "what local memory is Layer 4 carrying."</div>
+<div class="rule-block" style="border-left-color: var(--accent2); margin-top: 12px;"><strong>Analogy:</strong> the field journal, not the compass. It does not steer — the hiker (DAG Navigator) steers. It records: "I committed to camping at this POI." "That last campsite burned — avoid it." "I am still on the same trip, same budget." When the hiker crosses from trail B to trail A, the journal still says same campsite, same gear, same goal.
+<br><br>
+<strong>On wakeup:</strong> if the hiker slept on the hill and no terrain changed — journal survives, hypothesis resumes. If he fell into the river and woke up somewhere else — journal is void, but he is not lost. The journal (Shadow Thesis) clears; the map (DAG) and the terrain report (EC + L3 window) are still intact. He re-locates from those — reads the weather, reads the visible path, finds his position on the map. He does not assume he is back at the trailhead. The system must always be able to re-locate itself on restart. Resetting to E.seeking is the last resort, not the default.</div>`,
+    },
+
+    OUT: {
+      num:   "05",
+      tag:   "Layer 4",
+      title: "Output Constructor",
+      meta:  "assembles the per-bar Hypothesis dict from DAG + Shadow + display context",
+      body:  `
+<p>The Output Constructor assembles the final Hypothesis dict once the DAG and Shadow Thesis have been updated for the bar. It pulls from three sources:</p>
+<ul>
+  <li><strong>DAG Navigator</strong> — <code>phase</code>, <code>direction</code>, <code>episode_id</code>, <code>phase_sub_status</code></li>
+  <li><strong>Shadow Thesis</strong> — <code>episode_status</code>, <code>poi_id</code>, <code>entry_policy</code>, <code>target_policy</code>, <code>invalidation</code>, <code>failure_reason</code></li>
+  <li><strong>DualContextSnapshot</strong> — <code>currentTimestamp</code>, <code>currentPrice</code> (display only)</li>
+</ul>
+<div class="code-block">Hypothesis dict shape:
+  phase              — E | D | C | B | A | thesis.over | none
+  phase_sub_status   — fine-grained status within phase
+  direction          — long | short | None
+  poi_id             — zone or level ID for entry
+  entry_policy       — entry trigger spec
+  target_policy      — target spec
+  invalidation       — invalidation spec
+  episode_id         — UUID per continuous phase episode
+  episode_status     — open|confirming|confirmed|failed|suppressed|expired
+  failure_reason     — str | None
+  fallback_phase     — str | None
+  none_sub_status    — only when phase == "none"
+  none_origin_phase  — best-effort: which phase preceded this none
+  currentTimestamp   — str
+  currentPrice       — float</div>
+<div class="rule-block">The Output Constructor does not make decisions. Decisions are the DAG's job. This step only compiles the chosen state into the standard output shape.</div>`,
+    },
+
+    L5H: {
+      num:   "06",
+      tag:   "Layer 5",
+      title: "Hypothesis dict",
+      meta:  "per-bar output consumed by Layer 5 for trade execution decisions",
+      body:  `
+<p>The Hypothesis dict is the per-bar output of Layer 4. Layer 5 reads it to determine whether to open, hold, or close a position.</p>
+<p>Layer 5 uses the following fields primarily:</p>
+<ul>
+  <li><code>phase</code> + <code>direction</code> — which phase is active and in which direction</li>
+  <li><code>poi_id</code> — the confirmed entry zone to watch</li>
+  <li><code>entry_policy</code> — the trigger specification (ChoCh confirm, rejection candle, etc.)</li>
+  <li><code>target_policy</code> — the target specification (HTF P/D objective, EQ pool, etc.)</li>
+  <li><code>invalidation</code> — the level that closes the thesis if breached</li>
+  <li><code>episode_status</code> — whether the thesis is open, confirming, or confirmed</li>
+</ul>
+<div class="rule-block">Layer 5 is a passive consumer. It does not re-evaluate market structure. It acts on what Layer 4 has already decided.</div>`,
+    },
+
+    L5S: {
+      num:   "07",
+      tag:   "Layer 5",
+      title: "Shadow episode fields",
+      meta:  "lifecycle state for the active trade thesis; used by Layer 5 for position management",
+      body:  `
+<p>Shadow episode fields are emitted alongside the Hypothesis dict to give Layer 5 the full lifecycle context of the current trade thesis.</p>
+<div class="code-block">episode_status values:
+  open        — phase entered, no position yet
+  confirming  — entry triggered, waiting for follow-through
+  confirmed   — thesis validated (target approached or hit)
+  failed      — invalidation hit before target
+  suppressed  — re-entry blocked after failure
+  expired     — epoch reset or structural expiry</div>
+<p>Layer 5 uses <code>episode_status</code> to:</p>
+<ul>
+  <li>Know when to arm entry triggers (<code>open</code>)</li>
+  <li>Know when a position is live (<code>confirming</code>)</li>
+  <li>Know when to close and wait (<code>failed</code> / <code>suppressed</code>)</li>
+  <li>Know when the thesis completed successfully (<code>confirmed</code>)</li>
+</ul>
+<div class="rule-block">Shadow episode fields are for Layer 5 consumption only. Layer 4 keeps its own internal shadow thesis state — these fields are a projected subset of that state.</div>`,
+    },
+  };
+
+  // ── Mermaid init ──────────────────────────────────────────────────────────
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof mermaid.run === 'function') {
+      await mermaid.run();
+    } else {
+      mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    }
+    requestAnimationFrame(() => {
+      initSvgPanZoom('wrap-1');
+      const wrapEl  = document.getElementById('wrap-1');
+      const loaderEl = document.getElementById('loader-1');
+      wrapEl.classList.remove('loading');
+      loaderEl.classList.add('done');
+      loaderEl.addEventListener('transitionend', () => loaderEl.remove(), { once: true });
+    });
+  });
+
+  // ── SVG-native pan / zoom ─────────────────────────────────────────────────
+  function initSvgPanZoom(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    const resetBtn = wrap.querySelector('.pan-reset');
+    const svg = wrap.querySelector('.mermaid svg');
+    if (!svg) return;
+
+    const current = () => {
+      const vb = svg.viewBox.baseVal;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    };
+    const setViewBox = vb =>
+      svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+
+    let initialViewBox;
+    try {
+      const bbox = svg.getBBox();
+      const pad = Math.max(bbox.width, bbox.height) * 0.08;
+      initialViewBox = { x: bbox.x - pad, y: bbox.y - pad,
+                         width: bbox.width + pad * 2, height: bbox.height + pad * 2 };
+    } catch {
+      const vb = current();
+      initialViewBox = { x: vb.x, y: vb.y, width: vb.width || 1200, height: vb.height || 800 };
+    }
+    setViewBox(initialViewBox);
+
+    let dragging = false, moved = false, lastX = 0, lastY = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true; moved = false;
+      lastX = e.clientX; lastY = e.clientY;
+      wrap.classList.add('panning');
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX, dy = e.clientY - lastY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const vb = current(), rect = wrap.getBoundingClientRect();
+      setViewBox({ x: vb.x - dx * (vb.width / rect.width),
+                   y: vb.y - dy * (vb.height / rect.height),
+                   width: vb.width, height: vb.height });
+      lastX = e.clientX; lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false; wrap.classList.remove('panning');
+    });
+    wrap.addEventListener('click', e => { if (moved) e.stopPropagation(); }, true);
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+      const vb = current();
+      const factor = e.deltaY < 0 ? 0.9 : 1.1;
+      const nextW = Math.min(Math.max(vb.width  * factor, initialViewBox.width  * 0.08), initialViewBox.width  * 12);
+      const nextH = Math.min(Math.max(vb.height * factor, initialViewBox.height * 0.08), initialViewBox.height * 12);
+      setViewBox({ x: vb.x + (vb.width - nextW) * (mx / rect.width),
+                   y: vb.y + (vb.height - nextH) * (my / rect.height),
+                   width: nextW, height: nextH });
+    }, { passive: false });
+    if (resetBtn)
+      resetBtn.addEventListener('click', e => { e.stopPropagation(); setViewBox(initialViewBox); });
+  }
+
+  // ── Panel renderer ────────────────────────────────────────────────────────
+  function renderPanel(panelId, data) {
+    if (!data) return;
+    document.getElementById(`${panelId}-empty`).style.display = 'none';
+
+    const hdr = document.getElementById(`${panelId}-header`);
+    hdr.style.display = 'block';
+    hdr.innerHTML = `
+      <div class="node-num-row">
+        <span class="node-num">${data.num}</span>
+        <span class="layer-tag">${data.tag}</span>
+      </div>
+      <h2>${data.title}</h2>
+      <div class="meta">${data.meta}</div>
+    `;
+    document.getElementById(`${panelId}-body`).innerHTML = data.body;
+  }
+
+  window.nodeClick = function(nodeId) {
+    renderPanel('panel-1', DETAIL[nodeId]);
+  };
+</script>
+
+<!--
+  Source: ultrab/ln-notes/4trade-identify/401.hypothesis.md
+          ultrab/ln-notes/3context/311-Evidence-compiler.md
+
+  Layer 1 (Visual) — Mermaid chart + side panel. Active.
+
+  Layer 2 (Hidden LLM text) — omitted. DETAIL object is plain readable
+  template-literal prose in <script>.
+
+  Layer 3 (JSON-LD) — omitted. Plain static HTML; no CSR framework.
+-->
+</body>
+</html>

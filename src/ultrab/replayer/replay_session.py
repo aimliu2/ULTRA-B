@@ -13,10 +13,12 @@ from ultrab.replayer.data_source import (
     timeframe_label,
 )
 from ultrab.core.smc.candleEvent import FvgEventEngine
-from ultrab.core.smc.hypothesis import HypothesisClassifier
+from ultrab.core.smc.orderflow import OrderflowContext
 from ultrab.core.smc.pivotEvent import PivotEventEngine
 from ultrab.core.smc.sdZone import SDZoneBarResult, SDZoneEngine
+from ultrab.core.smc.snapshot_normalizer import SnapshotNormalizer
 from ultrab.core.smc.structureEngine import StructureEngine
+from ultrab.runtime.dual_smc import DualSmcRuntime, RuntimeEmittedEvent
 
 
 @dataclass
@@ -48,7 +50,24 @@ def _serialize_event(
     side = "high" if int(event.pivot_side) == 1 else "low"
     event_name = str(event.event_name)
     event_type = "bos" if event_name.endswith("Bos") else "confirmed"
+    canonical = event.to_dict() if hasattr(event, "to_dict") else {}
     payload = {
+        "eventId": canonical.get("eventId", getattr(event, "event_id", None)),
+        "eventCode": event.event_code,
+        "eventName": event_name,
+        "eventGroup": getattr(event, "event_group", "PE"),
+        "timeframe": timeframe,
+        "eventTimestamp": event.event_timestamp.isoformat(),
+        "causalAvailableAt": event.event_timestamp.isoformat(),
+        "anchorTimestamp": event.pivot_timestamp.isoformat(),
+        "pivotTimestamp": event.pivot_timestamp.isoformat(),
+        "pivotPrice": float(event.pivot_price),
+        "pivotSide": int(event.pivot_side),
+        "price": float(event.pivot_price),
+        "direction": side,
+        "sourceBarIndexes": canonical.get("sourceBarIndexes", []),
+        "sourceCandleRefs": canonical.get("sourceCandleRefs", []),
+        "metadata": canonical.get("metadata", {}),
         "tf": timeframe,
         "tier": event.tier,
         "event_code": event.event_code,
@@ -59,7 +78,6 @@ def _serialize_event(
         "event_name": event_name,
         "decision_ts": event.event_timestamp.isoformat(),
         "anchor_ts": event.pivot_timestamp.isoformat(),
-        "price": float(event.pivot_price),
         "display_event_log": display_event_log,
         "display_chart_markers": display_chart_markers,
     }
@@ -72,20 +90,28 @@ def _serialize_event(
     if getattr(event, "mode", None) is not None:
         payload["mode"] = event.mode
     if getattr(event, "survival_bars", None) is not None:
+        payload["survivalBars"] = int(event.survival_bars)
         payload["survival_bars"] = int(event.survival_bars)
     if getattr(event, "source_tier", None) is not None:
+        payload["sourceTier"] = event.source_tier
         payload["source_tier"] = event.source_tier
     if getattr(event, "source_event_code", None) is not None:
+        payload["sourceEventCode"] = event.source_event_code
         payload["source_event_code"] = event.source_event_code
     if getattr(event, "previous_same_side_timestamp", None) is not None:
+        payload["previousSameSideTimestamp"] = event.previous_same_side_timestamp.isoformat()
         payload["previous_same_side_ts"] = event.previous_same_side_timestamp.isoformat()
     if getattr(event, "previous_same_side_price", None) is not None:
+        payload["previousSameSidePrice"] = float(event.previous_same_side_price)
         payload["previous_same_side_price"] = float(event.previous_same_side_price)
     if getattr(event, "confirmation_timestamp", None) is not None:
+        payload["confirmationTimestamp"] = event.confirmation_timestamp.isoformat()
         payload["confirmation_ts"] = event.confirmation_timestamp.isoformat()
     if getattr(event, "confirmation_event_timestamp", None) is not None:
+        payload["confirmationEventTimestamp"] = event.confirmation_event_timestamp.isoformat()
         payload["confirmation_event_ts"] = event.confirmation_event_timestamp.isoformat()
     if getattr(event, "confirmation_price", None) is not None:
+        payload["confirmationPrice"] = float(event.confirmation_price)
         payload["confirmation_price"] = float(event.confirmation_price)
     if getattr(event, "relation", None) is not None:
         payload["relation"] = event.relation
@@ -99,7 +125,34 @@ def _serialize_fvg_event(
     display_chart_markers: bool,
 ) -> dict[str, Any]:
     side = "high" if event.fvg_type == "rally" else "low"
+    canonical = event.to_dict() if hasattr(event, "to_dict") else {}
+    price = event.price if getattr(event, "price", None) is not None else None
     payload: dict[str, Any] = {
+        "eventId": canonical.get("eventId", getattr(event, "event_id", None)),
+        "eventCode": event.event_code,
+        "eventName": event.event_name,
+        "eventGroup": event.event_group,
+        "timeframe": timeframe,
+        "eventTimestamp": event.event_timestamp.isoformat(),
+        "causalAvailableAt": event.event_timestamp.isoformat(),
+        "anchorTimestamp": event.bar2_timestamp.isoformat(),
+        "pivotTimestamp": event.pivot_timestamp.isoformat() if getattr(event, "pivot_timestamp", None) is not None else None,
+        "type": event.fvg_type,
+        "subType": event.sub_type,
+        "gapTop": float(event.gap_top) if event.gap_top is not None else None,
+        "gapBottom": float(event.gap_bottom) if event.gap_bottom is not None else None,
+        "gapSize": float(event.gap_size) if event.gap_size is not None else None,
+        "bar1Timestamp": event.bar1_timestamp.isoformat(),
+        "bar2Timestamp": event.bar2_timestamp.isoformat(),
+        "bar3Timestamp": event.bar3_timestamp.isoformat() if event.bar3_timestamp is not None else None,
+        "bar1High": float(event.bar1_high),
+        "bar1Low": float(event.bar1_low),
+        "bar2Open": float(event.bar2_open) if event.bar2_open is not None else None,
+        "bar2Close": float(event.bar2_close) if event.bar2_close is not None else None,
+        "price": float(price) if price is not None else None,
+        "sourceBarIndexes": canonical.get("sourceBarIndexes", []),
+        "sourceCandleRefs": canonical.get("sourceCandleRefs", []),
+        "metadata": canonical.get("metadata", {}),
         "tf": timeframe,
         "tier": "ce",
         "event_code": event.event_code,
@@ -170,8 +223,8 @@ def _structure_config(replay_config: dict[str, Any]) -> dict[str, Any]:
     return replay_config.get("structure", {})
 
 
-def _hypothesis_config(replay_config: dict[str, Any]) -> dict[str, Any]:
-    return replay_config.get("hypothesis", {})
+def _orderflow_config(replay_config: dict[str, Any]) -> dict[str, Any]:
+    return replay_config.get("orderflow", {})
 
 
 def _structure_dual_display(struct_cfg: dict[str, Any]) -> str:
@@ -207,6 +260,7 @@ class ReplaySession:
         self._pivot = None
         self._sd_zone = None
         self._structure = None
+        self._orderflow = None
         self._hypothesis_classifier = None
         self._show_fvg_events = _fvg_display_enabled(self.replay_config, "event_log")
         self._show_fvg_markers = _fvg_display_enabled(self.replay_config, "chart_markers")
@@ -221,6 +275,7 @@ class ReplaySession:
         self.visible_events = []
         self._sd_zone = None
         self._structure = None
+        self._orderflow = None
         self._init_engine()
 
     def rewind_one(self) -> None:
@@ -263,6 +318,25 @@ class ReplaySession:
         zones = self._sd_zone.get_zone_snapshot(current_price) if self._sd_zone else []
         last_resolved_zone = self._sd_zone.get_last_resolved_zone_snapshot() if self._sd_zone else None
         structure = self._structure.get_snapshot(current_price) if self._structure else None
+        orderflow = (
+            self._orderflow.snapshot(structure, evaluated_at=self.current_time_iso())
+            if self._orderflow
+            else {}
+        )
+        context_snapshot = SnapshotNormalizer.project(
+            cursor={
+                "currentTimestamp": self.current_time_iso(),
+                "currentPrice": current_price,
+                "currentBarIndex": self.current_index if self.current_index >= self.start_index else None,
+                "timeframe": self.data_config.timeframe.upper(),
+                "mode": "single",
+                "symbol": self.data_config.symbol,
+            },
+            structure=structure,
+            zones=zones,
+            orderflow=orderflow,
+            last_resolved_zone=last_resolved_zone,
+        )
         payload = {
             "session_id": self.session_id,
             "symbol": self.data_config.symbol,
@@ -276,6 +350,8 @@ class ReplaySession:
             "zones": zones,
             "last_resolved_zone": last_resolved_zone,
             "structure": structure,
+            "orderflow": orderflow,
+            "context_snapshot": context_snapshot,
             "done": self.current_index >= self.end_index,
         }
         if self._hypothesis_classifier is not None:
@@ -376,17 +452,23 @@ class ReplaySession:
         self._pivot = None
         self._sd_zone = None
         self._structure = None
-        self._hypothesis_classifier = HypothesisClassifier(_hypothesis_config(self.replay_config))
+        self._orderflow = OrderflowContext(
+            _orderflow_config(self.replay_config),
+            timeframe=timeframe_label(self.data_config.timeframe),
+        )
+        # Layer 4 hypothesis is intentionally hidden from the replayer while
+        # Layer 3 context boundaries are being cleaned up.
+        self._hypothesis_classifier = None
         if not self.event_log_enabled:
             return
 
         fvg_cfg = _fvg_config(self.replay_config)
         if fvg_cfg.get("enabled", False):
-            self._candle = FvgEventEngine(fvg_cfg)
+            self._candle = FvgEventEngine({**fvg_cfg, "timeframe": timeframe_label(self.data_config.timeframe)})
 
         pivot_cfg = _pivot_config(self.replay_config)
         if pivot_cfg.get("enabled", False):
-            self._pivot = PivotEventEngine(pivot_cfg)
+            self._pivot = PivotEventEngine({**pivot_cfg, "timeframe": timeframe_label(self.data_config.timeframe)})
 
         sd_cfg = _sd_zone_config(self.replay_config)
         if sd_cfg.get("enabled", False):
@@ -466,61 +548,68 @@ class DualReplaySession:
         combo_name: str,
         start_time: str | None = None,
     ) -> None:
-        self.session_id = uuid4().hex
+        self._runtime = DualSmcRuntime(
+            config_path,
+            symbol=symbol,
+            lower_config=lower_config,
+            higher_config=higher_config,
+            combo_name=combo_name,
+            start_time=start_time,
+        )
+        self.session_id = self._runtime.session_id
         self.config_path = config_path
-        self.app_config = load_app_config(config_path)
-        self.replay_config = self.app_config.get("replay", {})
-        self.symbol = symbol.upper()
-        self.combo_name = combo_name
-        self.lower_config = lower_config
-        self.higher_config = higher_config
-        self.master_tf = timeframe_label(lower_config.timeframe)
-        self.lower_label = timeframe_label(lower_config.timeframe)
-        self.higher_label = timeframe_label(higher_config.timeframe)
+        self.app_config = self._runtime.app_config
+        self.replay_config = self._runtime.replay_config
+        self.symbol = self._runtime.symbol
+        self.combo_name = self._runtime.combo_name
+        self.lower_config = self._runtime.lower_config
+        self.higher_config = self._runtime.higher_config
+        self.master_tf = self._runtime.master_tf
+        self.lower_label = self._runtime.lower_label
+        self.higher_label = self._runtime.higher_label
         self.window_bars = int(lower_config.window_bars)
-        self.event_log_enabled = bool(self.replay_config.get("event_log_enabled", True))
-        self.warmup_bars = int(self.replay_config.get("warmup_bars", 200))
-
-        self.lower_bars = load_full_ohlc(lower_config)
-        self.higher_bars = load_full_ohlc(higher_config)
+        self.event_log_enabled = self._runtime.event_log_enabled
+        self.warmup_bars = self._runtime.warmup_bars
+        self.lower_bars = self._runtime.lower_bars
+        self.higher_bars = self._runtime.higher_bars
         self.lower_delta = pd.Timedelta(lower_config.bar_duration)
         self.higher_delta = pd.Timedelta(higher_config.bar_duration)
 
         self.lower_window_start_index = max(0, len(self.lower_bars) - self.window_bars)
-        self.lower_end_index = len(self.lower_bars) - 1
-        self.lower_start_index = self._resolve_index(self.lower_bars, start_time, self.lower_window_start_index)
-        self.higher_start_index = self._resolve_index(self.higher_bars, self.lower_bars.index[self.lower_start_index].isoformat(), 0)
-
-        self.lower_candle = None
-        self.higher_candle = None
-        self.lower_pivot = None
-        self.higher_pivot = None
-        self.lower_sd_zone = None
-        self.higher_sd_zone = None
-        self.hypothesis_classifier = None
+        self.lower_end_index = self._runtime.lower_end_index
+        self.lower_start_index = self._runtime.lower_start_index
+        self.higher_start_index = self._runtime.higher_start_index
         self._show_fvg_events = _fvg_display_enabled(self.replay_config, "event_log")
         self._show_fvg_markers = _fvg_display_enabled(self.replay_config, "chart_markers")
         self._show_pivot_events = _pivot_display_enabled(self.replay_config, "event_log")
         self._show_pivot_markers = _pivot_display_enabled(self.replay_config, "chart_markers")
-        self.current_lower_index = self.lower_start_index - 1
-        self.current_higher_index = self.higher_start_index - 1
         self.visible_events: list[dict[str, Any]] = []
-        self._init_engines()
+        self._sync_from_runtime()
+
+    def _sync_from_runtime(self) -> None:
+        self.current_lower_index = self._runtime.current_lower_index
+        self.current_higher_index = self._runtime.current_higher_index
+        self.lower_candle = self._runtime.lower_candle
+        self.higher_candle = self._runtime.higher_candle
+        self.lower_pivot = self._runtime.lower_pivot
+        self.higher_pivot = self._runtime.higher_pivot
+        self.lower_sd_zone = self._runtime.lower_sd_zone
+        self.higher_sd_zone = self._runtime.higher_sd_zone
+        self.lower_structure = self._runtime.lower_structure
+        self.higher_structure = self._runtime.higher_structure
+        self.lower_orderflow = self._runtime.lower_orderflow
+        self.higher_orderflow = self._runtime.higher_orderflow
+        self.hypothesis_classifier = self._runtime.hypothesis_classifier
 
     def reset(self) -> None:
-        self.current_lower_index = self.lower_start_index - 1
-        self.current_higher_index = self.higher_start_index - 1
+        self._runtime.reset()
         self.visible_events = []
-        self.lower_sd_zone = None
-        self.higher_sd_zone = None
-        self.lower_structure = None
-        self.higher_structure = None
-        self._init_engines()
+        self._sync_from_runtime()
 
     def rewind_one(self) -> None:
-        if self.current_lower_index < self.lower_start_index:
+        if self._runtime.current_lower_index < self.lower_start_index:
             return
-        self._rebuild_to_lower_index(self.current_lower_index - 1)
+        self._rebuild_to_lower_index(self._runtime.current_lower_index - 1)
 
     def rewind_to_time(self, target_time: str, step_before: bool = True) -> None:
         target_index = self._resolve_index(self.lower_bars, target_time, self.lower_window_start_index)
@@ -529,68 +618,66 @@ class DualReplaySession:
         self._rebuild_to_lower_index(target_index)
 
     def step(self) -> ReplayStepResult:
-        if self.current_lower_index >= self.lower_end_index:
+        if self._runtime.current_lower_index >= self.lower_end_index:
             return ReplayStepResult(
-                cursor_index=self.current_lower_index,
+                cursor_index=self._runtime.current_lower_index,
                 cursor_time=self.current_time_iso(),
                 revealed_bar=None,
                 new_events=[],
                 done=True,
             )
 
-        self.current_lower_index += 1
-        lower_row = self.lower_bars.iloc[self.current_lower_index]
-        new_events = self._process_lower_step(lower_row)
-        revealed_bar = _serialize_bar(self.current_lower_index, lower_row.name, lower_row)
+        runtime_step = self._runtime.step()
+        self._sync_from_runtime()
+        new_events = self._serialize_runtime_events(runtime_step.new_events)
+        self.visible_events.extend(new_events)
+        lower_row = self.lower_bars.iloc[runtime_step.cursor_index]
+        revealed_bar = _serialize_bar(runtime_step.cursor_index, lower_row.name, lower_row)
         return ReplayStepResult(
-            cursor_index=self.current_lower_index,
-            cursor_time=lower_row.name.isoformat(),
+            cursor_index=runtime_step.cursor_index,
+            cursor_time=runtime_step.cursor_time,
             revealed_bar=revealed_bar,
             new_events=new_events,
-            done=self.current_lower_index >= self.lower_end_index,
+            done=runtime_step.done,
         )
 
+    def _serialize_runtime_events(self, events: tuple[RuntimeEmittedEvent, ...]) -> list[dict[str, Any]]:
+        serialized: list[dict[str, Any]] = []
+        for item in events:
+            event = item.event
+            event_group = getattr(event, "event_group", "")
+            if event_group == "CE":
+                if self._show_fvg_events or self._show_fvg_markers:
+                    serialized.append(
+                        _serialize_fvg_event(
+                            event,
+                            item.timeframe,
+                            self._show_fvg_events,
+                            self._show_fvg_markers,
+                        )
+                    )
+            elif event_group == "PE":
+                if self._show_pivot_events or self._show_pivot_markers:
+                    serialized.append(
+                        _serialize_event(
+                            event,
+                            item.timeframe,
+                            _pivot_tier_display_enabled(self.replay_config, event.tier, "event_log"),
+                            _pivot_tier_display_enabled(self.replay_config, event.tier, "chart_markers"),
+                        )
+                    )
+        return serialized
+
     def snapshot(self) -> dict[str, Any]:
+        self._sync_from_runtime()
+        payload = self._runtime.snapshot(classify=True)
         lower_visible = self._lower_visible_bars_payload()
         higher_visible = self._higher_visible_bars_payload()
-        lower_price = float(self.lower_bars.iloc[self._lower_visible_end_index()]["close"]) if self._lower_visible_end_index() >= 0 else 0.0
-        higher_price = float(self.higher_bars.iloc[self.current_higher_index]["close"]) if self.current_higher_index >= 0 else 0.0
-        lower_zones = self.lower_sd_zone.get_zone_snapshot(lower_price) if self.lower_sd_zone else []
-        higher_zones = self.higher_sd_zone.get_zone_snapshot(higher_price) if self.higher_sd_zone else []
-        lower_last_resolved_zone = self.lower_sd_zone.get_last_resolved_zone_snapshot() if self.lower_sd_zone else None
-        higher_last_resolved_zone = self.higher_sd_zone.get_last_resolved_zone_snapshot() if self.higher_sd_zone else None
-        lower_structure = self.lower_structure.get_snapshot(lower_price) if self.lower_structure else None
-        higher_structure = self.higher_structure.get_snapshot(higher_price) if self.higher_structure else None
-        structure_display = _structure_dual_display(_structure_config(self.replay_config))
-        projected_structure = higher_structure if structure_display in {"projected", "dual"} else None
-        primary_structure = higher_structure if higher_structure is not None else lower_structure
-        payload = {
-            "session_id": self.session_id,
-            "mode": "dual",
-            "symbol": self.symbol,
-            "combo": self.combo_name,
-            "master_tf": self.master_tf,
-            "lower_tf": self.lower_label,
-            "higher_tf": self.higher_label,
-            "timeframe": self.lower_label,
-            "cursor_time": self.current_time_iso(),
-            "next_time": self.next_time_iso(),
-            "bar_count": len(lower_visible),
-            "bars": lower_visible,
-            "lower_bars": lower_visible,
-            "higher_bars": higher_visible,
-            "events": self.visible_events,
-            "zones": lower_zones + higher_zones,
-            "lower_last_resolved_zone": lower_last_resolved_zone,
-            "higher_last_resolved_zone": higher_last_resolved_zone,
-            "lower_structure": lower_structure,
-            "higher_structure": higher_structure,
-            "projected_structure": projected_structure,
-            "structure": primary_structure,
-            "done": self.current_lower_index >= self.lower_end_index,
-        }
-        if self.hypothesis_classifier is not None:
-            payload["hypothesis"] = self.hypothesis_classifier.classify(payload).to_dict()
+        payload["bar_count"] = len(lower_visible)
+        payload["bars"] = lower_visible
+        payload["lower_bars"] = lower_visible
+        payload["higher_bars"] = higher_visible
+        payload["events"] = self.visible_events
         return payload
 
     def metadata(self) -> dict[str, Any]:
@@ -613,15 +700,10 @@ class DualReplaySession:
         }
 
     def current_time_iso(self) -> str | None:
-        if self.current_lower_index < self.lower_start_index:
-            return None
-        return self.lower_bars.index[self.current_lower_index].isoformat()
+        return self._runtime.current_time_iso()
 
     def next_time_iso(self) -> str | None:
-        next_index = self.current_lower_index + 1
-        if next_index > self.lower_end_index:
-            return None
-        return self.lower_bars.index[next_index].isoformat()
+        return self._runtime.next_time_iso()
 
     def _resolve_index(
         self,
@@ -641,165 +723,18 @@ class DualReplaySession:
         idx = min(idx, len(bars) - 1)
         return idx
 
-    def _init_engines(self) -> None:
-        self.lower_candle = None
-        self.higher_candle = None
-        self.lower_pivot = None
-        self.higher_pivot = None
-        self.lower_sd_zone = None
-        self.higher_sd_zone = None
-        self.lower_structure = None
-        self.higher_structure = None
-        self.hypothesis_classifier = HypothesisClassifier(_hypothesis_config(self.replay_config))
-        if not self.event_log_enabled:
-            return
-
-        fvg_cfg = _fvg_config(self.replay_config)
-        if fvg_cfg.get("enabled", False):
-            self.lower_candle = FvgEventEngine(fvg_cfg)
-            self.higher_candle = FvgEventEngine(fvg_cfg)
-
-        pivot_cfg = _pivot_config(self.replay_config)
-        if pivot_cfg.get("enabled", False):
-            self.lower_pivot = PivotEventEngine(pivot_cfg)
-            self.higher_pivot = PivotEventEngine(pivot_cfg)
-
-        sd_cfg = _sd_zone_config(self.replay_config)
-        if sd_cfg.get("enabled", False):
-            self.lower_sd_zone = SDZoneEngine(sd_cfg, self.lower_label)
-            self.higher_sd_zone = SDZoneEngine(sd_cfg, self.higher_label)
-
-        struct_cfg = _structure_config(self.replay_config)
-        if struct_cfg.get("enabled", False):
-            display = _structure_dual_display(struct_cfg)
-            if display in {"higher", "both", "projected", "dual"}:
-                self.higher_structure = StructureEngine(struct_cfg, self.higher_label)
-            if display in {"lower", "both", "dual"}:
-                self.lower_structure = StructureEngine(struct_cfg, self.lower_label)
-
-        lower_warmup_start = max(0, self.lower_start_index - self.warmup_bars)
-        for _, row in self.lower_bars.iloc[lower_warmup_start : self.lower_start_index].iterrows():
-            ce02: list = []
-            pivot_events: list = []
-            if self.lower_candle is not None:
-                events = self.lower_candle.on_bar(row)
-                ce02 = [e for e in events if e.event_code == "CE02"]
-            if self.lower_pivot is not None:
-                pivot_events = self.lower_pivot.on_bar(row)
-            bar_result = SDZoneBarResult(created=[], mitigated=[])
-            if self.lower_sd_zone is not None:
-                bar_result = self.lower_sd_zone.on_bar(row, ce02)
-            if self.lower_structure is not None:
-                self.lower_structure.on_bar(row, pivot_events, ce02, bar_result)
-
-        higher_cutoff_index = self.higher_start_index
-        higher_warmup_start = max(0, higher_cutoff_index - self.warmup_bars)
-        for _, row in self.higher_bars.iloc[higher_warmup_start : higher_cutoff_index].iterrows():
-            ce02 = []
-            pivot_events = []
-            if self.higher_candle is not None:
-                events = self.higher_candle.on_bar(row)
-                ce02 = [e for e in events if e.event_code == "CE02"]
-            if self.higher_pivot is not None:
-                pivot_events = self.higher_pivot.on_bar(row)
-            bar_result = SDZoneBarResult(created=[], mitigated=[])
-            if self.higher_sd_zone is not None:
-                bar_result = self.higher_sd_zone.on_bar(row, ce02)
-            if self.higher_structure is not None:
-                self.higher_structure.on_bar(row, pivot_events, ce02, bar_result)
-        self.current_higher_index = higher_cutoff_index - 1
-
     def _rebuild_to_lower_index(self, target_index: int) -> None:
         bounded_index = min(target_index, self.lower_end_index)
         self.reset()
         if bounded_index < self.lower_start_index:
-            self.current_lower_index = self.lower_start_index - 1
+            self._sync_from_runtime()
             return
 
-        for idx in range(self.lower_start_index, bounded_index + 1):
-            self.current_lower_index = idx
-            lower_row = self.lower_bars.iloc[idx]
-            self._process_lower_step(lower_row)
-
-    def _process_lower_step(self, lower_row: pd.Series) -> list[dict[str, Any]]:
-        emitted: list[dict[str, Any]] = []
-        lower_ce02: list = []
-        lower_pivot_events: list = []
-
-        if self.lower_candle is not None:
-            lower_candle_events = self.lower_candle.on_bar(lower_row)
-            lower_ce02 = [e for e in lower_candle_events if e.event_code == "CE02"]
-            if self._show_fvg_events or self._show_fvg_markers:
-                emitted.extend(
-                    _serialize_fvg_event(
-                        event,
-                        self.lower_label,
-                        self._show_fvg_events,
-                        self._show_fvg_markers,
-                    )
-                    for event in lower_candle_events
-                )
-
-        if self.lower_pivot is not None:
-            lower_pivot_events = self.lower_pivot.on_bar(lower_row)
-            if self._show_pivot_events or self._show_pivot_markers:
-                emitted.extend(
-                    _serialize_event(
-                        event,
-                        self.lower_label,
-                        _pivot_tier_display_enabled(self.replay_config, event.tier, "event_log"),
-                        _pivot_tier_display_enabled(self.replay_config, event.tier, "chart_markers"),
-                    )
-                    for event in lower_pivot_events
-                )
-
-        lower_bar_result = SDZoneBarResult(created=[], mitigated=[])
-        if self.lower_sd_zone is not None:
-            lower_bar_result = self.lower_sd_zone.on_bar(lower_row, lower_ce02)
-
-        if self.lower_structure is not None:
-            self.lower_structure.on_bar(lower_row, lower_pivot_events, lower_ce02, lower_bar_result)
-
-        lower_close_ts = lower_row.name
-        while self.current_higher_index + 1 < len(self.higher_bars) and self.higher_bars.index[self.current_higher_index + 1] <= lower_close_ts:
-            self.current_higher_index += 1
-            higher_row = self.higher_bars.iloc[self.current_higher_index]
-            higher_ce02: list = []
-            higher_pivot_events: list = []
-            if self.higher_candle is not None:
-                higher_candle_events = self.higher_candle.on_bar(higher_row)
-                higher_ce02 = [e for e in higher_candle_events if e.event_code == "CE02"]
-                if self._show_fvg_events or self._show_fvg_markers:
-                    emitted.extend(
-                        _serialize_fvg_event(
-                            event,
-                            self.higher_label,
-                            self._show_fvg_events,
-                            self._show_fvg_markers,
-                        )
-                        for event in higher_candle_events
-                    )
-            if self.higher_pivot is not None:
-                higher_pivot_events = self.higher_pivot.on_bar(higher_row)
-                if self._show_pivot_events or self._show_pivot_markers:
-                    emitted.extend(
-                        _serialize_event(
-                            event,
-                            self.higher_label,
-                            _pivot_tier_display_enabled(self.replay_config, event.tier, "event_log"),
-                            _pivot_tier_display_enabled(self.replay_config, event.tier, "chart_markers"),
-                        )
-                        for event in higher_pivot_events
-                    )
-            higher_bar_result = SDZoneBarResult(created=[], mitigated=[])
-            if self.higher_sd_zone is not None:
-                higher_bar_result = self.higher_sd_zone.on_bar(higher_row, higher_ce02)
-            if self.higher_structure is not None:
-                self.higher_structure.on_bar(higher_row, higher_pivot_events, higher_ce02, higher_bar_result)
-
-        emitted.sort(key=lambda event: (event["decision_ts"], 0 if event["tf"] == self.higher_label else 1, event["event_code"]))
-        self.visible_events.extend(emitted)
-        return emitted
+        while self._runtime.current_lower_index < bounded_index:
+            runtime_step = self._runtime.step()
+            self._runtime.classify_snapshot()
+            self._sync_from_runtime()
+            self.visible_events.extend(self._serialize_runtime_events(runtime_step.new_events))
 
     def _lower_visible_bars_payload(self) -> list[dict[str, Any]]:
         visible_end = self._lower_visible_end_index()

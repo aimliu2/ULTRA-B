@@ -1,0 +1,803 @@
+<!-- source: ultrab/ln-notes/3context/SMC/312-SD-context.md
+     source: ultrab/ln-notes/3context/SMC/312-SD-ambiguities.md
+     algo: ultrab/src/ultrab/core/smc/sdZone.py
+     config: ultrab/src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>304 | S/D Context</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+  nav { position: sticky; top: 32px; align-self: start; font-size: 13px; }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 16px; }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .backlink {
+    margin: 12px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .backlink a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+  .rule {
+    border-left: 3px solid var(--accent2);
+    background: rgba(120, 140, 93, 0.08);
+    padding: 12px 14px;
+    margin: 16px 0;
+    max-width: 680px;
+    font-style: italic;
+    color: var(--text-head);
+  }
+  .block {
+    max-width: 700px;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    margin: 16px 0;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .mini-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 720px) { .mini-grid { grid-template-columns: 1fr; } }
+  .mini-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 13px 14px;
+  }
+  .mini-card b {
+    display: block;
+    color: var(--text-head);
+    font-family: var(--serif);
+    font-size: 15px;
+    margin-bottom: 5px;
+  }
+  .mini-card span { display: block; color: var(--text-dim); font-size: 13px; line-height: 1.5; }
+  figure {
+    max-width: 700px;
+    margin: 18px 0;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--surface);
+  }
+  figure img {
+    display: block;
+    width: 100%;
+    height: auto;
+    max-height: 440px;
+    object-fit: contain;
+    background: #fff;
+  }
+  figcaption {
+    border-top: 1px solid var(--border);
+    padding: 10px 12px;
+    color: var(--text-dim);
+    font-size: 12.5px;
+  }
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+  }
+  .tabbar button.active {
+    color: var(--accent);
+    background: var(--surface);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  .tabpanel { display: none; }
+  .tabpanel.active { display: block; }
+  .tabs pre {
+    margin: 0;
+    padding: 16px;
+    overflow: auto;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--text);
+  }
+  .hl { color: var(--accent); font-weight: 700; }
+  .cm { color: var(--text-dim); }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 700px;
+  }
+  @media (max-width: 720px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 15px;
+  }
+  .issue-label {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .issue b { display: block; color: var(--text-head); margin-bottom: 6px; }
+  .issue p { font-size: 13.5px; margin-bottom: 0; }
+</style>
+</head>
+
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#core">00 Core Concept</a>
+    <a href="#construction">01 Construction</a>
+    <a class="l2" href="#range-mode">Range Mode</a>
+    <a class="l2" href="#pivot-mode">Pivot Mode</a>
+    <a href="#lifecycle">02 Lifecycle</a>
+    <a href="#state-store">03 State Store</a>
+    <a href="#snapshot">04 Snapshot</a>
+    <a href="#boundaries">05 Boundaries</a>
+    <a href="#edge-cases">06 Edge Cases</a>
+    <a href="#algorithm">07 Algorithm</a>
+    <a href="#config">08 Config</a>
+    <a href="#issues">09 Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>312-SD-context.md</code>
+      <code>312-SD-ambiguities.md</code>
+      <code>core/smc/sdZone.py</code>
+      <code>replayer/config.yaml</code>
+      <code>tests/test_sd_zone.py</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 3 | Context | S/D Zones</div>
+      <h1>S/D Context - Zone Lifecycle Normalization</h1>
+      <div class="tldr">
+        <b>TL;DR.</b> S/D Context converts CE02 FVG confirmations into supply/demand zone objects, updates each zone through WATCHING and TAPPED lifecycle state, removes resolved zones immediately, and projects active zone truth for Fusion. It does not score zone quality, tag flip zones, or choose thesis meaning.
+      </div>
+      <p class="backlink"><a href="./301-context.html">Back to 301 Layer 3 Context</a></p>
+    </header>
+
+    <section>
+      <h2 id="core"><span class="sec-num">00</span>Core Concept</h2>
+      <p>S/D Context is a semantic object lifecycle normalizer. CE02 is the primitive event. The context layer turns that primitive into an object with geometry, owner timeframe, current state, event history for this bar, and snapshot projection.</p>
+
+      <figure>
+        <img src="../assets/312-photon-sd-zone.png" alt="Supply and demand zone sketch">
+        <figcaption>Repeated touches, inside bars, and mitigation checks update the same zone object instead of producing disconnected facts.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>Layer 3 flow <span class="where">event stream</span></summary>
+        <div class="body">
+          <p><code>CE02 FVG confirmed</code> creates or skips a zone by guard. Each cursor bar updates the zone lifecycle. Interpreter projects active zones into the current snapshot. Fusion and Evidence Compiler decide which transitions matter downstream.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Zone ownership <span class="where">context only</span></summary>
+        <div class="body">
+          <p>Zone ownership is factual: <code>demand</code> for rally FVG, <code>supply</code> for drop FVG. Significance, flip meaning, and setup quality are deliberately outside S/D Context.</p>
+        </div>
+      </details>
+
+      <pre class="block">CE02 FVG confirmed
+-> SD zone object created or skipped by guard
+-> zone lifecycle transition each bar
+-> current SD zone snapshot
+-> Fusion current-truth snapshot
+-> Evidence Compiler candidate, if useful to Layer 4</pre>
+
+      <div class="rule">S/D Context owns zone geometry and lifecycle state. Evidence Compiler owns evidence quality. Layer 4 owns thesis meaning.</div>
+    </section>
+
+    <section>
+      <h2 id="construction"><span class="sec-num">01</span>Construction</h2>
+      <p>The notes define two drawing methods: range mode and pivot mode. The current runtime implementation is pivot-mode only: <code>SDZone.drawing_mode</code> is <code>pivot</code>, and <code>SDZoneEngine</code> hardcodes the pivot trace. The config currently also selects <code>mode: pivot</code>.</p>
+
+      <div class="mini-grid">
+        <div class="mini-card">
+          <b>Trigger</b>
+          <span>CE02 FVG confirmed. Rally FVG creates demand; drop FVG creates supply.</span>
+        </div>
+        <div class="mini-card">
+          <b>Anchor bar</b>
+          <span>FVG bar2, stored as <code>anchor_ts</code>. This is unrelated to Structure Context's P/D anchors.</span>
+        </div>
+        <div class="mini-card">
+          <b>Confirmation bar</b>
+          <span>FVG bar3. <code>created_at</code> is the CE02 event timestamp at confirmation.</span>
+        </div>
+      </div>
+
+      <h3 id="range-mode">Range Mode</h3>
+      <p>Range mode is documented as a base between the prior FVG confirmation and current FVG anchor. It is useful as design reference, but it is not the current runtime engine.</p>
+
+      <figure>
+        <img src="../assets/312-sd-range-mode.png" alt="S/D range mode diagram">
+        <figcaption>Range mode uses prior FVG anchor history and a valid base window between FVG anchors.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>Range window <span class="where">documented</span></summary>
+        <div class="body">
+          <p>Window is prior confirmation bar through current anchor bar, with the current confirmation bar excluded. Back-to-back anchors with zero base bars skip registration.</p>
+        </div>
+      </details>
+
+      <pre class="block">Range mode guard
+  base_bar_count = bars between prior_anchor_bar and curr_anchor_bar
+  base_bar_count == 0 -> skip
+  base_bar_count >= 1 -> draw zone</pre>
+
+      <h3 id="pivot-mode">Pivot Mode</h3>
+      <p>Pivot mode finds the raw swing extreme by tracing backward from CE02 confirmation. The zone is anchored to that extreme and deduplicated by <code>ex_bar</code> per direction.</p>
+
+      <figure>
+        <img src="../assets/312-sd-pivot-mode.png" alt="S/D pivot mode diagram">
+        <figcaption>Pivot mode is the current runtime behavior in <code>SDZoneEngine</code>.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>Demand trace <span class="where">rally FVG</span></summary>
+        <div class="body">
+          <p>Start at bar3. Walk left while the previous low is lower than the cursor low. Stop when the low stops decreasing. The cursor is <code>ex_bar</code>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Supply trace <span class="where">drop FVG</span></summary>
+        <div class="body">
+          <p>Start at bar3. Walk left while the previous high is higher than the cursor high. Stop when the high stops increasing. The cursor is <code>ex_bar</code>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Zone guard <span class="where">dedupe</span></summary>
+        <div class="body">
+          <p>If the new <code>ex_bar</code> timestamp equals the most recently drawn <code>ex_bar</code> for the same direction, skip registration. This prevents shallow continuation FVGs from creating duplicate zones around the same structural extreme.</p>
+        </div>
+      </details>
+
+      <p>Pivot-mode formulas:</p>
+      $$ DemandHigh = \max(ex_{-1}.high,\ ex.high,\ldots,\ bar1.high) $$
+      $$ DemandLow = \min(ex.low,\ldots,\ bar1.low,\ anchor.low) $$
+      $$ SupplyHigh = \max(ex.high,\ldots,\ bar1.high,\ anchor.high) $$
+      $$ SupplyLow = \min(ex_{-1}.low,\ ex.low,\ldots,\ bar1.low) $$
+
+      <div class="rule">Current code is pivot mode. Range mode remains documented design material until the engine is expanded or the notes are trimmed.</div>
+    </section>
+
+    <section>
+      <h2 id="lifecycle"><span class="sec-num">02</span>Lifecycle</h2>
+      <p>A zone has one alive state with a boolean sub-state: WATCHING means price has not entered the zone; TAPPED means price is currently inside or has entered and not yet resolved. Resolution removes the zone from State Store immediately.</p>
+
+      <details open>
+        <summary>WATCHING <span class="where">in_zone = false</span></summary>
+        <div class="body">
+          <p>The zone waits for entry or a gap-past. If price gaps beyond the floor/ceiling before a normal tap, the zone resolves immediately as <code>liquidity_run</code> or <code>liquidity_swept</code>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>TAPPED <span class="where">in_zone = true</span></summary>
+        <div class="body">
+          <p>A tap is a state flag, not a score. The zone stays alive until it resolves as a close-through, wick sweep, or bounce out the entry side.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Resolved <span class="where">removed</span></summary>
+        <div class="body">
+          <p><code>bounced</code>, <code>liquidity_run</code>, and <code>liquidity_swept</code> all remove the zone. Mitigated zones are not retained because breaker block entry is out of scope for System C.</p>
+        </div>
+      </details>
+
+      <pre class="block">BORN
+  -> ALIVE / WATCHING
+       entry into zone -> ALIVE / TAPPED
+       gap past zone   -> RESOLVED
+  -> ALIVE / TAPPED
+       close through   -> liquidity_run
+       wick through    -> liquidity_swept
+       close out entry -> bounced</pre>
+
+      <pre class="block">Demand resolution:
+  liquidity_run    = close < zone.low
+  liquidity_swept  = low < zone.low and close >= zone.low
+  bounced          = close > zone.high while tapped
+
+Supply resolution:
+  liquidity_run    = close > zone.high
+  liquidity_swept  = high > zone.high and close <= zone.high
+  bounced          = close < zone.low while tapped</pre>
+    </section>
+
+    <section>
+      <h2 id="state-store"><span class="sec-num">03</span>State Store</h2>
+      <p>The State Store keeps only active zones. It enforces a count cap per direction and protects tapped zones from cap eviction. Resolved zones leave the active store but the engine remembers the last resolved zone snapshot.</p>
+
+      <pre class="block">SDZone:
+  zone_id
+  direction = demand | supply
+  high
+  low
+  drawing_mode = pivot
+  timeframe
+  created_at   # CE02 eventTimestamp
+  anchor_ts    # FVG bar2 timestamp, chart rectangle start
+  in_zone      # false WATCHING, true TAPPED</pre>
+
+      <details open>
+        <summary>Register <span class="where">create zone</span></summary>
+        <div class="body">
+          <p>Registration inserts the zone and enforces <code>max_zones_per_direction</code>. If a direction exceeds the cap, the oldest WATCHING zone is evicted. TAPPED zones are protected.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Mitigate <span class="where">remove active</span></summary>
+        <div class="body">
+          <p>Mitigation removes the zone and records a <code>ResolvedSDZone</code> for current snapshot/debug use.</p>
+        </div>
+      </details>
+
+      <div class="rule">No age-based expiry. Count cap is timeframe-agnostic and avoids 1D/5m mismatch.</div>
+    </section>
+
+    <section>
+      <h2 id="snapshot"><span class="sec-num">04</span>Snapshot</h2>
+      <p>Interpreter reads active zones after the detector completes. Runtime snapshots combine lower and higher zones; UI renders the active zones panel and chart rectangles. Fusion can project HTF zones into the LTF view without copying them into the LTF State Store.</p>
+
+      <pre class="block">SDZoneSnapshot:
+  zone_id
+  direction = demand | supply
+  high
+  low
+  in_zone
+  drawing_mode
+  timeframe
+  created_at
+  anchor_ts
+  anchor_unix
+  distance</pre>
+
+      <p>Distance is current-price relative, so nearest zones can be sorted without asking Layer 4 to inspect geometry.</p>
+      $$ demandDistance = currentPrice - zone.high $$
+      $$ supplyDistance = zone.low - currentPrice $$
+
+      <pre class="block">Runtime snapshot:
+  zones = lower_zones + higher_zones
+  lower_last_resolved_zone
+  higher_last_resolved_zone
+
+UI:
+  WATCHING / TAPPED counts
+  supply and demand active zone lists
+  chart rectangles by timeframe / projection role</pre>
+    </section>
+
+    <section>
+      <h2 id="boundaries"><span class="sec-num">05</span>Boundaries</h2>
+      <p>S/D Context deliberately stays plain. It reports zones, taps, and resolution. It does not decide whether a zone is a flip, a premium/discount entry, a valid POI, or a phase transition.</p>
+
+      <details open>
+        <summary>Structure relation <span class="where">pullback confirmation</span></summary>
+        <div class="body">
+          <p>Structure Context may use a qualifying SD zone to confirm pullback with <code>confirmed_by = sd_zone</code>, but the P/D range boundaries remain wick-defined structure anchors, not S/D zone edges.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Fusion relation <span class="where">dual mode</span></summary>
+        <div class="body">
+          <p>LTF zones stay in LTF State Store. HTF zones stay in HTF State Store. Fusion reads both snapshots and decides projection/display/current truth.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Evidence relation <span class="where">candidate quality</span></summary>
+        <div class="body">
+          <p>Zone quality, blocked reasons, flip meaning, and relation to liquidity or ChoCh belong to Evidence Compiler and Layer 4.</p>
+        </div>
+      </details>
+
+      <div class="rule">Equal-high/equal-low patterns across zones belong to Liquidity Context, not S/D Context.</div>
+    </section>
+
+    <section>
+      <h2 id="edge-cases"><span class="sec-num">06</span>Edge Cases</h2>
+      <p>The consolidated notes preserve several important geometry corrections. These keep zones tight and prevent the S/D rectangle from swallowing the FVG itself.</p>
+
+      <figure>
+        <img src="../assets/312-sd-edge-cases.png" alt="S/D edge case examples">
+        <figcaption>Range and pivot modes diverge on staircase, doji, and engulfing sequences.</figcaption>
+      </figure>
+
+      <details open>
+        <summary>Engulfing exception <span class="where">ex_bar is anchor bar</span></summary>
+        <div class="body">
+          <p>When <code>ex_bar</code> lands on FVG bar2, the normal window collapses. Demand uses <code>ex_bar_minus1.high</code> and <code>ex_bar.low</code>. Supply uses <code>ex_bar.high</code> and <code>ex_bar_minus1.low</code>.</p>
+        </div>
+      </details>
+      <details>
+        <summary>FVG-overlap fallback <span class="where">pivot geometry</span></summary>
+        <div class="body">
+          <p>For demand, high candidates that invade above CE02 <code>gap_top</code> are excluded. For supply, low candidates that invade below CE02 <code>gap_bottom</code> are excluded. If no valid candidate remains, skip the zone.</p>
+        </div>
+      </details>
+      <details>
+        <summary>Warm-up missing ex_bar-1 <span class="where">no draw</span></summary>
+        <div class="body">
+          <p>If <code>ex_bar</code> is the first available bar, there is no <code>ex_bar-1</code>, so the engine does not draw a new zone.</p>
+        </div>
+      </details>
+
+      <figure>
+        <img src="../assets/312-sd_error_ex2.png" alt="S/D FVG overlap fallback example">
+        <figcaption>The FVG-facing side is filtered so a pivot-mode zone stays below a rally FVG or above a drop FVG.</figcaption>
+      </figure>
+
+      <pre class="block">Demand fallback:
+  valid_highs = [high for high in candidates if high <= CE02.gap_top]
+  zone_high = max(valid_highs)
+
+Supply fallback:
+  valid_lows = [low for low in candidates if low >= CE02.gap_bottom]
+  zone_low = min(valid_lows)</pre>
+    </section>
+
+    <section>
+      <h2 id="algorithm"><span class="sec-num">07</span>Algorithm</h2>
+      <p>The runtime engine is a single heartbeat: append the current bar, draw zones from CE02 events, then run detector over active zones on the same bar.</p>
+
+      <div class="tabs" data-tabs>
+        <div class="tabbar">
+          <button class="active" type="button">on_bar</button>
+          <button type="button">draw pivot</button>
+          <button type="button">detector</button>
+        </div>
+        <div class="tabpanel active">
+<pre>def on_bar(row, ce02_events):
+    bar = _BarRecord(row)
+    self._bars.append(bar)
+    self._ts_to_idx[bar.timestamp] = len(self._bars) - 1
+
+    for event in <span class="hl">ce02_events</span>:
+        self._try_draw_zone(event)
+
+    self._run_detector(bar)
+
+    return SDZoneBarResult(
+        created=self._created_this_bar,
+        mitigated=self._mitigated_this_bar,
+        resolved=self._resolved_this_bar,
+    )</pre>
+        </div>
+        <div class="tabpanel">
+<pre>def _try_draw_zone(event):
+    direction = "demand" if event.fvg_type == "rally" else "supply"
+    ex_bar = self._find_ex_bar_idx(event.bar3_timestamp, direction)
+
+    if ex_bar.timestamp == self._last_ex_bar_ts[direction]:
+        return  <span class="cm"># dedupe same structural extreme</span>
+
+    if ex_bar_idx == 0:
+        return  <span class="cm"># ex_bar-1 missing</span>
+
+    zone_high, zone_low = pivot_formula_with_fvg_overlap_filter(...)
+
+    self._store.register(SDZone(..., drawing_mode="pivot"))</pre>
+        </div>
+        <div class="tabpanel">
+<pre>def _check_zone(zone, bar):
+    if not zone.in_zone:
+        if gap_past_zone(zone, bar):
+            mitigate(zone, "liquidity_run" or "liquidity_swept")
+            return
+        if enters_zone(zone, bar):
+            transition_to_tapped(zone)
+        else:
+            return
+
+    if close_through(zone, bar):
+        mitigate(zone, "liquidity_run")
+    elif wick_through_and_recover(zone, bar):
+        mitigate(zone, "liquidity_swept")
+    elif close_back_out_entry_side(zone, bar):
+        mitigate(zone, "bounced")</pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="config"><span class="sec-num">08</span>Config</h2>
+      <p>The S/D runtime reads the marker config block. Display settings are UI-only; the engine currently consumes <code>enabled</code> and <code>max_zones_per_direction</code>, while <code>mode: pivot</code> records the intended drawing policy.</p>
+
+      <div class="tabs" data-tabs>
+        <div class="tabbar">
+          <button class="active" type="button">config.yaml</button>
+          <button type="button">engine init</button>
+        </div>
+        <div class="tabpanel active">
+<pre>marker_config:
+  sd_zones:
+    enabled: true
+    mode: pivot
+    max_zones_per_direction: 10
+    display:
+      chart_visible: true
+      dual_display: projected
+      demand_color: "rgba(102,187,106,0.12)"
+      demand_active_color: "rgba(102,187,106,0.28)"
+      supply_color: "rgba(239,83,80,0.12)"
+      supply_active_color: "rgba(239,83,80,0.28)"</pre>
+        </div>
+        <div class="tabpanel">
+<pre>def __init__(self, config, timeframe):
+    self._tf = timeframe
+    self._store = SDZoneStore(
+        int(config.get("max_zones_per_direction", 10))
+    )
+    self._last_ex_bar_ts = {
+        "demand": None,
+        "supply": None,
+    }
+    self._created_this_bar = []
+    self._resolved_this_bar = []</pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2 id="issues"><span class="sec-num">09</span>Open Issues</h2>
+      <div class="issue-grid">
+        <div class="issue">
+          <span class="issue-label">Edge Case</span>
+          <b>Mode wording vs implementation</b>
+          <p>The notes preserve range mode and pivot mode, but current code only implements pivot mode. Decide whether to implement range mode, archive it, or make the docs clearly historical.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Out of Scope</span>
+          <b>Flip and breaker meaning</b>
+          <p>Flip zones, breaker blocks, and ChoCh repair tags are not S/D registry fields. They remain Evidence Compiler / Layer 4 interpretation.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Fallback</span>
+          <b>When zones overdraw</b>
+          <p>Keep <code>mode: pivot</code>, lower <code>max_zones_per_direction</code>, and rely on same-<code>ex_bar</code> dedupe plus FVG-overlap filtering before adding scoring.</p>
+        </div>
+        <div class="issue">
+          <span class="issue-label">Next Milestone</span>
+          <b>Evidence Compiler candidates</b>
+          <p>Define normalized evidence candidates for zone tap, bounce, liquidity sweep, S/D-assisted pullback confirmation, and S/D relation to Orderflow ChoCh monitor.</p>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+  document.querySelectorAll('[data-tabs]').forEach((tabs) => {
+    const buttons = Array.from(tabs.querySelectorAll('.tabbar button'));
+    const panels = Array.from(tabs.querySelectorAll('.tabpanel'));
+    buttons.forEach((button, index) => {
+      button.addEventListener('click', () => {
+        buttons.forEach((item) => item.classList.remove('active'));
+        panels.forEach((item) => item.classList.remove('active'));
+        button.classList.add('active');
+        panels[index].classList.add('active');
+      });
+    });
+  });
+
+  const links = Array.from(document.querySelectorAll('nav a[href^="#"]'));
+  const headings = links
+    .map((link) => document.querySelector(link.getAttribute('href')))
+    .filter(Boolean);
+
+  const observer = new IntersectionObserver((entries) => {
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (!visible) return;
+    links.forEach((link) => {
+      link.classList.toggle('active', link.getAttribute('href') === `#${visible.target.id}`);
+    });
+  }, { rootMargin: '-20% 0px -70% 0px', threshold: 0.01 });
+
+  headings.forEach((heading) => observer.observe(heading));
+</script>
+</body>
+</html>

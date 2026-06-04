@@ -1,0 +1,743 @@
+<!-- source: ultrab/docs/401-hypothesis-DAG.html
+     algo:   ultrab/src/ultrab/core/smc/hypothesis.py
+     algo:   ultrab/src/ultrab/core/smc/evidence_compiler.py
+     config: ultrab/src/ultrab/replayer/config.yaml
+     focus:  Phase D boundary from Phase E, especially unresolved E.stalling -> D failed-pro-attempt naming -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis Phase D — Reaction Boundary</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: 0;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 760px;
+  }
+  .tab-buttons {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+  }
+  .tab-buttons button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 10px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+  }
+  .tab-buttons button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    box-shadow: inset 0 -2px 0 var(--accent);
+  }
+  pre {
+    display: none;
+    padding: 16px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.7;
+    color: var(--text);
+    background: var(--surface);
+  }
+  pre.on { display: block; }
+  pre.block {
+    display: block;
+    max-width: 700px;
+    margin: 16px 0;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+  }
+  .hl { color: var(--accent); font-weight: 700; }
+  .cm { color: var(--text-dim); font-style: italic; }
+
+  .rule {
+    max-width: 700px;
+    margin: 18px 0;
+    padding: 12px 16px;
+    border-left: 3px solid var(--accent2);
+    background: var(--gray-150);
+    color: var(--text);
+    font-size: 14px;
+    font-style: italic;
+  }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .issue-card p { margin: 0; font-size: 13px; }
+
+  ::selection { background: var(--oat); }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#concept">00 Core Concept</a>
+    <a href="#current">01 Current Phase D</a>
+    <a href="#failed-pro">02 Failed Pro-Attempt Boundary</a>
+    <a href="#algorithm">03 Algorithm</a>
+    <a href="#config">04 Config</a>
+    <a href="#issues">05 Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>401-hypothesis-DAG.html</code>
+      <code>hypothesis.py</code>
+      <code>evidence_compiler.py</code>
+      <code>config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase D</div>
+      <h1>Phase D — Reaction Boundary</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - Phase D is the first global reaction phase after Phase E expansion stops being simple continuation. The settled paths are reaction-point and HTF liquidity grab/reclaim tests. The unsettled path is the second pullback after <code>E.pullback_developing</code> breaks and returns to <code>E.stalling</code>; that may deserve a D node, but its name and trigger are still open.
+      </div>
+      <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis Dataflow</a>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
+      <a class="panel-link" href="./402-hypothesis-phE.html">→ Related: Phase E Detail</a>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>
+      Phase D is the boundary where the system stops treating a counter move as soft Phase E memory and starts treating it as a global reaction process. It is still pre-entry. Layer 5 should not trade D by itself; D exists to name the reaction and prepare the later C pullback path.
+    </p>
+    <p>
+      The important separation is that <code>E.pullback_developing</code> can be a first soft pullback inside Phase E, but repeated counter movement after a failed pro-continuation attempt should not loop forever inside E. That second pullback is the unresolved Phase D naming question.
+    </p>
+
+    <h2 id="current"><span class="sec-num">01</span> Current Phase D</h2>
+    <p>
+      As coded now, Phase D is selected from the EC candidate <code>htf_counter_reaction</code>. Layer 4 reads the candidate, keeps the debug keys, and maps it into the current D sub-status.
+    </p>
+
+    <details open>
+      <summary>Reaction-point D <span class="where">EC → DAG</span></summary>
+      <div class="body">
+        <p>
+          The generic D path is <code>D.reaction_point</code>. It means HTF Phase E has stopped clean expansion and enough counter-reaction evidence exists to stop calling the move a simple E stall.
+        </p>
+<pre class="block">EC:
+  pattern = htf_counter_reaction
+  status  = ready
+  facts:
+    htf_pd_stopped_expanding
+    htf_opposing_sd_reaction
+    ltf_bias_counter_htf
+
+DAG:
+  if previous/current E and phase_d_ready:
+    phase = D
+    phase_sub_status = reaction_point</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Liquidity-test D variants <span class="where">HTF liquidity + LTF structure → EC → DAG</span></summary>
+      <div class="body">
+        <p>
+          <code>D.htf_pd_grab_reclaim</code> and <code>D.htf_eq_grab_reclaim</code> are the two liquidity-test paths.
+          Each requires a full chronological sequence confirmed by two Layer 3 inputs: the HTF liquidity event
+          and the LTF structure change-of-character (choch).
+        </p>
+<pre class="block"><span class="cm"># Layer 3 inputs fed to the Evidence Compiler</span>
+
+Structure (last_sc) provides:
+  last_sc.choch             <span class="cm"># True when bias flip confirmed</span>
+  last_sc.breakDirection    <span class="cm"># "up" | "down" — counter expected</span>
+  last_sc.eventTimestamp    <span class="cm"># used for chronological gate</span>
+  last_sc.levelPrice        <span class="cm"># break level price</span>
+
+Liquidity event provides:
+  pool_id                   <span class="cm"># unique pool identifier</span>
+  liquidity_event_id        <span class="cm"># pool_id + confirmed_at composite key</span>
+  htf_pd_epoch_id           <span class="cm"># matched to current classifier epoch</span>
+  scope                     <span class="cm"># active_current_epoch | carryover_recent</span>
+  direction                 <span class="cm"># must be counter to hypothesis direction</span>
+  source                    <span class="cm"># eqh | eql (EQ variant only)</span>
+  taken_at                  <span class="cm"># timestamp: price breached level</span>
+  reclaimed_at              <span class="cm"># timestamp: price reclaimed inside P/D</span>
+  relation_to_active_phase_e_extreme  <span class="cm"># at_active_extreme | near_active_extreme | …</span>
+
+<span class="cm"># EC compiles (htf_counter_reaction liquidity variant)</span>
+EC facts compiled per candidate:
+  liquidity_event_is_current
+  pro_attempt_reached_liquidity_event
+  pro_attempt_failed_to_establish_continuation
+  price_reclaimed_inside_active_htf_pd
+  ltf_counter_choch_after_reclaim   <span class="cm"># choch_at &gt;= reclaimed_at</span>
+  ltf_counter_choch_event_at
+  ltf_counter_choch_direction
+  ltf_counter_choch_level
+  current_probe_inside_active_htf_pd
+  htf_close_inside_active_htf_pd
+
+<span class="cm"># All required facts must be True for status = ready</span>
+ready = all([
+  liquidity_event_is_current,
+  liquidity_relation_is_relevant,
+  liquidity_direction_matches_counter_reclaim,
+  fresh_pro_htf_continuation_attempt,
+  pro_attempt_reached_liquidity_event,
+  pro_attempt_failed_to_establish_continuation,
+  price_reclaimed_inside_active_htf_pd,
+  ltf_counter_choch_after_reclaim,    <span class="hl"># ← choch is a hard required gate</span>
+  htf_close_inside_active_htf_pd,
+])
+
+<span class="cm"># Separate top-level EC stream (pending)</span>
+ltf_counter_choch candidate:          <span class="cm"># independent of liquidity sequence</span>
+  pattern = ltf_counter_choch
+  facts:
+    ltf_counter_choch_seen
+    ltf_counter_choch_event_at
+    ltf_counter_choch_direction
+    ltf_counter_choch_level</pre>
+        <p>
+          The choch gate is chronological: <code>last_sc.eventTimestamp</code> must be at or after
+          <code>reclaimed_at</code>. A choch that predates the reclaim does not qualify. The separate
+          <code>ltf_counter_choch</code> EC candidate (not yet emitted) will expose the same choch
+          facts as a top-level stream that Layer 4 can read independently of the full liquidity sequence.
+        </p>
+      </div>
+    </details>
+
+    <div class="rule">
+      Phase D is not an entry phase. It names a reaction boundary so Phase C can later decide whether the pullback story is mature enough to arm or watch a counter POI.
+    </div>
+
+    <h2 id="failed-pro"><span class="sec-num">02</span> Failed Pro-Attempt Boundary</h2>
+    <p>
+      The unresolved case starts inside Phase E. A first clean LTF counter orderflow leg moves <code>E.stalling</code> into <code>E.pullback_developing</code>. If that counter leg is disrupted and a pro-continuation test appears without a new HTF extreme, the shadow memory may return to <code>E.stalling</code>. If price then pulls back again, that should probably graduate to Phase D instead of creating an endless E loop.
+    </p>
+
+    <details open>
+      <summary>Discretionary read <span class="where">chart logic</span></summary>
+      <div class="body">
+        <p>
+          The first counter leg can still be treated as cooling inside Phase E. But after it breaks and the pro-side attempt fails to expand the HTF P/D range, the next counter leg is no longer just a first pullback. It is evidence that expansion is reacting.
+        </p>
+<pre class="block">First pullback:
+  E.seeking → E.stalling → E.pullback_developing
+
+Pullback disrupted:
+  E.pullback_developing → E.stalling
+
+Second pullback after failed pro-continuation:
+  E.stalling → D.?   # unresolved name</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Proposed component ownership <span class="where">EC · DAG · Shadow Thesis</span></summary>
+      <div class="body">
+<pre class="block">EC owns:
+  ltf_counter_orderflow_clean
+  ltf_counter_orderflow_broken
+  ltf_counter_orderflow_leg_id
+  new_htf_extreme
+  reaction facts if present
+
+Shadow Thesis / phase_e owns:
+  first_counter_leg_id
+  pro_continuation_leg_id
+  failure_counter_leg_id
+  whether the same stale leg was already consumed
+
+DAG owns:
+  first clean counter pullback stays E.pullback_developing
+  disrupted pullback can return to E.stalling
+  second clean counter pullback after disruption may select D.?</pre>
+      </div>
+    </details>
+
+    <div class="rule">
+      Do not let Phase E absorb unlimited failed continuation attempts. One soft pullback can remain E memory; repeated pullback after disruption should be considered for a D boundary.
+    </div>
+
+    <h2 id="algorithm"><span class="sec-num">03</span> Algorithm</h2>
+    <div class="tabs" data-tabs>
+      <div class="tab-buttons">
+        <button class="on" data-t="0">classify()</button>
+        <button data-t="1">_phase_d_setup()</button>
+        <button data-t="2">liquidity variant + choch gate</button>
+        <button data-t="3">future D.? gate</button>
+      </div>
+<pre class="on"><span class="cm"># current high-level D selection inside classify()</span>
+phase_d = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
+debug.update(phase_d)
+
+if (
+    self.state.previous_phase != "B"
+    and self.state.previous_phase != "A"
+    and self._previous_or_active_e(direction)
+    and phase_d["phase_d_ready"]
+):
+    phase_d_sub_status = self._phase_d_sub_status(phase_d)
+    hyp = self._phase_d(
+        direction,
+        cursor_time,
+        {
+            **debug,
+            "phase_d_sub_status": phase_d_sub_status,
+            "phase_d_origin_node": self._phase_d_origin_node(phase_d),
+            "phase_d_selection_reason": self._phase_d_selection_reason(phase_d),
+        },
+        phase_sub_status=phase_d_sub_status,
+    )</pre>
+<pre><span class="cm"># current EC-backed D setup</span>
+def _phase_d_setup(snapshot, htf, ltf, direction, current_bar):
+    d_gate, facts = _ec_candidate(snapshot, "htf_counter_reaction")
+    ready = d_gate.get("status") == "ready"
+    return {
+        "phase_d_ready": ready,
+        "phase_d_trigger": facts.get("phase_d_liquidity_trigger") or facts.get("trigger"),
+        "htf_pd_stopped_expanding": bool(facts.get("htf_pd_stopped_expanding")),
+        "htf_opposing_sd_reaction": bool(facts.get("htf_opposing_sd_reaction")),
+        "ltf_bias_counter_htf": bool(facts.get("ltf_bias_counter_htf")),
+        "phase_d_liquidity_ready": bool(facts.get("phase_d_liquidity_ready")),
+        "phase_d_liquidity_selected_node": facts.get("phase_d_liquidity_selected_node"),
+    }
+<span class="cm"># pending: also read ltf_counter_choch candidate when promoted</span>
+<span class="cm"># choch_gate, choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")</span></pre>
+<pre><span class="cm"># evidence_compiler.py — _htf_counter_reaction_liquidity_variant()</span>
+<span class="cm"># Layer 3 structure input</span>
+ltf_struct = _ltf_struct(fused) or {}
+last_sc    = ltf_struct.get("last_sc") or {}
+expected_counter_break = "down" if direction == "long" else "up"
+
+<span class="cm"># choch chronological gate: must occur at or after reclaimed_at</span>
+choch_at = last_sc.get("eventTimestamp")
+counter_choch_after_reclaim = bool(
+    last_sc.get("choch") is True
+    and last_sc.get("breakDirection") == expected_counter_break
+    and _timestamp_at_or_after(choch_at, reclaimed_at)   <span class="hl"># ← chronological check</span>
+)
+
+<span class="cm"># required facts — all must be True for status = ready</span>
+required = {
+    "liquidity_event_is_current":                   event_current,
+    "liquidity_relation_is_relevant":                relevant_relation,
+    "liquidity_direction_matches_counter_reclaim":   matching_direction,
+    "fresh_pro_htf_continuation_attempt":            fresh_pro_attempt,
+    "pro_attempt_reached_liquidity_event":           reached_event,
+    "pro_attempt_failed_to_establish_continuation":  failed_continuation,
+    "price_reclaimed_inside_active_htf_pd":          reclaimed_inside,
+    "ltf_counter_choch_after_reclaim":               counter_choch_after_reclaim,
+    "htf_close_inside_active_htf_pd":                htf_close_inside,
+}
+ready = all(required.values())
+
+<span class="cm"># emitted per candidate</span>
+{
+    "ltf_counter_choch_after_reclaim": counter_choch_after_reclaim,
+    "ltf_counter_choch_event_at":      choch_at if counter_choch_after_reclaim else None,
+    "ltf_counter_choch_direction":     last_sc.get("breakDirection") if counter_choch_after_reclaim else None,
+    "ltf_counter_choch_level":         last_sc.get("levelPrice") if counter_choch_after_reclaim else None,
+    "current_probe_inside_active_htf_pd": current_probe_inside,
+    "htf_close_inside_active_htf_pd":  htf_close_inside,
+    "liquidity_event_is_current":      event_current,
+}</pre>
+<pre><span class="cm"># not coded yet — tentative shape only</span>
+if (
+    phase_e_shadow.node == "E.stalling"
+    and shadow_thesis.phase_e.prior_pullback_disrupted
+    and ec.phase_e_context.ltf_counter_orderflow_clean
+    and not ec.phase_e_context.new_htf_extreme
+):
+    selected_node = <span class="hl">"D.?"</span>
+    selection_reason = "second_counter_pullback_after_failed_pro_attempt"</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">04</span> Config</h2>
+    <p>
+      Phase D currently has no dedicated config block. It uses the enabled hypothesis layer and the same dual-timeframe replay context as Phase E.
+    </p>
+    <div class="tabs" data-tabs>
+      <div class="tab-buttons">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">HypothesisClassifier</button>
+      </div>
+<pre class="on"><span class="cm"># ultrab/src/ultrab/replayer/config.yaml</span>
+data:
+  mode: dual
+  dual_combo: 15m_4h
+
+hypothesis:
+  enabled: true
+  first_slice: phase_e_d
+  reaction_confirmation: close_through_previous_htf_bar</pre>
+<pre><span class="cm"># current constructor shape</span>
+def __init__(self, config: dict[str, Any] | None = None) -> None:
+    self.config = config or {}
+    self.state = HypothesisClassifierState()
+
+<span class="cm"># Phase D-specific tuning is not read yet.</span></pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">05</span> Open Issues</h2>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>Name the second-pullback D node.</b>
+        Current proposed label: <code>D.continuation_failure_test</code>. Earlier alternatives
+        included <code>D.pro_attempt_failed</code>, <code>D.failed_pro_attempt</code>, and
+        <code>D.fail.proattempt</code>.
+        The unresolved meaning is: <code>E.pullback_developing</code> was disrupted, returned to
+        <code>E.stalling</code>, then a new clean counter pullback appeared without HTF expansion.
+        Confirm that this is a separate D subtype rather than a reaction-point variant before
+        coding it.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>Prevent the E pullback loop from hiding a D reaction.</b>
+        Once Phase E has already seen a clean counter pullback and that pullback was disrupted,
+        the next clean counter pullback should not simply repeat
+        <code>E.stalling → E.pullback_developing</code>. The DAG needs a memory-aware gate that can
+        graduate the second pullback into Phase D.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>Move Phase E shadow memory under root Shadow Thesis.</b>
+        Current code keeps <code>state.phase_e_shadow</code> beside <code>state.shadow_thesis</code>,
+        while the architecture note now defines Shadow Thesis as the root Layer 4 memory component
+        with phase-owned ledgers. The implementation should eventually become
+        <code>state.shadow_thesis.phase_e</code> while preserving emitted debug keys.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Existing D names are liquidity/reaction oriented.</b>
+        Current sub-statuses are <code>reaction_point</code>,
+        <code>htf_pd_grab_reclaim_test</code>, and <code>htf_eq_grab_reclaim_test</code>.
+        A failed-pro-attempt D node may need different wording so it does not imply a confirmed
+        HTF liquidity grab or opposing S/D reaction.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Current Behavior Conflict</div>
+        <p><b>Revisit <code>new_htf_extreme_with_ltf_counter_bias</code> as a D trigger.</b>
+        The current <code>htf_counter_reaction</code> candidate can become ready when price makes
+        a strict new HTF extreme while LTF bias is counter. Under the proposed
+        failed-continuation definition, a strict new HTF extreme proves that the resumed
+        pro-direction continuation succeeded and should normally return or hold
+        <code>E.seeking</code>. D should require a separate explicit liquidity or reaction
+        footprint on that path.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Current Behavior Conflict</div>
+        <p><b>Do not reuse <code>reaction_failed</code> for failed continuation.</b>
+        The current EC fact means that an existing D/C reaction collapsed because price closed
+        through the remembered Phase E extreme and resumed the original HTF direction. The new
+        failed-continuation D origin means the opposite chronology: the pro-direction attempt
+        failed before creating a strict new HTF extreme, then a fresh counter leg appeared.
+        These facts require separate names and separate transition guards.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Partially Resolved · Liquidity Lifecycle</div>
+        <p><b>Consume each liquidity grab/reclaim event exactly once.</b>
+        <code>liquidity_event_id</code> (<code>pool_id + confirmed_at</code>) and the
+        <code>htf_pd_epoch_id</code> epoch match are now in the EC contract. Layer 4 still has no
+        consumed-event memory — <code>phase_d_liquidity_test_status</code> stays at
+        <code>pending_outcome</code> and a failed D reaction can immediately reopen the same event.
+        Next: add a Shadow Thesis ledger entry that marks an event consumed when D confirms into C,
+        fails into E, or expires; require a freshly confirmed event before reopening the same subtype.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Partially Resolved · Liquidity Scope</div>
+        <p><b>Prevent stale P/D and EQ liquidity from opening Phase D.</b>
+        EC now gates each event with <code>scope in {active_current_epoch, carryover_recent}</code>
+        and <code>htf_pd_epoch_id</code> match. Old P/D pools from a prior epoch no longer qualify.
+        Remaining gap: EQ pool rescoping on P/D epoch changes and expiry by HTF age are not yet
+        enforced. <code>relation_to_active_phase_e_extreme</code> filtering for EQ is in place but
+        the <code>external_archive</code> purge path is still open.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue · Candidate Qualification</div>
+        <p><b>Choose liquidity D candidates by current relevance, not fixed availability.</b>
+        EC currently accepts any ready P/D or EQ grab whose direction counters HTF bias. It does
+        not require an EQ pool to relate to the active HTF expansion extreme or current external range,
+        and if P/D and EQ candidates are ready together, P/D always wins because it is appended
+        first. Define relation-to-current-E facts, recency, and relevance ranking before Layer 4
+        selects <code>D.htf_pd_grab_reclaim_test</code> or
+        <code>D.htf_eq_grab_reclaim_test</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue · Confirmation Strength</div>
+        <p><b>Decide whether one LTF candle is sufficient to open a liquidity D test.</b>
+        The current liquidity lifecycle allows one candle to breach the HTF level, close back
+        inside it, and provide its own rejection wick or hammer-like evidence. That immediately
+        confirms the grab/reclaim and can open D. Confirm whether same-bar sweep/reclaim is the
+        intended minimum evidence, or require a later reclaim/follow-through bar or independent
+        counter evidence before exposing a D-ready event.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue · Choch as Separate EC Stream</div>
+        <p><b>Promote LTF counter choch to a standalone top-level EC candidate.</b>
+        <code>ltf_counter_choch_after_reclaim</code> is already a hard required gate inside the
+        per-candidate dict of the <code>htf_counter_reaction</code> liquidity variant, but it is
+        not emitted as a top-level EC pattern. Layer 4 currently cannot read the choch fact
+        independently of the full liquidity sequence. Add a <code>_compile_ltf_counter_choch()</code>
+        compile step that emits an <code>EvidenceCandidate</code> with pattern
+        <code>ltf_counter_choch</code> and facts
+        <code>ltf_counter_choch_seen</code>, <code>ltf_counter_choch_event_at</code>,
+        <code>ltf_counter_choch_direction</code>, <code>ltf_counter_choch_level</code>.
+        Layer 4 then reads it via <code>_ec_candidate(snapshot, "ltf_counter_choch")</code>
+        in addition to the existing <code>htf_counter_reaction</code> gate.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(btn => btn.addEventListener("click", () => {
+    btns.forEach(b => b.classList.remove("on"));
+    panes.forEach(p => p.classList.remove("on"));
+    btn.classList.add("on");
+    panes[Number(btn.dataset.t)].classList.add("on");
+  }));
+});
+
+const sections = [...document.querySelectorAll("h2[id], h3[id]")];
+const links = [...document.querySelectorAll("nav a[href^='#']")];
+const byId = Object.fromEntries(links.map(a => [a.getAttribute("href").slice(1), a]));
+const obs = new IntersectionObserver(entries => {
+  const visible = entries.filter(e => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+  if (!visible) return;
+  links.forEach(a => a.classList.remove("active"));
+  const link = byId[visible.target.id];
+  if (link) link.classList.add("active");
+}, { rootMargin: "-20% 0px -70% 0px", threshold: 0 });
+sections.forEach(sec => obs.observe(sec));
+</script>
+</body>
+</html>

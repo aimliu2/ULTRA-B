@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
@@ -30,19 +30,66 @@ class PivotEvent:
     confirmation_event_timestamp: pd.Timestamp | None = None
     confirmation_price: float | None = None
     relation: str | None = None
+    timeframe: str | None = None
+    source_bar_indexes: list[int] = field(default_factory=list)
+    source_candle_refs: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def event_id(self) -> str:
+        return ":".join(
+            [
+                self.event_group,
+                self.event_code,
+                self.timeframe or "NA",
+                self.event_timestamp.isoformat(),
+                self.pivot_timestamp.isoformat(),
+                f"{float(self.pivot_price):.6f}",
+            ]
+        )
+
+    @property
+    def causal_available_at(self) -> pd.Timestamp:
+        return self.event_timestamp
+
+    @property
+    def anchor_timestamp(self) -> pd.Timestamp:
+        return self.pivot_timestamp
+
+    @property
+    def price(self) -> float:
+        return self.pivot_price
+
+    @property
+    def side(self) -> str:
+        return "high" if self.pivot_side == 1 else "low"
+
+    @property
+    def direction(self) -> str:
+        return self.side
 
     def to_dict(self) -> dict[str, Any]:
         payload = {
+            "eventId": self.event_id,
             "eventCode": self.event_code,
             "eventName": self.event_name,
             "eventGroup": self.event_group,
+            "timeframe": self.timeframe,
             "tier": self.tier,
+            "side": self.side,
+            "direction": self.direction,
             "eventTimestamp": self.event_timestamp,
+            "causalAvailableAt": self.causal_available_at,
+            "anchorTimestamp": self.anchor_timestamp,
             "pivotTimestamp": self.pivot_timestamp,
+            "price": self.price,
             "pivotPrice": self.pivot_price,
             "pivotSide": self.pivot_side,
             "mode": self.mode,
             "survivalBars": self.survival_bars,
+            "sourceBarIndexes": list(self.source_bar_indexes),
+            "sourceCandleRefs": list(self.source_candle_refs),
+            "metadata": dict(self.metadata),
         }
         if self.source_tier is not None:
             payload["sourceTier"] = self.source_tier
@@ -68,6 +115,8 @@ class _Candidate:
     side: PivotSide
     price: float
     timestamp: pd.Timestamp
+    index: int
+    source_candle_ref: dict[str, Any]
     age: int = 0
     broken: bool = False
 
@@ -86,6 +135,7 @@ class PivotEventEngine:
         self.mode: PivotMode = str(cfg.get("mode", "conservative")).strip().lower().rstrip(".")  # type: ignore[assignment]
         if self.mode not in {"conservative", "aggressive"}:
             raise ValueError(f"Unsupported pivot event mode: {self.mode}")
+        self.timeframe: str | None = cfg.get("timeframe")
 
         self.str_bars = int(cfg.get("str_bars", cfg.get("survival_bars", 1)))
         if self.str_bars < 1:
@@ -97,6 +147,7 @@ class PivotEventEngine:
         self.ltr_enabled = self.itr_enabled and bool(compute.get("ltr", False))
 
         self._candidates: list[_Candidate] = []
+        self._bar_index: int = -1
         self._last_confirmed_side: PivotSide | None = None
         self._last_str_high: PivotEvent | None = None
         self._last_str_low: PivotEvent | None = None
@@ -106,11 +157,21 @@ class PivotEventEngine:
         self._last_ltr_side: PivotSide | None = None
 
     def on_bar(self, row: pd.Series) -> list[PivotEvent]:
+        self._bar_index += 1
         ts = row.name
         open_price = float(row["open"])
         high = float(row["high"])
         low = float(row["low"])
         close = float(row["close"])
+        current_source_ref = {
+            "barIndex": self._bar_index,
+            "timestamp": ts.isoformat(),
+            "open": open_price,
+            "high": high,
+            "low": low,
+            "close": close,
+        }
+        self._current_source_ref = current_source_ref
 
         emitted: list[PivotEvent] = []
         survivors: list[_Candidate] = []
@@ -144,8 +205,8 @@ class PivotEventEngine:
             self._remember_str_event(str_event)
             self._last_confirmed_side = selected.side
 
-        survivors.append(_Candidate(side=1, price=high, timestamp=ts))
-        survivors.append(_Candidate(side=-1, price=low, timestamp=ts))
+        survivors.append(_Candidate(side=1, price=high, timestamp=ts, index=self._bar_index, source_candle_ref=current_source_ref))
+        survivors.append(_Candidate(side=-1, price=low, timestamp=ts, index=self._bar_index, source_candle_ref=current_source_ref))
         self._candidates = survivors
 
         return emitted
@@ -197,6 +258,9 @@ class PivotEventEngine:
                 pivot_side=1,
                 mode=self.mode,
                 survival_bars=self.str_bars,
+                timeframe=self.timeframe,
+                source_bar_indexes=[candidate.index, self._bar_index],
+                source_candle_refs=[candidate.source_candle_ref, self._current_source_ref],
             )
 
         return PivotEvent(
@@ -210,6 +274,9 @@ class PivotEventEngine:
             pivot_side=-1,
             mode=self.mode,
             survival_bars=self.str_bars,
+            timeframe=self.timeframe,
+            source_bar_indexes=[candidate.index, self._bar_index],
+            source_candle_refs=[candidate.source_candle_ref, self._current_source_ref],
         )
 
     def _itr_event_from_str(self, str_event: PivotEvent) -> PivotEvent | None:
@@ -234,6 +301,9 @@ class PivotEventEngine:
                 confirmation_event_timestamp=str_event.event_timestamp,
                 confirmation_price=str_event.pivot_price,
                 relation="lower_high",
+                timeframe=self.timeframe,
+                source_bar_indexes=[*extreme.source_bar_indexes, *str_event.source_bar_indexes],
+                source_candle_refs=[*extreme.source_candle_refs, *str_event.source_candle_refs],
             )
 
         extreme = self._last_str_low
@@ -256,6 +326,9 @@ class PivotEventEngine:
             confirmation_event_timestamp=str_event.event_timestamp,
             confirmation_price=str_event.pivot_price,
             relation="higher_low",
+            timeframe=self.timeframe,
+            source_bar_indexes=[*extreme.source_bar_indexes, *str_event.source_bar_indexes],
+            source_candle_refs=[*extreme.source_candle_refs, *str_event.source_candle_refs],
         )
 
     def _itr_side_is_expected(self, side: PivotSide) -> bool:
@@ -285,6 +358,9 @@ class PivotEventEngine:
                 confirmation_event_timestamp=itr_event.event_timestamp,
                 confirmation_price=itr_event.pivot_price,
                 relation="lower_high",
+                timeframe=self.timeframe,
+                source_bar_indexes=[*extreme.source_bar_indexes, *itr_event.source_bar_indexes],
+                source_candle_refs=[*extreme.source_candle_refs, *itr_event.source_candle_refs],
             )
 
         extreme = self._last_itr_low
@@ -307,6 +383,9 @@ class PivotEventEngine:
             confirmation_event_timestamp=itr_event.event_timestamp,
             confirmation_price=itr_event.pivot_price,
             relation="higher_low",
+            timeframe=self.timeframe,
+            source_bar_indexes=[*extreme.source_bar_indexes, *itr_event.source_bar_indexes],
+            source_candle_refs=[*extreme.source_candle_refs, *itr_event.source_candle_refs],
         )
 
     def _ltr_side_is_expected(self, side: PivotSide) -> bool:

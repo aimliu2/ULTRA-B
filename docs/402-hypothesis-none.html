@@ -1,0 +1,995 @@
+<!-- source: ultrab/src/ultrab/core/smc/hypothesis.py
+     focus:  none phase, _waiting_for_first_closed_htf(), classify() warmup branches,
+             none_sub_status enum, _none(), _previous_or_active_e()
+     wired:  ultrab/src/ultrab/runtime/dual_smc.py
+             _warm_lower_engines(), _warm_higher_engines(), warmup_bars
+     config: ultrab/src/ultrab/replayer/config.yaml → warmup_bars: 200
+     guide:  .claude/layer34-contract.md -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis none — Warmup &amp; Unclassified Bars</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  /* ── nav ── */
+  nav { position: sticky; top: 32px; align-self: start; font-size: 13px; }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files { margin-top: 28px; border-top: 1px solid var(--border); padding-top: 16px; }
+  nav .files code {
+    display: block; font-family: var(--mono); font-size: 11px;
+    color: var(--text-dim); padding: 3px 0;
+  }
+
+  /* ── header ── */
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--text-dim); margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 32px;
+    color: var(--text-head); letter-spacing: -0.01em; margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border); border-left: 3px solid var(--accent);
+    border-radius: 10px; background: var(--surface);
+    padding: 16px 18px; margin-bottom: 8px; font-size: 14px; max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block; margin-top: 14px; font-size: 12px;
+    color: var(--accent); text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent; margin-right: 16px;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  /* ── headings ── */
+  h2 {
+    font-family: var(--serif); font-weight: 500; font-size: 22px;
+    color: var(--text-head); margin: 48px 0 14px; scroll-margin-top: 24px;
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono); font-size: 13px; color: var(--text-dim); font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif); font-weight: 600; font-size: 16px;
+    color: var(--text-head); margin: 28px 0 8px; scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono); font-size: 13px; background: var(--gray-150);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px;
+  }
+
+  /* ── details ── */
+  details {
+    border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface);
+    margin: 14px 0; overflow: hidden; max-width: 700px;
+  }
+  summary {
+    list-style: none; cursor: pointer; padding: 13px 16px;
+    font-family: var(--serif); font-size: 16px; color: var(--text-head);
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "▸"; color: var(--accent); font-family: var(--sans);
+    font-size: 12px; transition: transform 120ms; flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono); font-size: 11px; color: var(--text-dim);
+    margin-left: auto; flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  /* ── tabs ── */
+  .tabs {
+    border: 1.5px solid var(--border); border-radius: 10px; background: var(--surface);
+    margin: 16px 0 8px; overflow: hidden; max-width: 700px;
+  }
+  .tabbar { display: flex; border-bottom: 1px solid var(--border); background: var(--gray-150); }
+  .tabbar button {
+    appearance: none; border: none; background: none; font-family: var(--mono);
+    font-size: 12px; color: var(--text-dim); padding: 10px 16px; cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface); color: var(--text-head);
+    border-bottom: 2px solid var(--accent); margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none; margin: 0; padding: 16px 18px; font-family: var(--mono);
+    font-size: 12.5px; line-height: 1.65; color: var(--text);
+    overflow-x: auto; white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  /* ── plain blocks ── */
+  pre.block {
+    background: var(--gray-150); border: 1.5px solid var(--border); border-radius: 8px;
+    padding: 14px 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.65;
+    color: var(--text); overflow-x: auto; white-space: pre; max-width: 700px; margin: 14px 0;
+  }
+
+  /* ── rule block ── */
+  .rule-block {
+    margin: 18px 0; padding: 11px 16px; background: var(--gray-150);
+    border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0;
+    font-size: 13px; color: var(--text); line-height: 1.7;
+    font-style: italic; max-width: 660px;
+  }
+  .rule-block.green { border-left-color: var(--accent2); }
+
+  ul.plain { padding-left: 20px; max-width: 660px; margin: 10px 0 14px; }
+  ul.plain li { margin-bottom: 8px; font-size: 14px; line-height: 1.7; }
+
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+
+  /* ── timeline diagram ── */
+  .timeline {
+    display: flex; align-items: flex-start; gap: 0;
+    max-width: 700px; margin: 20px 0; overflow-x: auto;
+  }
+  .tl-seg {
+    display: flex; flex-direction: column; align-items: center;
+    min-width: 64px; position: relative;
+  }
+  .tl-bar {
+    height: 8px; width: 100%; border-radius: 4px; margin-bottom: 8px;
+  }
+  .tl-bar.silent  { background: var(--border); }
+  .tl-bar.none    { background: var(--oat); }
+  .tl-bar.active  { background: var(--accent2); }
+  .tl-label {
+    font-family: var(--mono); font-size: 10px; color: var(--text-dim);
+    text-align: center; line-height: 1.4;
+  }
+  .tl-arrow {
+    font-size: 18px; color: var(--border); margin: 0 -2px; align-self: center;
+    padding-bottom: 28px;
+  }
+
+  /* ── sub-status table ── */
+  table.ss-table {
+    border-collapse: collapse; max-width: 700px; width: 100%;
+    margin: 14px 0; font-size: 13px;
+  }
+  table.ss-table th {
+    text-align: left; padding: 8px 12px; font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim);
+    border-bottom: 1.5px solid var(--border); background: var(--gray-150);
+  }
+  table.ss-table td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+    line-height: 1.6;
+  }
+  table.ss-table tr:last-child td { border-bottom: none; }
+  table.ss-table td:first-child {
+    font-family: var(--mono); font-size: 12px; color: var(--accent2); white-space: nowrap;
+  }
+
+  /* ── issue grid ── */
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── side nav ── -->
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core Concept</a>
+    <a href="#concept" class="l2">none_sub_status enum</a>
+    <a href="#warmup-arch">Warmup Architecture</a>
+    <a href="#warmup-arch" class="l2">What warmup feeds</a>
+    <a href="#warmup-arch" class="l2">What it does not feed</a>
+    <a href="#combo-scenario">15m / 4H Combo</a>
+    <a href="#combo-scenario" class="l2">Cold-start silence</a>
+    <a href="#combo-scenario" class="l2">200-bar guardrail</a>
+    <a href="#struct-warmup">Structure Engine Warmup</a>
+    <a href="#struct-warmup" class="l2">Structure break + liquidity ATR</a>
+    <a href="#first-hyp">First Hypothesis After Warmup</a>
+    <a href="#first-hyp" class="l2">Phase D guard</a>
+    <a href="#boundary">Layer 3/4 Boundary Check</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#config">Config</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/hypothesis.py</code>
+      <code>runtime/dual_smc.py</code>
+      <code>replayer/config.yaml</code>
+      <code>.claude/layer34-contract.md</code>
+    </div>
+  </nav>
+
+  <!-- ── main ── -->
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis Classifier · none phase</div>
+      <h1>Hypothesis none — Warmup &amp; Unclassified Bars</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — <code>phase = "none"</code> is not an error. It is the honest label for
+        every bar where no E/D/C/B gate fires. It carries a <code>none_sub_status</code> that
+        distinguishes structural warmup, HTF bias absence, the 15m/4H first-bar silence, and
+        genuinely unclassified market conditions. The warmup loop feeds structure and liquidity
+        engines only — the hypothesis classifier never runs during warmup. After warmup, the first
+        real hypothesis is always Phase E; Phase D requires Phase E to have been committed at
+        least once.
+      </div>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ Back to 401 Hypothesis DAG</a>
+      <a class="panel-link" href="./402-hypothesis-phE.html">→ Related: 402 Phase E Detail</a>
+    </header>
+
+    <!-- ── §00 Core Concept ── -->
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept — none is a first-class phase</h2>
+    <p>
+      The classifier is called on every bar. When no phase gate fires — no D evidence, no C story,
+      no B POI, no A alignment, no E open leg — the classifier emits <code>phase = "none"</code>.
+      This is explicit, not a fallback. It is the correct output for bars where the market has
+      not yet shown enough information to commit to a directional thesis.
+    </p>
+    <p>
+      <code>none</code> carries a <code>none_sub_status</code> string that explains <em>why</em>
+      the bar was unclassifiable. Measuring none frequency and sub_status distribution is a
+      primary debug signal — a classifier that never emits <code>none</code> is miscalibrated.
+    </p>
+
+    <h3>none_sub_status enum</h3>
+    <p>All values found in <code>hypothesis.py</code>:</p>
+
+    <table class="ss-table">
+      <thead>
+        <tr>
+          <th>none_sub_status</th>
+          <th>When it fires</th>
+          <th>Source location</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>warmup_waiting_for_first_closed_htf</td>
+          <td>
+            No HTF structure at all (<code>not htf</code>) but <code>cursor_time</code> exists,
+            one HTF bar exists, no previous bar, and the bar time is ahead of cursor_time.
+            Cold-start signal for the 15m/4H combo.
+          </td>
+          <td><code>classify()</code> top branch — no-htf path and htf_neutral path</td>
+        </tr>
+        <tr>
+          <td>waiting_for_htf_structure</td>
+          <td>
+            No HTF structure snapshot at all (<code>htf is None</code>).
+            Structure engine has not yet emitted a valid bias.
+            Covers the structural warmup period.
+          </td>
+          <td><code>classify()</code> — <code>not htf</code> branch</td>
+        </tr>
+        <tr>
+          <td>htf_neutral</td>
+          <td>
+            HTF structure exists but <code>bias == "neutral"</code> or direction resolves
+            to <code>"none"</code>. Market is in range or between structural epochs.
+          </td>
+          <td><code>classify()</code> — <code>bias == "neutral"</code> branch</td>
+        </tr>
+        <tr>
+          <td>htf_resolve_unclassified</td>
+          <td>
+            HTF has a directional bias and a valid phase, but no E/D/C/B gate fired.
+            The phase is open or pullback_confirmed but none of the slice conditions matched.
+            Usually means the classifier's slice did not handle this sub-state.
+          </td>
+          <td><code>classify()</code> — final fallback</td>
+        </tr>
+        <tr>
+          <td>waiting_for_hypothesis_state</td>
+          <td>
+            <code>_carry_current_hypothesis()</code> was called but
+            <code>current_hypothesis is None</code>. Internal guard.
+          </td>
+          <td><code>_carry_current_hypothesis()</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="rule-block">
+      Record <code>none</code> honestly. Do not suppress it, roll it into the last active phase,
+      or treat it as a missing-data artifact. The <code>none_sub_status</code> distribution
+      reveals which structural states the classifier cannot yet handle — it is a roadmap
+      for the next development slice.
+    </div>
+
+    <!-- ── §01 Warmup Architecture ── -->
+    <h2 id="warmup-arch"><span class="sec-num">01</span> Warmup Architecture</h2>
+    <p>
+      Before the replay loop starts, <code>dual_smc._init_engines()</code> calls two warmup
+      methods that feed historical bars to the structure and liquidity engines. This is entirely
+      separate from the hypothesis classifier.
+    </p>
+
+    <h3>What warmup feeds</h3>
+
+    <details open>
+      <summary>_warm_lower_engines() — LTF structure and zone engines <span class="where">dual_smc.py</span></summary>
+      <div class="body">
+        <p>
+          Feeds <code>lower_bars[lower_start_index - warmup_bars : lower_start_index]</code>
+          to the LTF <code>StructureEngine</code> and zone engines via
+          <code>_process_lower_engines(row)</code>. No <code>snapshot()</code> call.
+          No hypothesis output.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>_warm_higher_engines() — HTF structure engine <span class="where">dual_smc.py</span></summary>
+      <div class="body">
+        <p>
+          Feeds <code>higher_bars[higher_start_index - warmup_bars : higher_start_index]</code>
+          to the HTF <code>StructureEngine</code> via <code>_process_higher_engines(row)</code>.
+          After this loop, <code>current_higher_index = higher_start_index - 1</code> — pointing
+          to the last warmed-up bar, ready for the replay to advance from there.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>_warm_liquidity_lower_interactions() — liquidity context <span class="where">dual_smc.py</span></summary>
+      <div class="body">
+        <p>
+          Feeds LTF bars to <code>LiquidityContextEngine.on_lower_bar()</code> for the warmup
+          window. Populates ITR pools, grab states, and reclaim readiness before bar 0 of the
+          replay.
+        </p>
+      </div>
+    </details>
+
+    <h3>What warmup does NOT feed</h3>
+    <ul class="plain">
+      <li><strong>HypothesisClassifier</strong> — never called during warmup. State is at init defaults: <code>previous_phase = "none"</code> and <code>active_phase_e_direction = "none"</code>.</li>
+      <li><strong>EvidenceCompiler</strong> — never called during warmup. <code>_BInitiationState</code> is fresh. No epoch ID set.</li>
+      <li><strong>Fusion / Normalizer / Interpreter</strong> — not called during warmup bar feed.</li>
+    </ul>
+
+    <div class="rule-block">
+      After warmup: each enabled timeframe's Layer 3 engines have independently consumed up to
+      200 bars, so HTF bias and phase are typically established at replay bar 0. The hypothesis
+      classifier and EC start completely fresh. The classifier's first output is always based on
+      the state produced by warmup, never on warmup bars themselves.
+    </div>
+
+    <!-- ── §02 15m/4H Combo Scenario ── -->
+    <h2 id="combo-scenario"><span class="sec-num">02</span> The 15m / 4H Combo Scenario</h2>
+    <p>
+      In a 15m execution / 4H context configuration, one closed 4H candle = 16 closed 15m bars.
+      The hypothesis classifier needs at least <em>two</em> closed 4H bars before the two-bar
+      reaction signal can produce any output. This creates a cold-start silence window.
+    </p>
+
+    <h3>_waiting_for_first_closed_htf() — the guard</h3>
+    <p>
+      Called at the top of <code>classify()</code> on every bar. Returns <code>True</code> when
+      all four conditions hold:
+    </p>
+    <pre class="block">cursor_time     is not None        # current 15m bar time is known
+current_bar     is not None        # at least one 4H bar exists
+previous_bar    is None            # only one closed 4H bar seen so far
+current_bar["time"] > cursor_time  # the 4H bar time is ahead of cursor_time</pre>
+    <p>
+      When this fires, <code>none_sub_status</code> is set to
+      <code>"warmup_waiting_for_first_closed_htf"</code> in both the
+      <code>not htf</code> branch and the <code>htf_neutral</code> branch of
+      <code>classify()</code>.
+    </p>
+
+    <h3>Cold-start silence window</h3>
+    <p>
+      If the replay starts with no prior 4H history (no warmup, or insufficient warmup):
+    </p>
+
+    <div class="timeline">
+      <div class="tl-seg">
+        <div class="tl-bar silent" style="width:56px"></div>
+        <div class="tl-label">bars 0–15<br><small>no 4H close<br>current_bar=None</small></div>
+      </div>
+      <div class="tl-arrow">›</div>
+      <div class="tl-seg">
+        <div class="tl-bar none" style="width:56px"></div>
+        <div class="tl-label">bars 16–31<br><small>1 closed 4H<br>previous=None<br>→ warmup_waiting</small></div>
+      </div>
+      <div class="tl-arrow">›</div>
+      <div class="tl-seg">
+        <div class="tl-bar active" style="width:56px"></div>
+        <div class="tl-label">bar 32+<br><small>2 closed 4H<br>reaction signal<br>available</small></div>
+      </div>
+    </div>
+
+    <p>
+      During bars 0–15 the HTF structure snapshot has no bars at all — the classifier emits
+      <code>none / waiting_for_htf_structure</code>. During bars 16–31,
+      <code>previous_bar is None</code> and the warmup guard fires. From bar 32 onward,
+      two closed 4H bars exist and the full reaction signal is available.
+    </p>
+
+    <div class="rule-block">
+      The runtime applies <code>warmup_bars: 200</code> independently: it feeds up to 200 closed
+      15m bars to the LTF engines and up to 200 closed 4H bars to the HTF engines. It does not
+      derive the HTF warmup by resampling the 200 LTF bars. This normally ensures that by replay
+      bar 0, the HTF structure engine already has multiple closed 4H bars and
+      <code>previous_bar</code> is not None.
+      The <code>warmup_waiting_for_first_closed_htf</code> sub_status should never appear
+      in a properly configured replay.
+    </div>
+
+    <!-- ── §03 Structure Engine Warmup ── -->
+    <h2 id="struct-warmup"><span class="sec-num">03</span> Structure Engine Warmup — The Hidden Dependency</h2>
+    <p>
+      Even with 200 warmup bars fully fed to the structure engine, the engine itself has an
+      internal data dependency that can produce a secondary silence window at the start of the
+      replay. This is not the hypothesis classifier's warmup — it is the structure engine's own
+      data requirement.
+    </p>
+
+    <h3>Structure-break + liquidity ATR dependencies</h3>
+
+    <details open>
+      <summary>Structure initialization — enough pivots and a structural break <span class="where">StructureEngine</span></summary>
+      <div class="body">
+        <p>
+          The structure engine has no fixed numeric warmup requirement. It needs enough price
+          history to confirm STR pivots, compress them into the selected ITR/LTR tier, and then
+          observe a close through a registered structural level. That break establishes the
+          directional bias and opens the first P/D range.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Liquidity ATR(14) — the hard numeric floor <span class="where">LiquidityContextEngine</span></summary>
+      <div class="body">
+        <p>
+          <code>liquidity.eq.atr_period: 14</code> requires 14 closed HTF bars before EQH/EQL
+          and ITR-equality tolerances are available. This ATR belongs to the liquidity engine;
+          it does not establish StructureEngine bias. Fourteen bars is the hard configured
+          indicator floor, not the reason for choosing a 200-bar warmup.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Sideways-market guardrail — why the configured warmup is 200 <span class="where">design decision</span></summary>
+      <div class="body">
+        <p>
+          <code>warmup_bars: 200</code> is an intentional guardrail for a market that may spend
+          roughly a week moving sideways. A shorter warmup such as 100 bars will often satisfy
+          ATR and initialize structure, but it is more likely to begin entirely inside that
+          sideways regime and lose the directional structure that preceded it. The extra history
+          gives Layer 3 a better chance to retain the earlier pivots, structural break, active
+          P/D range, orderflow, and liquidity context needed to interpret the range.
+        </p>
+      </div>
+    </details>
+
+    <pre class="block">warmup_bars: 200 is applied independently to both sides of a dual combo:
+
+  5m / 1H   → up to 200 × 5m bars  + 200 × 1H bars
+  15m / 4H  → up to 200 × 15m bars + 200 × 4H bars
+  1H / 1D   → up to 200 × 1H bars  + 200 × 1D bars
+
+Hard numeric floor:
+  liquidity EQH/EQL tolerance requires 14 closed HTF bars
+
+Chosen operating guardrail:
+  200 bars gives Layer 3 room to look through roughly a week of sideways price
+  and recover useful pre-range structural context before Layer 4 starts</pre>
+
+    <div class="rule-block">
+      If you observe sustained <code>none / htf_neutral</code> output after replay start,
+      the structure engine is the root cause — not the hypothesis classifier.
+      Check <code>htf["bias"]</code> in the payload to confirm.
+      The 200-bar guardrail reduces the chance that a week-long sideways regime hides all
+      preceding directional structure. If the complete warmup still contains no usable
+      structural break, the market is genuinely unresolved and the correct response is to
+      change the instrument, not fight the config.
+      <strong>none = no trade.</strong>
+    </div>
+
+    <!-- ── §04 First Hypothesis After Warmup ── -->
+    <h2 id="first-hyp"><span class="sec-num">04</span> First Hypothesis After Warmup</h2>
+    <p>
+      When the structure engine finally produces a valid directional bias, the classifier
+      can emit a real hypothesis. The first real hypothesis is <strong>always Phase E</strong>
+      — never Phase D, C, or B directly.
+    </p>
+
+    <h3>Phase D guard — _previous_or_active_e()</h3>
+    <p>
+      Phase D entry in <code>classify()</code> is gated by:
+    </p>
+    <pre class="block">if (
+    self.state.previous_phase not in {"B", "A"}
+    and self._previous_or_active_e(direction)
+    and phase_d["phase_d_ready"]
+):
+    hyp = self._phase_d(...)
+
+def _previous_or_active_e(self, direction: Direction) -> bool:
+    return (
+        self.state.previous_phase == "E"
+        or self.state.active_phase_e_direction == direction
+    )</pre>
+    <p>
+      On the first bar after warmup, <code>HypothesisClassifierState</code> is at init defaults:
+    </p>
+    <pre class="block">previous_phase           = "none"    # init default
+active_phase_e_direction = "none"    # init default</pre>
+    <p>
+      Both conditions in <code>_previous_or_active_e()</code> are False → the normal Phase D
+      gate does not evaluate. Similar origin guards affect later phase paths. As coded now,
+      the only reliable self-location path from warmup is the fallback Phase E path when HTF
+      phase is <code>open</code>.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>Bar 0 — first valid bias bar <span class="where">classify() open-phase fallback</span></summary>
+      <div class="body">
+        <p>
+          HTF has directional bias, phase is <code>open</code>, no D/C/B gate fires (because
+          <code>_previous_or_active_e()</code> is False). The classifier falls through to:
+        </p>
+        <pre class="block">if phase == "open":
+    hyp = self._phase_e(direction, cursor_time, debug, ltf)
+    return self._commit(hyp)
+
+# After commit:
+# previous_phase           → "E"
+# active_phase_e_direction → direction</pre>
+        <p>
+          Phase E is emitted. Shadow node is set to <code>E.seeking</code>.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Bar 1+ — D and C now available <span class="where">classify() main gate</span></summary>
+      <div class="body">
+        <p>
+          After Phase E is committed on bar 0, <code>previous_phase == "E"</code> and
+          <code>active_phase_e_direction == direction</code>. Now
+          <code>_previous_or_active_e()</code> returns True. Phase D, C, and B gates
+          can evaluate from bar 1 onward.
+        </p>
+        <p>
+          The two-bar reaction signal also becomes available on bar 1 (assuming two closed
+          HTF bars exist from warmup), so the reaction-warning and reaction-confirmed flags
+          are meaningful from bar 1.
+        </p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Target rule: the first post-warmup bar should self-locate from
+      <code>none(warmup)</code> into the best current DAG node: Phase E, D, C, B, or A.
+      The current implementation only handles the easy <code>none(warmup) → E</code> case.
+    </div>
+
+    <!-- ── §05 Layer 3/4 Boundary Check ── -->
+    <h2 id="boundary"><span class="sec-num">05</span> Layer 3/4 Boundary Check</h2>
+    <p>
+      Per the <code>.claude/layer34-contract.md</code> analytic guide, the warmup and
+      <code>none</code> period must not violate the three boundary contracts between the
+      Evidence Compiler (EC), DAG (hypothesis classifier), and their shared output.
+    </p>
+
+    <h3>Contract 1 — EC → DAG during none period</h3>
+    <p>
+      The EC's <code>update()</code> returns an empty list when <code>direction == "none"</code>
+      or <code>htf_struct is None</code>. This produces:
+    </p>
+    <pre class="block">payload["evidence_candidates"] = []     # valid — EC is silent
+payload["evidence_compiler_epoch_id"] = None</pre>
+    <p>
+      The DAG reads candidates via:
+    </p>
+    <pre class="block">ec = {c["pattern"]: c for c in payload.get("evidence_candidates", [])}
+<span class="cm"># → ec = {} (empty dict)</span>
+b_init = ec.get("htf_b_initiation")   <span class="cm"># → None</span>
+d_gate = ec.get("htf_counter_reaction") <span class="cm"># → None</span>
+<span class="cm"># all candidates are None → no gate fires → none emitted</span></pre>
+    <p>
+      <strong>Verdict: Contract 1 is safe.</strong> Empty candidates is a valid state.
+      The DAG handles it gracefully via <code>.get()</code> defaulting to None.
+    </p>
+
+    <div class="rule-block green">
+      Contract 2 (DAG → Shadow) is unaffected. Shadow state is not read or written
+      during <code>none</code> emission — the shadow methods are only called from
+      Phase E/B-specific paths, not from <code>_none()</code>.
+    </div>
+
+    <div class="rule-block green">
+      Contract 3 (Shadow → DAG output) is unaffected. <code>payload["hypothesis"]</code>
+      is always emitted, even during <code>none</code>. The schema is the same —
+      <code>phase = "none"</code>, <code>direction = "none"</code>,
+      <code>status = "watching"</code>. No field goes missing.
+    </div>
+
+    <h3>The one real risk</h3>
+    <p>
+      Downstream consumers (Layer 5, logging, dashboards) that assume
+      <code>evidence_candidates</code> is non-empty after bar 0 will silently fail
+      during the <code>none</code> period. The contract guarantees the key exists but
+      not that it is non-empty. Any code that does:
+    </p>
+    <pre class="block"><span class="cm"># ✗ WRONG — assumes non-empty</span>
+candidates[0]["pattern"]
+
+<span class="cm"># ✓ CORRECT — always safe</span>
+ec = {c["pattern"]: c for c in payload.get("evidence_candidates", [])}
+b_init = ec.get("htf_b_initiation")
+if b_init and b_init["status"] == "ready":
+    ...</pre>
+
+    <!-- ── §06 Algorithm ── -->
+    <h2 id="algo"><span class="sec-num">06</span> Algorithm</h2>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">classify() warmup branches</button>
+        <button data-t="1">_waiting_for_first_closed_htf()</button>
+        <button data-t="2">_none() emitter</button>
+      </div>
+<pre class="on"><span class="cm"># classify() — warmup and none paths (simplified)</span>
+<span class="hl">def</span> classify(self, snapshot):
+    htf          = snapshot.get("higher_structure") or snapshot.get("structure")
+    cursor_time  = snapshot.get("cursor_time")
+    current_bar, previous_bar = _current_and_previous_htf_bars(snapshot)
+
+    waiting = <span class="hl">_waiting_for_first_closed_htf</span>(cursor_time, current_bar, previous_bar)
+
+    <span class="cm"># ── No HTF structure at all ──────────────────────────────</span>
+    if not htf:
+        hyp = self._none(
+            "waiting_for_htf_structure",
+            ["htf_structure"],
+            "HTF structure snapshot becomes available",
+            cursor_time, debug,
+            none_sub_status=(
+                <span class="hl">"warmup_waiting_for_first_closed_htf"</span>
+                if waiting else <span class="hl">"waiting_for_htf_structure"</span>
+            ),
+        )
+        return self._commit(hyp)
+
+    <span class="cm"># ── HTF neutral or no bias ───────────────────────────────</span>
+    if bias == "neutral" or direction == "none":
+        hyp = self._none(
+            "HTF bias is neutral; no directional hypothesis",
+            ["directional_htf_bias"],
+            "HTF bias becomes directional",
+            cursor_time, debug,
+            none_sub_status=(
+                <span class="hl">"warmup_waiting_for_first_closed_htf"</span>
+                if waiting else <span class="hl">"htf_neutral"</span>
+            ),
+        )
+        return self._commit(hyp)
+
+    <span class="cm"># ── No slice matched ─────────────────────────────────────</span>
+    hyp = self._none(
+        "E/D/C/B classifier slice found no tradable hypothesis",
+        ["phase_a_classifier"],
+        "Next classifier slice defines this pullback/continuation state",
+        cursor_time, debug,
+        none_sub_status=<span class="hl">"htf_resolve_unclassified"</span>,
+    )
+    return self._commit(hyp)</pre>
+<pre><span class="cm"># Guard for 15m/4H cold-start — only True when BOTH:
+#   • one closed HTF bar exists
+#   • no second closed HTF bar yet (previous_bar is None)
+#   • the HTF bar time is ahead of the current cursor</span>
+<span class="hl">def</span> _waiting_for_first_closed_htf(
+    cursor_time:  str | None,
+    current_bar:  dict | None,
+    previous_bar: dict | None,
+) -> bool:
+    current_time = _bar_time(current_bar)  <span class="cm"># bar.get("time")</span>
+    return bool(
+        cursor_time                        <span class="cm"># 15m bar time is known</span>
+        and current_time                   <span class="cm"># 4H bar exists</span>
+        and previous_bar is None           <span class="cm"># only one closed 4H bar</span>
+        and current_time > cursor_time     <span class="cm"># 4H bar time > 15m cursor</span>
+    )</pre>
+<pre><span class="cm"># _none() — the none hypothesis emitter</span>
+<span class="hl">def</span> _none(self, reason, required_evidence, invalidation, ts, debug,
+          none_sub_status=None) -> Hypothesis:
+    debug = {**debug, "none_sub_status": none_sub_status} if none_sub_status else debug
+    return Hypothesis(
+        hypothesis_id    = self.state.hypothesis_id,
+        status           = <span class="hl">"watching"</span>,
+        phase            = <span class="hl">"none"</span>,
+        direction        = "none",
+        swing_alignment  = "none",
+        internal_alignment = "none",
+        poi_id           = None,
+        poi_type         = None,
+        reason           = reason,
+        required_evidence = required_evidence,
+        invalidation     = invalidation,
+        target_policy    = "none",
+        entry_policy     = <span class="hl">"wait"</span>,
+        created_at       = (
+            self.state.current_hypothesis.created_at
+            if self.state.current_hypothesis else ts
+        ),
+        updated_at       = ts,
+        none_sub_status  = none_sub_status,
+        debug_facts      = debug,
+    )
+<span class="cm">
+# Note: _none() does NOT call _commit() directly.
+# The caller always wraps with return self._commit(hyp).
+# _commit() will NOT advance phase_episode_id for none
+# (phase "none" is not in {"E","D","C","B","A"}).</span></pre>
+    </div>
+
+    <!-- ── §07 Config ── -->
+    <h2 id="config"><span class="sec-num">07</span> Config</h2>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">dual_smc.__init__() reading it</button>
+      </div>
+<pre class="on"><span class="cm"># ultrab/src/ultrab/replayer/config.yaml</span>
+replay:
+  <span class="hl">warmup_bars</span>: 200   <span class="cm"># sideways-market guardrail; applied independently per timeframe</span>
+
+liquidity:
+  eq:
+    atr_period: 14   <span class="cm"># hard indicator floor for EQH/EQL tolerance, not structure bias</span>
+
+hypothesis:
+  enabled: true
+  first_slice: phase_e_d</pre>
+<pre><span class="cm"># dual_smc.py — warmup_bars read in __init__</span>
+self.<span class="hl">warmup_bars</span> = int(self.replay_config.get("warmup_bars", 200))
+
+<span class="cm"># Used in _warm_lower_engines():</span>
+lower_warmup_start = max(0, self.lower_start_index - self.<span class="hl">warmup_bars</span>)
+for _, row in self.lower_bars.iloc[lower_warmup_start : self.lower_start_index].iterrows():
+    self._process_lower_engines(row)  <span class="cm"># ← structure/zones only, NO classify()</span>
+
+<span class="cm"># Used in _warm_higher_engines():</span>
+higher_warmup_start = max(0, self.higher_start_index - self.<span class="hl">warmup_bars</span>)
+for _, row in self.higher_bars.iloc[higher_warmup_start : self.higher_start_index].iterrows():
+    self._process_higher_engines(row) <span class="cm"># ← HTF structure only, NO classify()</span></pre>
+    </div>
+
+    <!-- ── §08 Open Issues ── -->
+    <h2 id="issues"><span class="sec-num">08</span> Open Issues · Edge Cases · Next Milestone</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>Cold-start self-location only supports none → E.</b>
+        During warmup, Layer 3 can observe enough history to reconstruct a current HTF state
+        that already belongs to D, C, B, or A. Layer 4 still starts with
+        <code>previous_phase = "none"</code> and <code>active_phase_e_direction = "none"</code>.
+        The first post-warmup bar should be able to self-locate into the best current DAG node:
+        <code>none(warmup) → E/D/C/B/A</code>. Current code only reliably handles
+        <code>none(warmup) → E</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>warmup_waiting_for_first_closed_htf fires in two branches.</b>
+        The same <code>none_sub_status</code> is set in both the <code>not htf</code> branch
+        (no structure at all) and the <code>htf_neutral</code> branch (structure exists but
+        bias is neutral). A consumer cannot tell which condition caused the warmup label
+        without reading <code>debug_facts["htf_bias"]</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>One warmup_bars value covers very different durations.</b>
+        <code>warmup_bars: 200</code> feeds 200 LTF bars to the lower engines and 200 HTF
+        bars to the higher engines. The counts are independent but use the same configured
+        integer, so they cover very different calendar spans. Reducing the value must preserve
+        at least 14 HTF bars for liquidity ATR, but the larger risk is losing the structural
+        context preceding a week-long sideways regime.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>htf_resolve_unclassified is the wrong sub_status for missing E.</b>
+        When the classifier is in a valid HTF state (bullish open) but no D/C/B gate fires
+        and <code>_previous_or_active_e()</code> is False (first bar), the fallback emits
+        <code>htf_resolve_unclassified</code>. This is misleading — the real reason is
+        "Phase E not yet committed." A dedicated sub_status like
+        <code>phase_e_not_yet_started</code> would be more precise.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>HypothesisClassifier state is NOT reset between warmup and replay.</b>
+        The warmup does not call <code>classify()</code>, so state remains at init defaults.
+        But if the replayer is reset or re-initialised mid-session, the classifier state
+        may carry over stale phase/shadow state into the new warmup. Always call
+        <code>HypothesisClassifier.__init__()</code> (or reset state) when re-initialising
+        the replay loop.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Sustained htf_neutral after warmup.</b>
+        If <code>none / htf_neutral</code> persists for many bars after replay start,
+        the structure engine did not find a CHoCH in the warmup window.
+        Fix: increase <code>warmup_bars</code>, move the replay start date to a post-break
+        bar, or verify that the pivot and structure engines received enough useful directional
+        history. Liquidity ATR readiness is separate and can be checked independently.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Add none_sub_status = "phase_e_not_yet_started" for bar 0.</b>
+        Currently bar 0 with valid bias but no prior Phase E emits
+        <code>htf_resolve_unclassified</code>, which looks like a classifier gap.
+        A dedicated sub_status distinguishes "first bar of a new replay" from
+        "genuinely unclassified bar in a running session."</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Expose warmup health in payload.</b>
+        <code>payload</code> includes <code>warmup_bars</code> and engine start times
+        in the replay metadata block, but there is no flag like
+        <code>"hypothesis_classifier_warmed": true/false</code>.
+        A downstream consumer cannot easily tell from the payload alone whether the
+        classifier is past its silent startup window.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Market stays sideways across the entire warmup window.</b>
+        If the instrument ranges without a clean CHoCH for all <code>warmup_bars</code>,
+        the structure engine reaches replay bar 0 with <code>bias = "neutral"</code>.
+        The selected 200-bar guardrail is intended to look through roughly a week of sideways
+        price and preserve useful structure from before the range. If no usable break exists
+        anywhere in the complete warmup, the instrument itself is in a genuine
+        accumulation/distribution range and carries no directional bias worth trading.
+        The system is correct to emit <code>none</code> indefinitely.
+        <strong>none = no trade.</strong> Change the instrument, not the config.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Warm the hypothesis classifier from historical data.</b>
+        The classifier intentionally starts fresh because its state machine (phase transitions,
+        shadow state) is not safe to replay from arbitrary mid-stream history.
+        Pre-warming it would require replaying the full phase history from the warmup start,
+        which would change the warmup semantics significantly.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ── Tab switcher ── */
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns  = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+/* ── Active nav link on scroll ── */
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks  = document.querySelectorAll("nav a[href^='#']");
+const observer  = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

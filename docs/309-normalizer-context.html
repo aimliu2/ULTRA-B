@@ -1,0 +1,639 @@
+<!-- source: ultrab/ln-notes/3context/309-Interpreter-context.md
+     current code: ultrab/src/ultrab/replayer/replay_session.py
+     current code: ultrab/src/ultrab/runtime/dual_smc.py
+     related: docs/301-context.html
+     related: docs/305-orderflow-context.html
+     config: ultrab/src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>309 · Snapshot Normalizer Context</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .backlink {
+    margin: 12px 0 0;
+    font-family: var(--mono);
+    font-size: 12px;
+  }
+  .backlink a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .callout, .rule-block {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    max-width: 700px;
+    margin: 16px 0;
+    padding: 14px 16px;
+  }
+  .rule-block {
+    border-left: 3px solid var(--accent2);
+    font-style: italic;
+  }
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+  pre.block {
+    max-width: 700px;
+    overflow-x: auto;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin: 14px 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+  }
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+  .hl { color: var(--accent); font-weight: 700; }
+  .cm { color: var(--text-dim); font-style: italic; }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#concept">00 Core Concept</a>
+    <a href="#inputs">01 Inputs</a>
+    <a href="#snapshot">02 Snapshot</a>
+    <a href="#ownership">03 Ownership</a>
+    <a href="#algorithm">04 Algorithm</a>
+    <a href="#config">05 Config</a>
+    <a href="#issues">06 Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>309-Interpreter-context.md</code>
+      <code>replay_session.py</code>
+      <code>dual_smc.py</code>
+      <code>replayer/config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 3 · Context · Snapshot Normalizer</div>
+      <h1>Snapshot Normalizer - ContextSnapshot Projection</h1>
+      <div class="tldr">
+        <b>TL;DR</b> - Snapshot Normalizer is the read-only Layer 3 projection step. It reads channel-owned semantic state after Structure, S/D, Liquidity, and Orderflow update their stores, then prints the current <code>ContextSnapshot</code> for this bar. It must stay boring: facts, relations, nearest objects, and lifecycle flags only.
+      </div>
+      <p class="backlink"><a href="./301-context.html">Back to 301 Layer 3 Context</a></p>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>Snapshot Normalizer is not another detector and not a thesis engine. It is the adapter between channel-owned state and the compact surface consumed by Fusion, Evidence Compiler, the replayer UI, and later Layer 4.</p>
+    <pre class="block">State Store / channel engines
+-> Snapshot Normalizer
+-> ContextSnapshot
+-> Fusion
+-> Evidence Compiler
+-> Layer 4</pre>
+
+    <details open>
+      <summary>Step 1 · Read channel state <span class="where">after detectors</span></summary>
+      <div class="body">
+        <p>Structure, S/D Zone, Liquidity, and Orderflow own their lifecycles. Snapshot Normalizer reads the current state after those writers finish for the bar.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Step 2 · Add cursor relations <span class="where">current bar</span></summary>
+      <div class="body">
+        <p>The runtime cursor supplies current timestamp, price, bar index, and timeframe. Snapshot Normalizer uses that cursor to calculate distance, P/D position, probe relation, and invalidation proximity.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Step 3 · Project literal facts <span class="where">no thesis</span></summary>
+      <div class="body">
+        <p>The output says what is true now. It does not decide Phase B, Phase D, entry readiness, evidence strength, or hypothesis switching.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      If a field sounds like a thesis node, it probably belongs to Evidence Compiler or Layer 4 instead of Snapshot Normalizer.
+    </div>
+
+    <h2 id="inputs"><span class="sec-num">01</span> Inputs</h2>
+    <p>Snapshot Normalizer reads factual context channels. Each channel owns its own state and exposes enough snapshot material for projection.</p>
+
+    <h3 id="structure">Structure Context</h3>
+    <p>Structure provides bias, bias tier, P/D range state, pullback confirmation, structural anchors, and the live anchor probe. These are structural facts, not Orderflow conclusions.</p>
+    <pre class="block">structure:
+  bias
+  biasTier
+  rangeState
+  currentLeg
+  range_high / range_low
+  pd_value_pct
+  range_position_pct
+  structure_anchor_sequence
+  structure_anchor_probe</pre>
+
+    <h3 id="sd">S/D Context</h3>
+    <p>S/D Context provides active supply and demand zones, zone state, geometry, owner timeframe, and last resolved zone. Snapshot Normalizer sorts the relevant zones by current-price distance.</p>
+    <pre class="block">nearestSupplyZones[]
+nearestDemandZones[]
+lower_last_resolved_zone
+higher_last_resolved_zone
+
+demand distance = current_price - zone.high
+supply distance = zone.low - current_price</pre>
+
+    <h3 id="liquidity">Liquidity Context</h3>
+    <p>Liquidity Context provides HTF P/D, EQ, and ITR pool lifecycle facts. Snapshot Normalizer language stays factual: grab/reclaim readiness, source, side, direction, level, and trajectory.</p>
+    <pre class="block">active_htf_pd_pools[]
+active_htf_eq_pools[]
+active_htf_itr_pools[]
+event_log[]
+
+htf_pd_grab_reclaim_ready
+htf_eq_grab_reclaim_ready
+htf_itr_grab_reclaim_ready
+htf_itr_anchor_run_ready</pre>
+    <div class="rule-block">
+      Snapshot Normalizer says HTF P/D boundary grab/reclaim facts. Evidence Compiler may later call that a candidate pattern. Layer 4 may later map it to a B or D hypothesis node.
+    </div>
+
+    <h3 id="orderflow">Orderflow Context</h3>
+    <p>Orderflow is the migration target for useful legacy Structural Attempt language. Structure owns anchor facts; Orderflow owns current pressure, regime, ChoCH monitor state, protected anchor, decision point, and probe relation.</p>
+    <pre class="block">orderflow:
+  confirmed_direction
+  regime
+  live_pressure
+  choch_monitor_status
+  protected_anchor_ref
+  disruption_point_ref
+  decision_point_ref
+  range_ref
+  probe_ref
+  probe_relation
+  probe_breaks_protected_anchor
+  choch_trigger_source
+  liquidity_annotations
+  blocked_reason</pre>
+
+    <details>
+      <summary>Legacy Structural Attempt mapping <span class="where">migration</span></summary>
+      <div class="body">
+        <pre class="block">legacy structural attempt pressure
+  -> orderflow.live_pressure
+
+legacy protected opposite-side anchor
+  -> orderflow.protected_anchor_ref
+
+legacy attempt decision area
+  -> orderflow.decision_point_ref / orderflow.range_ref
+
+legacy failure / reversal attempt
+  -> orderflow.choch_monitor_status = confirmed_reversal | failed
+
+legacy inducement resolution
+  -> orderflow.choch_monitor_status = resolved_inducement</pre>
+      </div>
+    </details>
+
+    <h2 id="snapshot"><span class="sec-num">02</span> Snapshot</h2>
+    <p>The <code>ContextSnapshot</code> is the current tape print for one bar. It should be stable enough for the replayer/UI and compact enough that Layer 4 does not need to rebuild raw evidence sequences.</p>
+    <pre class="block">ContextSnapshot:
+  currentTimestamp
+  currentPrice
+  currentBarIndex
+  timeframe
+
+  bias
+  biasTier
+  rangeState
+  currentLeg
+  pdPosition
+
+  lastConfirmedHigh
+  lastConfirmedLow
+  keyLevelsAbove[]
+  keyLevelsBelow[]
+  nearestSupplyZones[]
+  nearestDemandZones[]
+
+  structure
+  liquidity
+  orderflow
+  invalidationRefs[]</pre>
+
+    <p>The current price is not a Layer 2 event. It is the runtime cursor value used by Layer 3 projection. Layer 2 emits primitive CE / PE events; Layer 3 combines those event records with the current bar heartbeat to update and project semantic context.</p>
+
+    <h2 id="ownership"><span class="sec-num">03</span> Ownership</h2>
+    <p>The boundary is the main point of this note. Snapshot Normalizer owns projection; it does not own interpretation.</p>
+    <pre class="block">Snapshot Normalizer answers:
+  What is currently true on this bar?
+  Which objects are active?
+  Which lifecycle flags are ready?
+  Which levels / zones / pools / anchors are nearest or relevant?
+  What is the current price relation to those objects?
+
+Snapshot Normalizer does not answer:
+  Is this Phase B?
+  Is this Phase D?
+  Is this an entry?
+  Is this evidence strong enough?
+  Should Layer 4 switch hypothesis node?</pre>
+
+    <details open>
+      <summary>Example handoff <span class="where">literal to qualified</span></summary>
+      <div class="body">
+        <pre class="block">Liquidity engine:
+  pool.status = liquidity_grab_confirmed
+
+Snapshot Normalizer:
+  htf_pd_grab_reclaim_ready = true
+  htf_pd_grab_reclaim_level = 1.08500
+  htf_pd_grab_reclaim_direction = bearish
+
+Evidence Compiler:
+  candidate.pattern = grab_reclaim_at_htf_pd_boundary
+  candidate.location_context = htf_pd_boundary
+  candidate.relation_to_probe = reclaiming
+
+Layer 4:
+  may map candidate to D.htf_pd_grab_reclaim_test.pending_outcome</pre>
+      </div>
+    </details>
+
+    <h2 id="algorithm"><span class="sec-num">04</span> Algorithm</h2>
+    <p>The implementation target is to extract the projection work currently embedded in runtime snapshots into a dedicated read-only module. Existing payload keys can remain for UI compatibility while <code>context_snapshot</code> becomes the normalized surface.</p>
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">project</button>
+        <button data-t="1">zones</button>
+        <button data-t="2">handoff</button>
+      </div>
+<pre class="on"><span class="cm"># proposed: SnapshotNormalizer.project()</span>
+<span class="hl">def</span> project(cursor, channels) -> ContextSnapshot:
+    structure = channels.structure.snapshot(cursor.price)
+    zones = channels.sd.snapshot(cursor.price)
+    liquidity = channels.liquidity.snapshot()
+    orderflow = channels.orderflow.snapshot()
+
+    return ContextSnapshot(
+        currentTimestamp=cursor.timestamp,
+        currentPrice=cursor.close,
+        currentBarIndex=cursor.index,
+        timeframe=cursor.timeframe,
+        structure=structure,
+        liquidity=liquidity,
+        orderflow=orderflow,
+        nearestSupplyZones=nearest_supply(zones, cursor.close),
+        nearestDemandZones=nearest_demand(zones, cursor.close),
+        invalidationRefs=nearest_invalidation_refs(structure, orderflow),
+    )</pre>
+<pre><span class="cm"># zone distance projection</span>
+<span class="hl">def</span> project_zone_distance(zone, current_price):
+    if zone.direction == "demand":
+        return current_price - zone.high
+
+    if zone.direction == "supply":
+        return zone.low - current_price
+
+    return None</pre>
+<pre><span class="cm"># runtime compatibility during migration</span>
+payload = legacy_snapshot_payload(...)
+payload["context_snapshot"] = normalizer.project(cursor, channels)
+
+<span class="cm"># Existing UI payload keys stay alive until the replayer reads context_snapshot.</span>
+payload["structure"] = payload["context_snapshot"]["structure"]
+payload["liquidity"] = payload["context_snapshot"]["liquidity"]
+payload["orderflow"] = payload["context_snapshot"]["orderflow"]</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">05</span> Config</h2>
+    <p>There is no committed standalone <code>snapshot_normalizer:</code> config block yet. The current relevant config is the channel source policy Snapshot Normalizer projects, especially Structure anchor retention for Orderflow.</p>
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">runtime today</button>
+      </div>
+<pre class="on"><span class="cm"># ultrab/src/ultrab/replayer/config.yaml</span>
+structure:
+  enabled: true
+  tier: "itr"
+  anchor_sequence_limit: 8
+  dual_display: dual
+
+<span class="cm"># proposed future scope</span>
+orderflow:
+  probe_points: 8
+  source_policy:
+    lower_timeframe: structure_anchor_sequence
+    higher_timeframe: itr_sequence</pre>
+<pre><span class="cm"># current runtime snapshot shape is still inline</span>
+<span class="hl">def</span> snapshot(self, classify=True):
+    lower_price = self._current_lower_price()
+    higher_price = self._current_higher_price()
+    lower_zones = self.lower_sd_zone.get_zone_snapshot(lower_price)
+    higher_zones = self.higher_sd_zone.get_zone_snapshot(higher_price)
+    lower_structure = self.lower_structure.get_snapshot(lower_price)
+    higher_structure = self.higher_structure.get_snapshot(higher_price)
+    liquidity = self.liquidity.snapshot()
+
+    payload = {
+        "zones": lower_zones + higher_zones,
+        "lower_structure": lower_structure,
+        "higher_structure": higher_structure,
+        "liquidity": liquidity,
+    }</pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">06</span> Resolved / Open Issues</h2>
+    <p>These are the out-of-order or conflicting points found while consolidating the note with the current backend and the Orderflow discussion. Completed items stay here as archived decisions so the migration path remains visible.</p>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Orderflow enters through 09.</b> The replayer now emits <code>context_snapshot</code>, and backend Orderflow is plugged through <code>SnapshotNormalizer</code> instead of being bolted directly into the old snapshot body.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Projection extracted from snapshots.</b> <code>ReplaySession.snapshot()</code> and <code>DualSMCRuntime.snapshot()</code> still serve adapter payloads, but the shared projection responsibility now lives in <code>SnapshotNormalizer.project()</code>. Existing UI keys remain for compatibility.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Migrate consumers gradually.</b> The compatibility payloads are intentionally still present: <code>structure</code>, <code>zones</code>, <code>liquidity</code>, <code>orderflow</code>, and dual-mode keys. Replayer UI, Evidence Compiler, and future Layer 4 consumers should move toward <code>context_snapshot</code> over time.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Do not score evidence here.</b> Sideway Orderflow can expose weak pressure, compression, or ChoCH watch, but confidence weighting and candidate qualification belong to Evidence Compiler. Layer 4 still owns thesis meaning.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  document.querySelectorAll("[data-tabs]").forEach((tabs) => {
+    const buttons = [...tabs.querySelectorAll(".tabbar button")];
+    const panes = [...tabs.querySelectorAll("pre")];
+    buttons.forEach((button) => {
+      button.addEventListener("click", () => {
+        const index = Number(button.dataset.t);
+        buttons.forEach((b) => b.classList.toggle("on", b === button));
+        panes.forEach((pane, i) => pane.classList.toggle("on", i === index));
+      });
+    });
+  });
+
+  const links = [...document.querySelectorAll("nav a[href^='#']")];
+  const sections = links
+    .map((link) => document.querySelector(link.getAttribute("href")))
+    .filter(Boolean);
+  const observer = new IntersectionObserver((entries) => {
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (!visible) return;
+    links.forEach((link) => {
+      link.classList.toggle("active", link.getAttribute("href") === `#${visible.target.id}`);
+    });
+  }, { rootMargin: "-10% 0px -75% 0px", threshold: 0.01 });
+  sections.forEach((section) => observer.observe(section));
+</script>
+</body>
+</html>

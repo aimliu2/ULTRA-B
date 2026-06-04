@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 
 from ultrab.replayer.data_source import (
     available_symbols,
     available_timeframes,
     bars_payload,
+    effective_start_time,
     load_app_config,
     replay_data_config,
     timeframe_label,
@@ -18,6 +19,7 @@ from ultrab.replayer.session_store import get_session, save_session
 
 CONFIG_PATH = Path(__file__).with_name("config.yaml")
 STATIC_ICON_PATH = Path(__file__).with_name("static") / "icons"
+STATIC_VENDOR_PATH = Path(__file__).with_name("static") / "vendor"
 
 app = Flask(
     __name__,
@@ -25,6 +27,11 @@ app = Flask(
     static_folder=str(STATIC_ICON_PATH),
     static_url_path="/icons",
 )
+
+
+@app.get("/vendor/<path:filename>")
+def vendor_asset(filename: str):
+    return send_from_directory(STATIC_VENDOR_PATH, filename)
 
 
 @app.get("/")
@@ -118,7 +125,7 @@ def api_replay_session():
     mode = str(payload.get("mode", config.get("data", {}).get("mode", "single"))).lower()
     symbol = str(payload.get("symbol", data_cfg.symbol)).upper()
     timeframe = str(payload.get("timeframe", data_cfg.timeframe)).lower()
-    start_time = payload.get("start_time")
+    start_time = effective_start_time(payload.get("start_time"), data_cfg.start_time)
 
     if mode == "dual":
         combo_name = str(payload.get("dual_combo", config.get("data", {}).get("dual_combo", "15m_4h")))
@@ -131,12 +138,14 @@ def api_replay_session():
             symbol=symbol,
             timeframe=str(combo_cfg["lower_tf"]).lower(),
             window_bars=data_cfg.window_bars,
+            start_time=data_cfg.start_time,
         )
         higher_cfg = type(data_cfg)(
             root=data_cfg.root,
             symbol=symbol,
             timeframe=str(combo_cfg["higher_tf"]).lower(),
             window_bars=data_cfg.window_bars,
+            start_time=data_cfg.start_time,
         )
         session = save_session(
             DualReplaySession(
@@ -160,6 +169,7 @@ def api_replay_session():
         symbol=symbol,
         timeframe=timeframe,
         window_bars=data_cfg.window_bars,
+        start_time=data_cfg.start_time,
     )
     session = save_session(ReplaySession(str(CONFIG_PATH), session_cfg, start_time=start_time))
     return jsonify(

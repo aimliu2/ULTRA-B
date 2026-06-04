@@ -14,6 +14,7 @@ StructureBias = Literal["neutral", "bullish", "bearish"]
 StructurePhase = Literal["neutral", "open", "pullback_confirmed"]
 StructureTier = Literal["itr", "ltr"]
 PullbackConfirmedBy = Literal["itr", "sd_zone"]
+StructureAnchorSide = Literal["high", "low"]
 
 _INF = float("inf")
 
@@ -30,7 +31,7 @@ class ScEvent:
     level_side: str                         # "high" or "low"
     break_direction: str                    # "up" or "down"
     bias_flip: bool = False
-    choach: bool = False
+    choch: bool = False
     prior_anchor_high: float | None = None  # backward-compatible ChoCh field
     prior_anchor_low: float | None = None   # backward-compatible ChoCh field
 
@@ -46,7 +47,7 @@ class ScEvent:
             "levelSide": self.level_side,
             "breakDirection": self.break_direction,
             "biasFlip": self.bias_flip,
-            "choach": self.choach,
+            "choch": self.choch,
         }
         if self.prior_anchor_high is not None:
             d["priorAnchorHigh"] = self.prior_anchor_high
@@ -62,6 +63,88 @@ class _RegistryLevel:
     price: float
     timestamp: pd.Timestamp     # pivot bar timestamp
     registered_at: pd.Timestamp # event_timestamp when PE fired
+
+
+@dataclass
+class StructureLevel:
+    level_id: str
+    event_code: str
+    tier: str
+    side: str
+    price: float
+    pivot_time: pd.Timestamp
+    confirmed_at: pd.Timestamp
+    relation: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "level_id": self.level_id,
+            "event_code": self.event_code,
+            "tier": self.tier,
+            "side": self.side,
+            "price": round(self.price, 6),
+            "pivot_time": self.pivot_time.isoformat(),
+            "confirmed_at": self.confirmed_at.isoformat(),
+            "relation": self.relation,
+        }
+
+
+@dataclass
+class StructureAnchorPoint:
+    point_id: str
+    timeframe: str
+    side: StructureAnchorSide
+    role: str
+    price: float
+    timestamp: pd.Timestamp
+    confirmed_at: pd.Timestamp
+    source_transition: str
+    source_event_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "point_id": self.point_id,
+            "timeframe": self.timeframe,
+            "side": self.side,
+            "role": self.role,
+            "price": round(self.price, 6),
+            "timestamp": self.timestamp.isoformat(),
+            "confirmed_at": self.confirmed_at.isoformat(),
+            "source_transition": self.source_transition,
+            "source_event_id": self.source_event_id,
+        }
+
+
+@dataclass
+class StructureAttempt:
+    attempt_id: str
+    direction: str
+    alignment: str
+    origin: str
+    orderflow_quality: str
+    anchor_level_id: str
+    anchor_price: float
+    started_at: pd.Timestamp
+    extreme_price: float
+    status: str
+    failed_at: pd.Timestamp | None = None
+    failure_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "attempt_id": self.attempt_id,
+            "direction": self.direction,
+            "alignment": self.alignment,
+            "origin": self.origin,
+            "orderflow_quality": self.orderflow_quality,
+            "anchor_level_id": self.anchor_level_id,
+            "anchor_price": round(self.anchor_price, 6),
+            "started_at": self.started_at.isoformat(),
+            "extreme_price": round(self.extreme_price, 6),
+            "status": self.status,
+            "failed_at": self.failed_at.isoformat() if self.failed_at is not None else None,
+            "failure_reason": self.failure_reason,
+        }
 
 
 class StructureEngine:
@@ -87,6 +170,11 @@ class StructureEngine:
         self._tf = timeframe
         raw_tier = str(config.get("tier", "itr")).lower()
         self._tier: StructureTier = "ltr" if raw_tier == "ltr" else "itr"
+        self._recent_level_limit = max(1, int(config.get("recent_level_limit", 20)))
+        self._structure_anchor_limit = max(
+            1,
+            int(config.get("anchor_sequence_limit", config.get("structure_anchor_limit", 8))),
+        )
 
         # tier-specific PE codes
         if self._tier == "itr":
@@ -132,6 +220,13 @@ class StructureEngine:
         # SC event log for snapshot
         self._last_sc: ScEvent | None = None
 
+        # Bounded structural memory for downstream hypothesis/audit consumers.
+        self._recent_levels: list[StructureLevel] = []
+        self._latest_level_high: StructureLevel | None = None
+        self._latest_level_low: StructureLevel | None = None
+        self._structure_attempt: StructureAttempt | None = None
+        self._structure_anchor_sequence: list[StructureAnchorPoint] = []
+
         # warmup gate — flips True on first SC; post-warmup uses wick range
         self._warmup_complete: bool = False
 
@@ -155,6 +250,7 @@ class StructureEngine:
         # only become pullback confirmation candidates.
         for pe in pivot_events:
             if pe.event_code == self._pe_high_code:
+                self._remember_structure_level(pe, "high")
                 self._registry_high = _RegistryLevel(
                     tier=self._tier,
                     side="high",
@@ -164,6 +260,7 @@ class StructureEngine:
                 )
 
             elif pe.event_code == self._pe_low_code:
+                self._remember_structure_level(pe, "low")
                 self._registry_low = _RegistryLevel(
                     tier=self._tier,
                     side="low",
@@ -171,6 +268,9 @@ class StructureEngine:
                     timestamp=pe.pivot_timestamp,
                     registered_at=pe.event_timestamp,
                 )
+
+        if self._warmup_complete:
+            self._maybe_open_pro_attempt_from_break(bar_high, bar_low, bar_ts)
 
         # 2. Warmup uses PE registry only; wick extremes seed the first price range.
         if not self._warmup_complete:
@@ -190,6 +290,8 @@ class StructureEngine:
                 self._extend_range_low(bar_low, bar_ts)
         elif self._phase == "pullback_confirmed":
             self._track_pullback_extreme(bar_high, bar_low, bar_ts)
+
+        self._update_structure_attempt(bar_high, bar_low, bar_close, bar_ts)
 
         # 4. SC detection — close only. Continuation requires confirmed pullback;
         # ChoCh can fire from either OPEN or PULLBACK_CONFIRMED.
@@ -237,6 +339,32 @@ class StructureEngine:
             "confirmed_zone_id": self._confirmed_zone_id,
             "pullback_confirmed_ts": self._pullback_confirmed_ts.isoformat() if self._pullback_confirmed_ts is not None else None,
             "last_sc":      self._last_sc.to_dict() if self._last_sc else None,
+            "recent_itr_levels": [
+                level.to_dict()
+                for level in self._recent_levels
+                if level.tier == "itr"
+            ],
+            "latest_itr_high": (
+                self._latest_level_high.to_dict()
+                if self._latest_level_high and self._latest_level_high.tier == "itr"
+                else None
+            ),
+            "latest_itr_low": (
+                self._latest_level_low.to_dict()
+                if self._latest_level_low and self._latest_level_low.tier == "itr"
+                else None
+            ),
+            "structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
+            "ltf_structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
+            "structure_anchor_sequence": [
+                anchor.to_dict()
+                for anchor in self._structure_anchor_sequence
+            ],
+            "recent_structure_anchor_points": [
+                anchor.to_dict()
+                for anchor in self._structure_anchor_sequence
+            ],
+            "structure_anchor_probe": self._structure_anchor_probe(current_price),
             # timestamps for P/D line drawing on the chart
             "phase_start_ts": self._phase_start_ts.isoformat() if self._phase_start_ts is not None else None,
             "range_high_ts": self._range_high_ts.isoformat() if self._range_high_ts is not None else None,
@@ -251,13 +379,23 @@ class StructureEngine:
         """Warmup (NEUTRAL): SC fires against registry — most recently confirmed PE pivot."""
         if self._registry_high is not None and close > self._registry_high.price:
             level = self._registry_high
+            anchor_price = self._range_low if self._range_low is not None else bar_low
+            anchor_ts = self._range_low_ts or ts
             self._registry_high = None
             self._warmup_complete = True
             self._start_bullish(
                 ts,
-                self._range_low if self._range_low is not None else bar_low,
+                anchor_price,
                 bar_high,
-                range_low_ts=self._range_low_ts,
+                range_low_ts=anchor_ts,
+            )
+            self._record_structure_anchor(
+                "low",
+                "range_origin",
+                anchor_price,
+                anchor_ts,
+                ts,
+                self._sc_up_code,
             )
             sc = ScEvent(
                 event_code=self._sc_up_code,
@@ -270,20 +408,30 @@ class StructureEngine:
                 level_side="high",
                 break_direction="up",
                 bias_flip=False,
-                choach=False,
+                choch=False,
             )
             self._last_sc = sc
             return sc
 
         if self._registry_low is not None and close < self._registry_low.price:
             level = self._registry_low
+            anchor_price = self._range_high if self._range_high is not None else bar_high
+            anchor_ts = self._range_high_ts or ts
             self._registry_low = None
             self._warmup_complete = True
             self._start_bearish(
                 ts,
-                self._range_high if self._range_high is not None else bar_high,
+                anchor_price,
                 bar_low,
-                range_high_ts=self._range_high_ts,
+                range_high_ts=anchor_ts,
+            )
+            self._record_structure_anchor(
+                "high",
+                "range_origin",
+                anchor_price,
+                anchor_ts,
+                ts,
+                self._sc_dn_code,
             )
             sc = ScEvent(
                 event_code=self._sc_dn_code,
@@ -296,7 +444,7 @@ class StructureEngine:
                 level_side="low",
                 break_direction="down",
                 bias_flip=False,
-                choach=False,
+                choch=False,
             )
             self._last_sc = sc
             return sc
@@ -316,7 +464,16 @@ class StructureEngine:
                 level_price = self._range_low
                 level_ts = self._range_low_ts or ts
                 prior_high = self._range_high
+                prior_high_ts = self._range_high_ts or ts
                 prior_low = self._range_low
+                self._record_structure_anchor(
+                    "high",
+                    "reversal_ceiling",
+                    prior_high,
+                    prior_high_ts,
+                    ts,
+                    self._sc_dn_code,
+                )
                 self._start_bearish(ts, prior_high, bar_low, range_high_ts=self._range_high_ts)
                 sc = self._make_sc(
                     ts,
@@ -337,6 +494,15 @@ class StructureEngine:
                 level_ts = self._range_high_ts or ts
                 new_floor = self._pullback_low if self._pullback_low is not None else bar_low
                 new_floor_ts = self._pullback_low_ts if self._pullback_low is not None else ts
+                self._confirm_structure_attempt(ts)
+                self._record_structure_anchor(
+                    "low",
+                    "range_origin",
+                    new_floor,
+                    new_floor_ts,
+                    ts,
+                    self._sc_up_code,
+                )
                 self._start_bullish(ts, new_floor, bar_high, range_low_ts=new_floor_ts)
                 sc = self._make_sc(ts, level_ts, level_price, "high", "up")
                 self._last_sc = sc
@@ -349,6 +515,15 @@ class StructureEngine:
                 level_ts = self._range_high_ts or ts
                 prior_high = self._range_high
                 prior_low = self._range_low
+                prior_low_ts = self._range_low_ts or ts
+                self._record_structure_anchor(
+                    "low",
+                    "reversal_floor",
+                    prior_low,
+                    prior_low_ts,
+                    ts,
+                    self._sc_up_code,
+                )
                 self._start_bullish(ts, prior_low, bar_high, range_low_ts=self._range_low_ts)
                 sc = self._make_sc(
                     ts,
@@ -369,6 +544,15 @@ class StructureEngine:
                 level_ts = self._range_low_ts or ts
                 new_ceiling = self._pullback_high if self._pullback_high is not None else bar_high
                 new_ceiling_ts = self._pullback_high_ts if self._pullback_high is not None else ts
+                self._confirm_structure_attempt(ts)
+                self._record_structure_anchor(
+                    "high",
+                    "range_origin",
+                    new_ceiling,
+                    new_ceiling_ts,
+                    ts,
+                    self._sc_dn_code,
+                )
                 self._start_bearish(ts, new_ceiling, bar_low, range_high_ts=new_ceiling_ts)
                 sc = self._make_sc(ts, level_ts, level_price, "low", "down")
                 self._last_sc = sc
@@ -399,10 +583,251 @@ class StructureEngine:
             level_side=level_side,
             break_direction=break_direction,
             bias_flip=bias_flip,
-            choach=bias_flip,
+            choch=bias_flip,
             prior_anchor_high=prior_high if bias_flip else None,
             prior_anchor_low=prior_low if bias_flip else None,
         )
+
+    def _level_id(self, pe: PivotEvent) -> str:
+        return ":".join(
+            [
+                pe.event_code,
+                pe.pivot_timestamp.isoformat(),
+                pe.event_timestamp.isoformat(),
+                f"{float(pe.pivot_price):.6f}",
+            ]
+        )
+
+    def _remember_structure_level(self, pe: PivotEvent, side: str) -> StructureLevel:
+        level = StructureLevel(
+            level_id=self._level_id(pe),
+            event_code=pe.event_code,
+            tier=pe.tier,
+            side=side,
+            price=float(pe.pivot_price),
+            pivot_time=pe.pivot_timestamp,
+            confirmed_at=pe.event_timestamp,
+            relation=pe.relation,
+        )
+        self._recent_levels.append(level)
+        if len(self._recent_levels) > self._recent_level_limit:
+            self._recent_levels = self._recent_levels[-self._recent_level_limit :]
+        if side == "high":
+            self._latest_level_high = level
+        else:
+            self._latest_level_low = level
+        return level
+
+    def _anchor_id(
+        self,
+        side: StructureAnchorSide,
+        price: float,
+        timestamp: pd.Timestamp,
+        confirmed_at: pd.Timestamp,
+        source_transition: str,
+    ) -> str:
+        return ":".join(
+            [
+                self._tf,
+                side,
+                source_transition,
+                timestamp.isoformat(),
+                confirmed_at.isoformat(),
+                f"{float(price):.6f}",
+            ]
+        )
+
+    def _record_structure_anchor(
+        self,
+        side: StructureAnchorSide,
+        role: str,
+        price: float,
+        timestamp: pd.Timestamp,
+        confirmed_at: pd.Timestamp,
+        source_transition: str,
+        *,
+        source_event_id: str | None = None,
+    ) -> StructureAnchorPoint:
+        anchor = StructureAnchorPoint(
+            point_id=self._anchor_id(side, price, timestamp, confirmed_at, source_transition),
+            timeframe=self._tf,
+            side=side,
+            role=role,
+            price=float(price),
+            timestamp=timestamp,
+            confirmed_at=confirmed_at,
+            source_transition=source_transition,
+            source_event_id=source_event_id,
+        )
+
+        if self._structure_anchor_sequence and self._structure_anchor_sequence[-1].side == side:
+            self._structure_anchor_sequence[-1] = anchor
+        else:
+            self._structure_anchor_sequence.append(anchor)
+
+        if len(self._structure_anchor_sequence) > self._structure_anchor_limit:
+            self._structure_anchor_sequence = self._structure_anchor_sequence[-self._structure_anchor_limit :]
+        return anchor
+
+    def _structure_anchor_probe(self, current_price: float) -> dict[str, Any] | None:
+        if self._bias == "neutral":
+            return None
+
+        side: StructureAnchorSide
+        role: str
+        price: float | None = None
+        timestamp: pd.Timestamp | None = None
+
+        if self._phase == "open":
+            if self._bias == "bullish":
+                side = "high"
+                role = "extension_probe"
+                price = self._range_high
+                timestamp = self._range_high_ts
+            else:
+                side = "low"
+                role = "extension_probe"
+                price = self._range_low
+                timestamp = self._range_low_ts
+        elif self._phase == "pullback_confirmed":
+            if self._bias == "bullish":
+                side = "low"
+                role = "pullback_probe"
+                price = self._pullback_low if self._pullback_low is not None else current_price
+                timestamp = self._pullback_low_ts or self._pullback_confirmed_ts
+            else:
+                side = "high"
+                role = "pullback_probe"
+                price = self._pullback_high if self._pullback_high is not None else current_price
+                timestamp = self._pullback_high_ts or self._pullback_confirmed_ts
+        else:
+            return None
+
+        if price is None:
+            return None
+        evaluated_at = timestamp or self._phase_start_ts
+        return {
+            "point_id": ":".join(
+                [
+                    "probe",
+                    self._tf,
+                    side,
+                    role,
+                    evaluated_at.isoformat() if evaluated_at is not None else "NA",
+                    f"{float(price):.6f}",
+                ]
+            ),
+            "timeframe": self._tf,
+            "side": side,
+            "role": role,
+            "price": round(float(price), 6),
+            "timestamp": evaluated_at.isoformat() if evaluated_at is not None else None,
+            "evaluated_at": evaluated_at.isoformat() if evaluated_at is not None else None,
+            "confirmed": False,
+            "source": "structure_live_probe",
+        }
+
+    def _maybe_open_pro_attempt_from_break(
+        self,
+        bar_high: float,
+        bar_low: float,
+        ts: pd.Timestamp,
+    ) -> None:
+        if not self._warmup_complete or self._bias == "neutral":
+            return
+
+        if self._bias == "bullish":
+            trigger = self._latest_level_high
+            anchor = self._latest_level_low
+            if trigger is None or anchor is None:
+                return
+            if bar_high <= trigger.price:
+                return
+            if not self._can_open_or_replace_attempt("bullish", anchor):
+                return
+            self._open_pro_attempt(anchor, "bullish", "unclean_orderflow_attempt", "unclean", bar_high, ts)
+            return
+
+        if self._bias == "bearish":
+            trigger = self._latest_level_low
+            anchor = self._latest_level_high
+            if trigger is None or anchor is None:
+                return
+            if bar_low >= trigger.price:
+                return
+            if not self._can_open_or_replace_attempt("bearish", anchor):
+                return
+            self._open_pro_attempt(anchor, "bearish", "unclean_orderflow_attempt", "unclean", bar_low, ts)
+            return
+
+    def _can_open_or_replace_attempt(self, direction: str, anchor: StructureLevel) -> bool:
+        attempt = self._structure_attempt
+        if attempt is None or attempt.status != "active":
+            return True
+        if attempt.direction != direction:
+            return True
+        if attempt.anchor_level_id == anchor.level_id:
+            return False
+        return anchor.confirmed_at >= attempt.started_at
+
+    def _open_pro_attempt(
+        self,
+        anchor: StructureLevel,
+        direction: str,
+        origin: str,
+        orderflow_quality: str,
+        extreme_price: float,
+        ts: pd.Timestamp,
+    ) -> None:
+        self._structure_attempt = StructureAttempt(
+            attempt_id=f"pro:{origin}:{anchor.level_id}",
+            direction=direction,
+            alignment="pro",
+            origin=origin,
+            orderflow_quality=orderflow_quality,
+            anchor_level_id=anchor.level_id,
+            anchor_price=anchor.price,
+            started_at=ts,
+            extreme_price=float(extreme_price),
+            status="active",
+        )
+
+    def _update_structure_attempt(
+        self,
+        bar_high: float,
+        bar_low: float,
+        close: float,
+        ts: pd.Timestamp,
+    ) -> None:
+        attempt = self._structure_attempt
+        if attempt is None or attempt.status != "active":
+            return
+
+        if attempt.started_at == ts:
+            if attempt.direction == "bullish":
+                attempt.extreme_price = max(attempt.extreme_price, bar_high)
+            elif attempt.direction == "bearish":
+                attempt.extreme_price = min(attempt.extreme_price, bar_low)
+            return
+
+        if attempt.direction == "bullish":
+            attempt.extreme_price = max(attempt.extreme_price, bar_high)
+            if bar_low < attempt.anchor_price:
+                attempt.status = "failed"
+                attempt.failed_at = ts
+                attempt.failure_reason = "traded_below_itr_low"
+        elif attempt.direction == "bearish":
+            attempt.extreme_price = min(attempt.extreme_price, bar_low)
+            if bar_high > attempt.anchor_price:
+                attempt.status = "failed"
+                attempt.failed_at = ts
+                attempt.failure_reason = "traded_above_itr_high"
+
+    def _confirm_structure_attempt(self, ts: pd.Timestamp) -> None:
+        attempt = self._structure_attempt
+        if attempt is None or attempt.status != "active":
+            return
+        attempt.status = "confirmed"
 
     def _start_bullish(
         self,
@@ -476,6 +901,24 @@ class StructureEngine:
         *,
         zone_id: str | None = None,
     ) -> None:
+        if self._bias == "bullish" and self._range_high is not None:
+            self._record_structure_anchor(
+                "high",
+                "extension_extreme",
+                self._range_high,
+                self._range_high_ts or ts,
+                ts,
+                "pullback_confirmed",
+            )
+        elif self._bias == "bearish" and self._range_low is not None:
+            self._record_structure_anchor(
+                "low",
+                "extension_extreme",
+                self._range_low,
+                self._range_low_ts or ts,
+                ts,
+                "pullback_confirmed",
+            )
         self._phase = "pullback_confirmed"
         self._confirmed_by = confirmed_by
         self._confirmed_zone_id = zone_id

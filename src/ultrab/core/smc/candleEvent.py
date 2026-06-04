@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import pandas as pd
@@ -30,19 +30,72 @@ class FvgEvent:
     gap_bottom: float | None = None
     gap_size: float | None = None
     bar3_timestamp: pd.Timestamp | None = None
+    timeframe: str | None = None
+    source_bar_indexes: list[int] = field(default_factory=list)
+    source_candle_refs: list[dict[str, Any]] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def event_id(self) -> str:
+        parts = [
+            self.event_group,
+            self.event_code,
+            self.timeframe or "NA",
+            self.event_timestamp.isoformat(),
+            self.bar2_timestamp.isoformat(),
+        ]
+        if self.event_code == "CE02" and self.bar3_timestamp is not None:
+            parts.append(self.bar3_timestamp.isoformat())
+        return ":".join(parts)
+
+    @property
+    def causal_available_at(self) -> pd.Timestamp:
+        return self.event_timestamp
+
+    @property
+    def anchor_timestamp(self) -> pd.Timestamp:
+        return self.bar2_timestamp
+
+    @property
+    def price(self) -> float | None:
+        if self.event_code == "CE01":
+            return self.bar2_close
+        if self.gap_bottom is None or self.gap_top is None:
+            return None
+        return float(self.gap_bottom if self.fvg_type == "rally" else self.gap_top)
+
+    @property
+    def side(self) -> str:
+        return "high" if self.fvg_type == "rally" else "low"
+
+    @property
+    def direction(self) -> str:
+        return "up" if self.fvg_type == "rally" else "down"
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
+            "eventId": self.event_id,
             "eventCode": self.event_code,
             "eventName": self.event_name,
             "eventGroup": self.event_group,
+            "timeframe": self.timeframe,
+            "tier": None,
+            "side": self.side,
+            "direction": self.direction,
             "eventTimestamp": self.event_timestamp,
+            "causalAvailableAt": self.causal_available_at,
+            "anchorTimestamp": self.anchor_timestamp,
+            "sourceBarIndexes": list(self.source_bar_indexes),
+            "sourceCandleRefs": list(self.source_candle_refs),
+            "metadata": dict(self.metadata),
             "type": self.fvg_type,
             "bar1Timestamp": self.bar1_timestamp,
             "bar1High": self.bar1_high,
             "bar1Low": self.bar1_low,
             "bar2Timestamp": self.bar2_timestamp,
         }
+        if self.price is not None:
+            payload["price"] = self.price
         if self.bar2_close is not None:
             payload["bar2Close"] = self.bar2_close
         if self.bar2_open is not None:
@@ -65,8 +118,21 @@ class FvgEvent:
 @dataclass
 class _BarSnapshot:
     timestamp: pd.Timestamp
+    index: int
+    open: float
     high: float
     low: float
+    close: float
+
+    def to_source_ref(self) -> dict[str, Any]:
+        return {
+            "barIndex": self.index,
+            "timestamp": self.timestamp.isoformat(),
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+        }
 
 
 def _classify_sub_type(
@@ -109,21 +175,25 @@ class FvgEventEngine:
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         cfg = config or {}
         self.min_gap_size: float = float(cfg.get("min_gap_size", 0.0))
+        self.timeframe: str | None = cfg.get("timeframe")
+        self._bar_index: int = -1
         self._prev: _BarSnapshot | None = None       # bar n-1 (bar 2 for CE01, bar 2 ref for CE02)
         self._bar1_ref: _BarSnapshot | None = None   # bar n-2 (bar 1 ref for CE02)
 
     def on_bar(self, row: pd.Series) -> list[FvgEvent]:
+        self._bar_index += 1
         ts = row.name
         open_ = float(row["open"])
         high = float(row["high"])
         low = float(row["low"])
         close = float(row["close"])
+        current = _BarSnapshot(timestamp=ts, index=self._bar_index, open=open_, high=high, low=low, close=close)
 
         emitted: list[FvgEvent] = []
 
         # CE02 first: current bar as bar 3, _bar1_ref as bar 1, _prev as bar 2
         if self._bar1_ref is not None and self._prev is not None:
-            ce02 = self._try_confirm(self._bar1_ref, self._prev, ts, high, low)
+            ce02 = self._try_confirm(self._bar1_ref, self._prev, current)
             if ce02 is not None:
                 emitted.append(ce02)
 
@@ -135,7 +205,7 @@ class FvgEventEngine:
 
         # Advance sliding window
         self._bar1_ref = self._prev
-        self._prev = _BarSnapshot(timestamp=ts, high=high, low=low)
+        self._prev = current
 
         return emitted
 
@@ -170,24 +240,35 @@ class FvgEventEngine:
             bar2_close=bar2_close,
             bar2_open=bar2_open,
             sub_type=sub_type,
+            timeframe=self.timeframe,
+            source_bar_indexes=[bar1.index, self._bar_index],
+            source_candle_refs=[
+                bar1.to_source_ref(),
+                {
+                    "barIndex": self._bar_index,
+                    "timestamp": bar2_ts.isoformat(),
+                    "open": bar2_open,
+                    "high": bar2_high,
+                    "low": bar2_low,
+                    "close": bar2_close,
+                },
+            ],
         )
 
     def _try_confirm(
         self,
         bar1: _BarSnapshot,
         bar2: _BarSnapshot,
-        bar3_ts: pd.Timestamp,
-        bar3_high: float,
-        bar3_low: float,
+        bar3: _BarSnapshot,
     ) -> FvgEvent | None:
-        if bar3_low > bar1.high:
+        if bar3.low > bar1.high:
             fvg_type: FvgType = "rally"
-            gap_top = bar3_low
+            gap_top = bar3.low
             gap_bottom = bar1.high
-        elif bar3_high < bar1.low:
+        elif bar3.high < bar1.low:
             fvg_type = "drop"
             gap_top = bar1.low
-            gap_bottom = bar3_high
+            gap_bottom = bar3.high
         else:
             return None
 
@@ -199,7 +280,7 @@ class FvgEventEngine:
             event_code="CE02",
             event_name="fvgConfirmed",
             event_group="CE",
-            event_timestamp=bar3_ts,
+            event_timestamp=bar3.timestamp,
             fvg_type=fvg_type,
             bar1_timestamp=bar1.timestamp,
             bar1_high=bar1.high,
@@ -209,5 +290,12 @@ class FvgEventEngine:
             gap_top=gap_top,
             gap_bottom=gap_bottom,
             gap_size=gap_size,
-            bar3_timestamp=bar3_ts,
+            bar3_timestamp=bar3.timestamp,
+            timeframe=self.timeframe,
+            source_bar_indexes=[bar1.index, bar2.index, bar3.index],
+            source_candle_refs=[
+                bar1.to_source_ref(),
+                bar2.to_source_ref(),
+                bar3.to_source_ref(),
+            ],
         )

@@ -1,0 +1,809 @@
+<!-- source: /Users/aimliu/Library/CloudStorage/OneDrive-Personal/Apps/Obsidian/A_reas/Trading/3context/SMC/315-Orderflow-details.md
+     local mirror: ultrab/ln-notes/3context/SMC/315-Orderflow-details.md
+     related: docs/305-orderflow-context.html
+     related: ultrab/src/ultrab/core/smc/structureEngine.py
+     config: ultrab/src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>305 · Orderflow Details</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+  .figure {
+    margin: 20px 0 24px;
+    max-width: 700px;
+  }
+  .figure img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    display: block;
+    background: var(--surface);
+  }
+  .figure figcaption {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 7px;
+    font-family: var(--sans);
+  }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core Concept</a>
+    <a href="#contract">Snapshot Contract</a>
+    <a href="#eh-el" class="l2">EH / EL assignment</a>
+    <a href="#directional">Directional Cases</a>
+    <a href="#choch">ChoCh Resolution</a>
+    <a href="#messy">Messy Regimes</a>
+    <a href="#algorithm">Algorithm</a>
+    <a href="#config">Config</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>SMC/315-Orderflow-details.md</code>
+      <code>docs/305-orderflow-context.html</code>
+      <code>structureEngine.py</code>
+      <code>replayer/config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 3 · Context · Orderflow Details</div>
+      <h1>Orderflow Details - Direction, Probe, ChoCh, Messy Regimes</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - Confirmed anchors decide orderflow direction. The live probe is the current cursor test against those anchors: it is the ChoCh tripwire, the live pressure gauge, and the controlled-chase posture input. The algorithm should classify clean directional cases from confirmed points, open or update a ChoCh monitor when the probe attacks a protected anchor, and use regime labels such as compression or sweep_range as brakes when the sequence is too messy to trust.
+      </div>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>This note turns arbitrary discretionary orderflow examples into a practical algorithm contract. It does not try to make every live probe movement into a trend decision, but it does treat the probe as necessary for live ChoCh detection. Structure anchors describe what has already been confirmed; the probe tells whether the current market is threatening, reclaiming, or resolving that structure.</p>
+    <pre class="block">confirmed anchors determine confirmed_direction
+probe determines live pressure against the active structure
+probe opens / updates / resolves ChoCh monitor
+probe does not confirm a new trend by itself</pre>
+
+    <p>The probe can move up and down many times inside the active swing, so it is dangerous as a trend label. But it is essential as a live comparator: without the current probe, the system only knows the last confirmed anchors and cannot tell whether ChoCh pressure is forming right now. Its job is to help Layer 3 detect anchor threat/reclaim state and help Layer 5 answer execution questions: is price near OTE, attacking a protected anchor, reclaiming, or leaving a range?</p>
+
+    <details open>
+      <summary>Step 1 · Read confirmed points <span class="where">direction source</span></summary>
+      <div class="body">
+        <p>Use confirmed anchors or configured ITR/LTR points to classify HH, HL, LH, and LL. These points drive <code>confirmed_direction</code>, <code>quality</code>, and <code>regime</code>.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Step 2 · Append live probe <span class="where">ChoCh + posture source</span></summary>
+      <div class="body">
+        <p>The live probe produces <code>probe_relation</code>, <code>live_pressure</code>, and ChoCh monitor transitions by comparing the current cursor price against <code>protected_anchor_ref</code> and <code>range_ref</code>. It can open a disruption watch or resolve inducement, but it cannot flip <code>confirmed_direction</code> by itself.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Step 3 · Brake messy ranges <span class="where">risk control</span></summary>
+      <div class="body">
+        <p>When the sequence compresses or sweeps both sides, Orderflow should stop assuming continuation and wait for breakaway or a new clean sequence.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Probe is mandatory for live ChoCh detection. Probe is still dangerous for final trend confirmation. Keep those two responsibilities separate: current pressure belongs to the probe; confirmed direction belongs to the anchor sequence.
+    </div>
+
+    <h2 id="contract"><span class="sec-num">01</span> Snapshot Contract</h2>
+    <p>The detail note refines the OrderflowSnapshot so messy conditions can be represented without pretending they are clean trend states.</p>
+    <pre class="block">OrderflowSnapshot:
+  confirmed_direction = bullish | bearish | mixed | unknown
+  regime = directional | choch_watch | compression | sweep_range | unknown
+  quality = clean | weak | broken
+  live_pressure = none | pullback_extending | anchor_threat | reclaiming | breakaway_watch
+  choch_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
+  source = structure_anchor_sequence | itr_sequence | ltr_sequence
+  window_size = 6
+  confirmed_sequence = HH, HL, HH, HL...
+  sequence_with_probe = HH, HL, HH, HL, probe...
+  probe_label
+  last_shift_at
+  supporting_itr_refs
+  supporting_anchor_refs
+  protected_anchor_ref
+  disruption_point_ref
+  decision_point_ref
+  range_ref
+  probe_ref
+  probe_breaks_protected_anchor = true | false
+  probe_relation = above_active_high | below_active_low | upper_half | lower_half | inside_range | outside_range | unknown
+  choch_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
+  liquidity_annotations = EH / EL cluster refs only, not direction labels
+  pullback_status = extending | decelerating | resolving | broken | unknown
+  timeframe
+  evaluated_at
+  blocked_reason = insufficient_points | stale_sequence | noisy_overlap | compression</pre>
+
+    <div class="callout">
+      <span class="ico">i</span>
+      <div><code>regime</code> is a brake, not an accelerator. <code>compression</code> and <code>sweep_range</code> should reduce confidence and block continuation assumptions.</div>
+    </div>
+
+    <h3 id="eh-el">EH / EL Assignment</h3>
+    <p>Orderflow does assign EH and EL, but as annotations only. They mark equal-high or equal-low liquidity clustering around confirmed anchors; they are not direction labels.</p>
+    <pre class="block">EH = current high equals previous same-side high within tolerance
+EL = current low equals previous same-side low within tolerance
+
+EH / EL may:
+  attach liquidity_annotations to anchor refs
+  lower continuation confidence
+  push regime toward compression or sweep_range
+  become Liquidity Context candidates
+
+EH / EL must not:
+  count as HH / HL / LH / LL
+  flip confirmed_direction
+  confirm reversal
+  trigger entry by itself</pre>
+
+    <h2 id="directional"><span class="sec-num">02</span> Directional Cases</h2>
+    <p>Cases A, B1, and B2 are the ordinary bullish progression families. The probe gives current posture and early pressure, while confirmed anchors keep the directional memory stable.</p>
+
+    <details open>
+      <summary>Case A · bullish extension probe <span class="where">directional</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofa.png" alt="Orderflow case A bullish extension">
+          <figcaption>Case A - confirmed bullish sequence with probe above HH2.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, probe above HH2</pre>
+        <p>The confirmed stream is bullish. Probe above HH2 is live posture only: it may imply extension and possible correction, but it does not create the trend.</p>
+        <pre class="block">confirmed_direction = bullish
+regime = directional
+quality = clean
+live_pressure = pullback_extending
+probe_relation = above_active_high</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Case B1 · probe inside HH3 / HL2 <span class="where">pullback posture</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofb1.png" alt="Orderflow case B1 probe inside bullish leg">
+          <figcaption>Case B1 - HH3 exists; the probe is inside the active swing.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, HH3, probe between HL2 and HH3</pre>
+        <p>Bullish bias remains. Above the midpoint is less interesting for execution; below the midpoint can be a useful place to watch for HL3 formation.</p>
+        <pre class="block">confirmed_direction = bullish
+regime = directional
+quality = clean
+live_pressure = pullback_extending
+probe_relation = upper_half | lower_half
+pullback_status = extending | decelerating</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Case B2 · confirmed HL3 <span class="where">protected anchor</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofb2.png" alt="Orderflow case B2 confirmed HL3">
+          <figcaption>Case B2 - HL3 exists; its depth determines clean versus weak continuation.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, HH3, HL3, probe between HH3 and HL3</pre>
+        <p>The confirmed HL3 location matters more than the probe. A shallow HL3 may imply consolidation. A deeper discount HL3 is cleaner unless a right-shoulder LH appears.</p>
+        <pre class="block">confirmed_direction = bullish
+regime = directional
+quality = clean | weak
+live_pressure = none | breakaway_watch
+protected_anchor_ref = HL3</pre>
+      </div>
+    </details>
+
+    <h2 id="choch"><span class="sec-num">03</span> ChoCh Resolution</h2>
+    <p>Cases C through F describe disruption, decisive range behavior, inducement resolution, and reversal confirmation. ChoCh is first detected as a live relation between the probe and a protected anchor. That relation opens a monitor; it does not instantly flip the orderflow.</p>
+
+    <details open>
+      <summary>Case C · protected anchor breaks <span class="where">monitor opens</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofc.png" alt="Orderflow case C ChoCh monitor opens">
+          <figcaption>Case C - probe breaks below HL2 and opens a ChoCh monitor.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, HH3, probe below HL2</pre>
+        <p>The confirmed stream remains weak bullish. The current probe below protected HL2 is the actual ChoCh tripwire: it creates a disruption watch, not a bearish verdict. Without the probe, the system would only know HL2 existed; it would not know the market is currently attacking it.</p>
+        <pre class="block">confirmed_direction = bullish
+regime = choch_watch
+quality = weak
+live_pressure = anchor_threat
+choch_monitor_status = watching_resolution
+protected_anchor_ref = HL2
+disruption_point_ref = current probe / LL candidate
+choch_trigger_source = probe_vs_protected_anchor
+probe_breaks_protected_anchor = true</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Case D · decisive range after ChoCh <span class="where">unresolved</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofd.png" alt="Orderflow case D decisive range after ChoCh">
+          <figcaption>Case D - LL1 exists; probe moves inside the decisive range.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, HH3, LL1, probe between HH3 and LL1</pre>
+        <p>The probe location describes posture inside HH3 / LL1. It can lean reclaiming or threatening, and it updates the ChoCh monitor while the sequence remains unresolved. The monitor resolves only when price either reclaims the original side or confirms a counter-sequence.</p>
+        <pre class="block">confirmed_direction = bullish
+regime = choch_watch
+quality = weak
+choch_monitor_status = watching_resolution
+live_pressure = reclaiming | anchor_threat
+range_ref = HH3 / LL1
+decision_point_ref = right shoulder candidate, if present
+probe_relation = lower_half | upper_half
+choch_trigger_source = probe_vs_protected_anchor</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Case E · inducement resolved <span class="where">bullish reclaim</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofe.png" alt="Orderflow case E bullish inducement resolved">
+          <figcaption>Case E - price reclaims above HH3 after LL1 disruption.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, HH3, LL1, probe above HH3</pre>
+        <p>The ChoCh resolves back into the original bullish direction. The disruption was inducement.</p>
+        <pre class="block">confirmed_direction = bullish
+regime = directional
+quality = weak | clean
+choch_monitor_status = resolved_inducement
+live_pressure = reclaiming
+probe_relation = above_active_high</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Case F · reversal path <span class="where">right shoulder LH1</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-off.png" alt="Orderflow case F bearish reversal path">
+          <figcaption>Case F - LH1 forms as the right shoulder; below LL1 confirms bearish reversal.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, HL2, HH3, LL1, LH1, probe between LH1 and LL1</pre>
+        <p>LH1 is the right shoulder. The stream moves toward bearish reversal, but final confirmation still depends on breaking below LL1.</p>
+        <pre class="block">confirmed_direction = bearish
+regime = directional
+quality = weak | clean
+choch_monitor_status = confirmed_reversal
+live_pressure = none | breakaway_watch
+decision_point_ref = LH1
+protected_anchor_ref = LH1
+disruption_point_ref = LL1</pre>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      C opens the monitor. D is the unresolved decision area. E resolves as inducement. F confirms reversal only after a proper lower-high / lower-low sequence develops.
+    </div>
+
+    <h2 id="messy"><span class="sec-num">04</span> Messy Regimes</h2>
+    <p>Cases G and H are not exotic exceptions. They are the reason <code>regime</code> exists. The detector should have a first-class way to say: stop assuming trend.</p>
+
+    <details open>
+      <summary>Case G · Harami compression <span class="where">range brake</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofg.png" alt="Orderflow case G harami compression">
+          <figcaption>Case G - price remains trapped between HH2 and LL1.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, HH2, LL1, LH1, HL2, HH3, probe between HH3 and HL2</pre>
+        <p>The sequence compresses and never escapes the HH2 / LL1 range. Stop assuming continuation. Do not open more continuation orders from Orderflow. Let the range resolve.</p>
+        <pre class="block">confirmed_direction = mixed | unknown
+regime = compression
+quality = broken
+live_pressure = none
+blocked_reason = compression
+range_ref = HH2 / LL1
+probe_relation = inside_range</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Case H · engulfing both sides <span class="where">sweep range</span></summary>
+      <div class="body">
+        <figure class="figure">
+          <img src="../assets/315-ofh.png" alt="Orderflow case H engulfing sweep range">
+          <figcaption>Case H - both sides are swept; wait for a new clean sequence.</figcaption>
+        </figure>
+        <pre class="block">HH1, HL1, LH1, LL1, HL2, HH2, HL3, HH4, LL2, probe between HH4 and LL2</pre>
+        <p>Both sides experienced ChoCh / sweep behavior. Do not call it a clean reversal. Watch the decisive range and wait for a new orderflow sequence after engulfing.</p>
+        <pre class="block">confirmed_direction = mixed | unknown
+regime = sweep_range
+quality = broken
+choch_monitor_status = watching_resolution
+live_pressure = breakaway_watch
+blocked_reason = noisy_overlap
+range_ref = HH4 / LL2
+probe_relation = inside_range</pre>
+      </div>
+    </details>
+
+    <h2 id="algorithm"><span class="sec-num">05</span> Algorithm</h2>
+    <p>The algorithm is not a case matcher. Cases A-H are examples of the same stages: classify confirmed sequence, score regime, compare the live probe against protected anchors, and update the ChoCh monitor.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">on_bar()</button>
+        <button data-t="1">regime</button>
+        <button data-t="2">probe</button>
+        <button data-t="3">ChoCh</button>
+      </div>
+<pre class="on"><span class="cm"># proposed: OrderflowContext.on_bar()</span>
+<span class="hl">def</span> on_bar(self, cursor, state_store):
+    source = self._source_for_timeframe(cursor.timeframe)
+    confirmed_points = state_store.orderflow_points(
+        source=source,
+        limit=self.probe_points,
+    )
+    probe = state_store.orderflow_probe(source=source)
+
+    confirmed_labels = self._classify_confirmed_points(confirmed_points)
+    confirmed_direction, quality = self._score_direction(confirmed_labels)
+    regime, range_ref, blocked_reason = self._score_regime(
+        confirmed_points,
+        confirmed_labels,
+        confirmed_direction,
+    )
+    probe_relation, live_pressure = self._classify_probe(
+        probe,
+        confirmed_points,
+        regime,
+    )
+    monitor = self._update_choch_monitor(
+        direction=confirmed_direction,
+        regime=regime,
+        points=confirmed_points,
+        probe=probe,
+    )
+    return OrderflowSnapshot(...)</pre>
+<pre><span class="cm"># regime is a brake</span>
+<span class="hl">def</span> score_regime(points, labels, direction):
+    if insufficient(points):
+        return "unknown", None, "insufficient_points"
+
+    if both_sides_swept_recently(points):
+        return "sweep_range", decisive_range(points), "noisy_overlap"
+
+    if trapped_inside_prior_high_low(points):
+        return "compression", compression_range(points), "compression"
+
+    if protected_anchor_disrupted(labels, direction):
+        return "choch_watch", disruption_range(points), None
+
+    if direction in {"bullish", "bearish"}:
+        return "directional", active_swing_range(points), None
+
+    return "unknown", None, None</pre>
+<pre><span class="cm"># probe is live structure pressure, not confirmed trend</span>
+<span class="hl">def</span> classify_probe(probe, points, regime):
+    if probe is None:
+        return "unknown", "none"
+
+    active_range = current_range(points, regime)
+    relation = locate_probe(probe.price, active_range)
+
+    if relation in {"above_active_high", "below_active_low"}:
+        pressure = "breakaway_watch"
+    elif threatens_protected_anchor(probe, points):
+        pressure = "anchor_threat"
+    elif reclaims_decision_range(probe, points):
+        pressure = "reclaiming"
+    elif relation in {"upper_half", "lower_half"}:
+        pressure = "pullback_extending"
+    else:
+        pressure = "none"
+
+    return relation, pressure</pre>
+<pre><span class="cm"># ChoCh monitor is opened by probe-vs-anchor pressure</span>
+<span class="hl">def</span> update_choch_monitor(direction, regime, points, probe):
+    if regime == "compression":
+        return monitor(status="none")
+
+    if regime == "sweep_range":
+        return monitor(status="watching_resolution")
+
+    if direction == "bullish" and breaks_latest_hl(points, probe):
+        return monitor(
+            status="watching_resolution",
+            pressure="anchor_threat",
+            protected_anchor_ref=latest_hl(points),
+            disruption_point_ref=probe.ref,
+        )
+
+    if bullish_reclaim_seen(points, probe):
+        return monitor(status="resolved_inducement", pressure="reclaiming")
+
+    if bearish_ll_lh_ll_confirmed(points):
+        return monitor(status="confirmed_reversal", pressure="none")
+
+    return monitor(status="none")</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">06</span> Config</h2>
+    <p>Orderflow has no committed engine config block yet. The implementation can begin by consuming existing Structure anchor retention and proposed source policy.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">existing</button>
+        <button data-t="1">proposed</button>
+      </div>
+<pre class="on"><span class="cm"># ultrab/src/ultrab/replayer/config.yaml</span>
+structure:
+  enabled: true
+  tier: "itr"
+  anchor_sequence_limit: 8
+
+pivot_events:
+  compute:
+    itr: true
+    ltr: true</pre>
+<pre><span class="cm"># proposed future block</span>
+orderflow:
+  enabled: true
+  window_size: 6
+  probe_points: 8
+  source_policy:
+    lower_timeframe: structure_anchor_sequence
+    higher_timeframe: itr_sequence
+  regimes:
+    compression_enabled: true
+    sweep_range_enabled: true
+  blocked_reasons_enabled: true</pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues · Edge Cases · Next Milestone</h2>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Equal highs / equal lows.</b> Settled direction: EH/EL should not become core directional labels. Treat them as liquidity annotations or cluster refs attached to the nearest confirmed anchor. They may lower continuation confidence, set <code>regime = compression | sweep_range</code>, or create a liquidity candidate for Liquidity Context. Direction still comes from HH/HL/LH/LL anchors plus ChoCh monitor resolution.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Local liquidity entries.</b> Swept EH/EL plus FVG away can complement other context as a partial-fill/rejection footprint, but it is not predictive enough for standalone orderflow direction or blind chase entries.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Source policy.</b> Keep HTF ITR for macro/B-D context, and consider adding LTF anchored swing liquidity as a separate Liquidity Context source for controlled chase. If structure anchors are too slow on LTF, try ITR; if ITR is too noisy, try LTR or stricter anchor filters.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Implementation contract.</b> Update the main Orderflow Context note and future engine to use <code>confirmed_direction</code>, <code>regime</code>, <code>live_pressure</code>, <code>range_ref</code>, and <code>probe_relation</code>.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks = document.querySelectorAll("nav a[href^='#']");
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

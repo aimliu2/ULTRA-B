@@ -1,0 +1,1153 @@
+<!-- source: ultrab/src/ultrab/core/smc/hypothesis.py
+     focus:  _phase_e(), _phase_e_reaction(), _phase_e_shadow_facts(),
+             _reset_phase_e_shadow() + Phase E branches inside classify()
+     config: ultrab/src/ultrab/replayer/config.yaml → hypothesis block
+     layer4: ultrab/src/ultrab/core/smc/hypothesis.py (HypothesisClassifier) -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis Phase E — Expansion Monitoring</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  /* ── nav ── */
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  /* ── header ── */
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+    margin-right: 16px;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  /* ── section headings ── */
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ── details / collapsible ── */
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "▸";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  /* ── tabs ── */
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  /* ── plain pre/code blocks ── */
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  /* ── rule block ── */
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  /* ── step list ── */
+  ol.steps {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ol.steps li {
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  ol.steps li b { color: var(--text-head); }
+
+  ul.plain {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ul.plain li {
+    margin-bottom: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+
+  /* ── open issues ── */
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+
+  /* ── node state diagram ── */
+  .state-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 16px 0;
+    max-width: 680px;
+  }
+  .state-node {
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-head);
+  }
+  .state-node.active { border-color: var(--accent); color: var(--accent); }
+  .state-arrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .state-arrow span { font-size: 18px; line-height: 1; }
+
+  /* KaTeX display override */
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── side nav ── -->
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core Concept</a>
+    <a href="#concept" class="l2">What Phase E is</a>
+    <a href="#concept" class="l2">What it is not</a>
+    <a href="#extreme">Extreme Tracker</a>
+    <a href="#reaction">Two-Bar Reaction Signal</a>
+    <a href="#shadow">Shadow Node Machine</a>
+    <a href="#shadow" class="l2">E.seeking</a>
+    <a href="#shadow" class="l2">E.stalling</a>
+    <a href="#shadow" class="l2">E.pullback_developing</a>
+    <a href="#exits">Exits from Phase E</a>
+    <a href="#exits" class="l2">→ Phase D</a>
+    <a href="#exits" class="l2">→ Phase C (slow pullback)</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#config">Config</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/hypothesis.py</code>
+      <code>replayer/config.yaml</code>
+    </div>
+  </nav>
+
+  <!-- ── main ── -->
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase E</div>
+      <h1>Phase E — HTF Expansion Monitoring</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — Phase E is the classifier's waiting state while the HTF P/D leg is actively
+        expanding. The classifier tracks a running extreme, watches for the two-bar reaction signal
+        that opens Phase D, and runs an internal shadow node machine
+        (<code>E.seeking → E.stalling → E.pullback_developing</code>) to detect slow pullbacks
+        without waiting for a full Phase D confirmation. It emits a <code>watching / skip</code>
+        hypothesis — no entry, just monitoring.
+      </div>
+      <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis DAG</a>
+      <a class="panel-link" href="./311-EC-context.html">→ Related: 311 Evidence Compiler</a>
+    </header>
+
+    <!-- ── §00 Core Concept ── -->
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>
+      Phase E is the HTF trend expansion in progress. The market has broken structure, the P/D leg
+      is open, and price is making new extremes in the bias direction. The classifier enters Phase E
+      when no counter-evidence is ready yet — it is explicitly waiting for the trend to exhaust itself
+      enough to offer a trade.
+    </p>
+    <p>
+      Phase E emits a <code>watching</code> hypothesis with <code>entry_policy = "skip"</code>.
+      It is not tradeable. Its job is to track the running extreme and feed the shadow node machine
+      so that D and C transitions are correctly timed.
+    </p>
+
+    <h3>What Phase E is</h3>
+    <ul class="plain">
+      <li>A <strong>tracking state</strong> — consumes EC's running high (long) or running low (short) watermark for the current HTF P/D leg.</li>
+      <li>A <strong>signal consumer</strong> — reads EC two-bar reaction and reaction-failed facts used by <code>_phase_d_setup()</code> and the D/C collapse paths.</li>
+      <li>A <strong>shadow state machine</strong> — internally advances <code>E.seeking → E.stalling → E.pullback_developing</code> to detect slow counter-moves before they fully appear on the HTF.</li>
+    </ul>
+
+    <h3>What it is not</h3>
+    <ul class="plain">
+      <li>Not a trade entry phase. <code>entry_policy = "skip"</code> always.</li>
+      <li>Not a gating condition — the classifier enters Phase E simply because no D/C/B condition is met while the HTF phase is <code>open</code> or <code>pullback_confirmed</code> with a valid bias.</li>
+      <li>Not the EC's <code>phase_e_context</code> candidate. The EC also emits a <code>phase_e_context</code> candidate independently — the classifier's Phase E is derived from the flat snapshot, not from that candidate (yet).</li>
+    </ul>
+
+    <div class="rule-block">
+      Phase E entry: HTF bias is directional, HTF phase is <code>open</code>, and no D/C/B gate fires.
+      The classifier refreshes the running extreme on every Phase E bar and hands the shadow node
+      facts to the emitted hypothesis's <code>phase_sub_status</code>.
+    </div>
+
+    <!-- ── §01 EC Watermark ── -->
+    <h2 id="extreme"><span class="sec-num">01</span> EC Watermark</h2>
+    <p>
+      The running Phase E high/low watermark now belongs to the Evidence Compiler.
+      EC emits the current watermark and reaction facts through the
+      <code>phase_e_context</code> candidate. Layer 4 no longer keeps a classifier-local
+      <code>active_phase_e_extreme_price</code> or <code>active_phase_e_extreme_time</code>.
+    </p>
+    <p>
+      Layer 4 still keeps <code>active_phase_e_direction</code> as lightweight origin memory
+      for DAG guards such as <code>_previous_or_active_e()</code>. That field records only
+      whether the classifier has an active Phase E direction; it does not own the price
+      watermark.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>EC watermark facts <span class="where">phase_e_context</span></summary>
+      <div class="body">
+        <p>
+          EC updates its Phase E watermark before emitting <code>phase_e_context</code>.
+          The classifier reads the resulting debug facts instead of recomputing the same
+          watermark from flat HTF structure fields.
+        </p>
+        <pre class="block">phase_e_context.debug_facts:
+  active_phase_e_direction
+  active_phase_e_extreme_price
+  active_phase_e_extreme_time
+  new_htf_extreme
+  reaction_failed
+  reaction_failed_rule</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>New extreme check — did this bar push past the watermark? <span class="where">EC → DAG</span></summary>
+      <div class="body">
+        <p>
+          EC emits <code>new_htf_extreme</code>. Layer 4 consumes that flag directly.
+          It no longer calls a local <code>_new_phase_e_extreme()</code> helper.
+        </p>
+        <p>
+          This flag is consumed in the shadow node machine (<code>pd_expanding</code>
+          resets to <code>E.seeking</code>), in Phase D setup through EC's
+          <code>htf_counter_reaction</code> candidate, and in B-branch resolution back to E.
+        </p>
+      </div>
+    </details>
+
+    $$
+    \text{new\_extreme}_\text{long} = \text{EC.phase\_e\_context.new\_htf\_extreme}
+    $$
+
+    <div class="rule-block">
+      EC owns price/time watermark state. Layer 4 owns the DAG decision and only keeps
+      <code>active_phase_e_direction</code> as origin memory. Do not reintroduce
+      classifier-local Phase E price/time tracking.
+    </div>
+
+    <!-- ── §02 Two-Bar Reaction Signal ── -->
+    <h2 id="reaction"><span class="sec-num">02</span> Two-Bar Reaction Signal</h2>
+    <p>
+      Every bar in Phase E (and in Phase D/C branches that check for reaction failure),
+      <code>_phase_e_reaction()</code> compares the current HTF bar against the previous one
+      to detect whether the expansion is being threatened.
+    </p>
+    <p>
+      Two outputs — <code>reaction_warning</code> and <code>reaction_confirmed</code> — gate
+      the D-phase entry. The distinction matters: a warning bar (wick below prior low, close above)
+      is ambiguous; a confirmed bar (close through prior low) is the trigger.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>Warning vs confirmed — wick through vs close through <span class="where">_phase_e_reaction()</span></summary>
+      <div class="body">
+        <p>For a <strong>bullish</strong> HTF trend:</p>
+        <pre class="block">prev_low  = previous_htf_bar["low"]
+cur_low   = current_htf_bar["low"]
+cur_close = current_htf_bar["close"]
+
+reaction_warning   = cur_low &lt; prev_low              # wick below — ambiguous
+reaction_confirmed = cur_close &lt; prev_low            # close below — D-phase trigger</pre>
+        <p>For a <strong>bearish</strong> HTF trend (mirrored):</p>
+        <pre class="block">reaction_warning   = cur_high &gt; prev_high
+reaction_confirmed = cur_close &gt; prev_high</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Reaction-failed check — D-phase tested but price kept going <span class="where">phase_e_context</span></summary>
+      <div class="body">
+        <p>
+          EC emits <code>reaction_failed</code> when price closes past the previous Phase E
+          watermark, meaning the counter-move was absorbed and the trend resumed. When the
+          previous phase is D or C, Layer 4 reads this EC fact directly.
+        </p>
+        <pre class="block">direction == "long":
+  reaction_failed = phase_e_context.reaction_failed
+
+direction == "short":
+  reaction_failed = phase_e_context.reaction_failed</pre>
+        <p>
+          When <code>reaction_failed</code> is true the classifier re-enters Phase E
+          without refreshing a local watermark. EC already owns the updated watermark.
+        </p>
+      </div>
+    </details>
+
+    $$
+    \text{reaction\_confirmed}_\text{long} = \text{close} < \text{prev\_low}
+    \quad\wedge\quad
+    \text{reaction\_failed}_\text{long} = \text{close} > \text{E\_extreme}
+    $$
+
+    <div class="rule-block">
+      <code>reaction_warning</code> is a heads-up only — the classifier does not change phase on warning alone.
+      <code>reaction_confirmed</code> gates Phase D entry.
+      <code>reaction_failed</code> gates the forced return to Phase E from D or C.
+      These three flags are always computed together and put in <code>debug_facts</code>.
+    </div>
+
+    <!-- ── §03 Shadow Node Machine ── -->
+    <h2 id="shadow"><span class="sec-num">03</span> Shadow Node Machine</h2>
+    <p>
+      The shadow node machine runs inside every Phase E bar via <code>_phase_e_shadow_facts()</code>.
+      It is a lightweight internal classifier — tracking whether the E-phase expansion is
+      still seeking new highs, has stalled, or is developing a slow counter-move — without
+      needing to promote to Phase D first.
+    </p>
+    <p>
+      The current node is stored in <code>phase_e_shadow_node</code> on
+      <code>HypothesisClassifierState</code>. It flows into the emitted hypothesis as
+      <code>phase_sub_status</code> (e.g., <code>"seeking"</code>, <code>"stalling"</code>,
+      <code>"pullback_developing"</code>) and is the key used by one Phase C transition path
+      ("slow pullback from E").
+    </p>
+
+    <div class="state-row">
+      <div class="state-node active">E.seeking</div>
+      <div class="state-arrow"><span>→</span><small>stopped expanding</small></div>
+      <div class="state-node">E.stalling</div>
+      <div class="state-arrow"><span>→</span><small>clean counter orderflow</small></div>
+      <div class="state-node">E.pullback_developing</div>
+    </div>
+    <div class="state-row" style="margin-top:4px;">
+      <div class="state-node">any node</div>
+      <div class="state-arrow"><span>→</span><small>new HTF extreme (pd_expanding)</small></div>
+      <div class="state-node active">E.seeking</div>
+    </div>
+
+    <h3>E.seeking</h3>
+    <p>
+      The default node. The HTF P/D leg is actively making new extremes this bar
+      (<code>pd_expanding = True</code>). Any node resets to <code>E.seeking</code> when a new
+      extreme arrives — the pullback attempt was absorbed.
+      Also the initial node when Phase E is entered fresh (previous phase was not E, or direction changed).
+    </p>
+
+    <h3>E.stalling</h3>
+    <p>
+      No new HTF extreme this bar. The expansion has paused. The machine waits here until
+      either a new extreme appears (→ <code>E.seeking</code>) or clean LTF counter orderflow
+      develops (→ <code>E.pullback_developing</code>).
+    </p>
+    <details open>
+      <summary>E.stalling flow — pause before proven pullback <span class="where">EC → DAG → shadow</span></summary>
+      <div class="body">
+        <p>
+          Discretionary read: Phase E was pushing the HTF P/D level, then price stopped
+          extending that level. The chart may start probing around the P/D boundary, but the
+          pullback has not proven itself yet.
+        </p>
+        <pre class="block">EC facts:
+  phase_e_context.status == "ready"
+  new_htf_extreme == false
+  htf_pd_stopped_expanding == true
+  ltf_bias_counter_htf = true/false        # useful evidence, not required
+  ltf_probe_outside_htf_pd_range = true/false  # useful evidence, not required
+  reaction_confirmed == false              # otherwise E can exit toward D
+
+DAG gate:
+  previous E shadow node == E.seeking
+  no new HTF extreme
+  no higher-priority E→D exit fired
+  => keep phase == E
+  => ask Phase E shadow to move into E.stalling
+
+Phase E shadow memory:
+  node = E.stalling
+  previous_node = E.seeking
+  bars_in_node starts / increments
+  no source attempt is consumed yet</pre>
+        <p>
+          The important boundary: LTF bearish/counter movement is precise EC evidence, but it
+          should not be required for the first <code>E.seeking → E.stalling</code> transition.
+          Requiring it would skip the quiet pause and make <code>E.stalling</code> mean
+          "pullback already visible", which belongs to the next node.
+        </p>
+      </div>
+    </details>
+    <p>
+      A failed LTF pro attempt is not enough by itself. Without clean counter-orderflow
+      evidence, the machine stays in <code>E.stalling</code>; the failed attempt is only
+      debug context.
+    </p>
+
+    <h3>E.pullback_developing</h3>
+    <p>
+      Clean LTF counter orderflow was observed while the HTF was stalling. The expansion
+      did not produce another pro-side extension; instead price began a one-way slow bleed
+      away from the Phase E peak. The machine holds here while the counter orderflow remains
+      intact. If EC later reports that the counter orderflow was disrupted, the node can move
+      back to <code>E.stalling</code>; if the slow pullback matures, the DAG can promote it into
+      Phase C.
+    </p>
+    <details open>
+      <summary>E.pullback_developing flow — clean orderflow before Phase C <span class="where">EC → DAG → shadow</span></summary>
+      <div class="body">
+        <p>
+          Discretionary read: price reached the Phase E peak, stopped extending, then pulled
+          away through clean LTF counter orderflow. Depth is useful context, but it is not the
+          definition. A 70% pullback is a measurement; clean unbroken orderflow is the reason
+          the pullback is developing.
+        </p>
+        <pre class="block">EC facts:
+  htf_pd_stopped_expanding == true
+  new_htf_extreme == false
+  ltf_counter_orderflow_direction = bearish | bullish
+  ltf_counter_orderflow_clean == true
+  ltf_counter_orderflow_broken == false
+  ltf_counter_orderflow_leg_id = ...
+  ltf_pullback_depth_pct = number | null       # supporting metric
+  reaction_confirmed == false                 # otherwise D can win
+
+DAG gate:
+  previous E shadow node == E.stalling
+  clean unbroken LTF counter orderflow exists
+  no higher-priority E→D exit fired
+  => keep phase == E
+  => ask Phase E shadow to move into E.pullback_developing
+
+	Phase E shadow memory:
+	  node = E.pullback_developing
+	  previous_node = E.stalling
+	  source_orderflow_leg_id = ...
+	  source_orderflow_started_at = ...
+	  bars_in_node starts / increments
+	  pullback_disrupted = false</pre>
+        <p>
+          Phase C is the next maturity step, not the same event. Promote from
+          <code>E.pullback_developing</code> to C only after the LTF counter story is mature:
+          counter PD break, counter pullback confirmed, counter POI formed, or another chosen
+          orderflow maturity rule. Depth can help rank quality, but it should not be the only
+          threshold.
+        </p>
+      </div>
+    </details>
+    <p>
+      When <code>phase_e_shadow_node == "E.pullback_developing"</code> and the LTF counter
+      story is ready (<code>phase_c_story_ready</code>), the classifier can promote directly
+      to Phase C with <code>sub_status = "slow_pullback"</code>, bypassing Phase D entirely.
+      This is the "slow pullback from E" path.
+    </p>
+
+    <details open>
+      <summary>LTF orderflow leg consumed — preventing double-fire <span class="where">_phase_e_shadow_facts()</span></summary>
+      <div class="body">
+        <p>
+          The source that triggered <code>E.pullback_developing</code> is stored in
+          <code>phase_e_shadow_consumed_orderflow_leg_id</code>. The source is the clean counter
+          orderflow leg id. Future bars with the same orderflow leg id are ignored — the
+          transition only fires once per unique source.
+        </p>
+        <p>
+          The source leg id and started-at timestamp are also stored in
+          <code>phase_e_shadow_source_orderflow_leg_id</code> and
+          <code>phase_e_shadow_source_orderflow_started_at</code> for downstream debug.
+          The legacy <code>phase_e_context_attempt_*</code> and
+          <code>phase_e_shadow_source_attempt_id</code> fields are deprecated and should remain
+          empty because Phase E no longer reads <code>structure_attempt</code>.
+        </p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      The shadow node is reset to <code>E.seeking</code> on every epoch boundary
+      (via <code>_reset_phase_e_shadow()</code>).
+      It is <em>not</em> reset on phase transitions — if the market goes D→C→B and then
+      resolves back to E, the shadow restarts from <code>E.seeking</code> only because
+      the epoch ID has changed, or because <code>previous_phase != "E"</code> at re-entry
+      (which triggers <code>selection_reason = "phase_e_shadow_initialized"</code>).
+    </div>
+
+    <!-- ── §04 Exits from Phase E ── -->
+    <h2 id="exits"><span class="sec-num">04</span> Exits from Phase E</h2>
+    <p>
+      Phase E can exit to Phase D (primary), Phase C via fast or slow pullback,
+      or to Phase A finale (when <code>previous_phase == "A"</code> — the leg has already
+      reached the HTF objective). All three checks run on every bar while the HTF is
+      <code>open</code> or <code>pullback_confirmed</code>.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>→ Phase D: normal reaction path <span class="where">classify() main branch</span></summary>
+      <div class="body">
+        <p>
+          Gate conditions (all must hold):
+        </p>
+        <ol class="steps">
+          <li><b>Not from B or A:</b> <code>previous_phase not in {"B", "A"}</code> — prevents re-entry from a resolved trade setup from immediately triggering D.</li>
+          <li><b>Previous or active E:</b> <code>previous_phase == "E"</code> or <code>active_phase_e_direction == direction</code> — ensures D is only opened when there is an E-phase extreme to react from.</li>
+          <li><b>Phase D ready:</b> <code>phase_d["phase_d_ready"]</code> — the three-part D gate from <code>_phase_d_setup()</code>: HTF stopped expanding + HTF opposing SD + LTF counter SD (or liquidity variant).</li>
+        </ol>
+        <p>
+          When all three hold, the classifier emits Phase D with a sub_status derived from the
+          trigger type (<code>reaction_point</code>, <code>htf_pd_grab_reclaim_test</code>,
+          <code>htf_eq_grab_reclaim_test</code>).
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>→ Phase C: fast hard pullback through midpoint <span class="where">classify() fast E→C branch</span></summary>
+      <div class="body">
+        <p>
+          A compressed shortcut for tight P/D ranges and choppy markets. If the HTF leg opens
+          Phase E but the LTF probe immediately pulls through the P/D midpoint with clean counter
+          orderflow, the classifier can skip the slow E subnode walk and emit
+          <code>C.hard_pullback</code>.
+        </p>
+        <ol class="steps">
+          <li><b>D first:</b> the normal Phase D gate is checked before this shortcut.</li>
+          <li><b>No new HTF extreme:</b> <code>phase_e_context_new_htf_extreme == false</code>.</li>
+          <li><b>Clean counter orderflow:</b> <code>ltf_counter_orderflow_clean == true</code> and <code>ltf_counter_orderflow_broken == false</code>.</li>
+          <li><b>Midpoint breach:</b> <code>ltf_pullback_depth_pct >= 50</code>.</li>
+        </ol>
+        <p>
+          The emitted Phase C hypothesis carries
+          <code>phase_c_sub_status = "hard_pullback"</code>,
+          <code>phase_c_origin_node = "E.fast_hard_pullback"</code>,
+          <code>phase_c_selection_reason = "fast_midpoint_pullback_after_phase_e_expansion"</code>,
+          and <code>phase_c_quality = "choppy_tight_range_fast_pullback"</code>.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>→ Phase C: slow pullback path from E.pullback_developing <span class="where">classify() E.pullback_developing branch</span></summary>
+      <div class="body">
+        <p>
+          An alternative exit that bypasses Phase D entirely. Conditions:
+        </p>
+        <ol class="steps">
+          <li><b>Not from B:</b> <code>previous_phase != "B"</code>.</li>
+          <li><b>Shadow node:</b> <code>phase_e_shadow_node == "E.pullback_developing"</code> — clean LTF counter orderflow is developing while the HTF is stalling.</li>
+          <li><b>LTF counter story:</b> <code>phase_c_story_ready</code> — LTF bias has flipped counter to HTF.</li>
+        </ol>
+        <p>
+          The emitted Phase C hypothesis carries debug keys:
+          <code>phase_c_origin_node = "E.pullback_developing"</code>,
+          <code>phase_c_sub_status = "slow_pullback"</code>,
+          <code>phase_c_selection_reason = "ltf_pd_flipped_counter_after_failed_e_continuation_attempt"</code>.
+          Status is <code>armed</code> if a counter POI exists, otherwise <code>watching</code>.
+        </p>
+      </div>
+    </details>
+
+    <details>
+      <summary>→ Phase E (self): no exit condition met <span class="where">classify() fallback</span></summary>
+      <div class="body">
+        <p>
+          When HTF phase is <code>open</code> and no D/C/B condition fires, the classifier
+          re-emits Phase E and records the active E direction.
+          This is the normal bar-by-bar hold path during active expansion.
+        </p>
+        <p>
+          Warm-state <code>pullback_confirmed</code> also holds Phase E when the previous
+          Layer 4 phase is already E and no explicit D/C/B/C exit fires. The emitted debug
+          includes <code>phase_e_hold_reason = "pullback_confirmed_without_explicit_exit"</code>.
+          Cold-start self-location from <code>none(warmup)</code> remains owned by the
+          <a href="./402-hypothesis-none.html">none phase note</a>.
+        </p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Phase D and Phase C are checked in strict order: D is checked first. If D fires,
+      C is not evaluated. The fast hard-pullback C path is a midpoint-depth shortcut
+      for tight ranges; the slow-pullback C path only activates when
+      <code>phase_e_shadow_node == "E.pullback_developing"</code> and the D gate has not fired.
+      This means a fully-developed D condition always wins over C.
+    </div>
+
+    <!-- ── §05 Algorithm ── -->
+    <h2 id="algo"><span class="sec-num">05</span> Algorithm</h2>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">classify() Phase E branches</button>
+        <button data-t="1">_phase_e_shadow_facts()</button>
+        <button data-t="2">phase_e_context EC facts</button>
+      </div>
+<pre class="on"><span class="cm"># classify() — Phase E entry and exit checks (simplified)</span>
+if phase in {"open", "pullback_confirmed"} and direction != "none":
+    reaction = self.<span class="hl">_phase_e_reaction</span>(direction, current_bar, previous_bar)
+    debug.update(reaction)
+
+    <span class="cm"># ── Previous phase was A (A-finale check) ──</span>
+    if self.state.previous_phase == "A":
+        finale = self._phase_a_finale(direction, htf, current_bar)
+        if finale["phase_a_finale_closed_beyond"]:
+            hyp = self.<span class="hl">_phase_e</span>(direction, cursor_time, debug, ltf)
+            return self._commit(hyp)
+
+    <span class="cm"># ── D and C exit gates ──</span>
+    phase_d = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
+    if (
+        self.state.previous_phase not in {"B", "A"}
+        and self.<span class="hl">_previous_or_active_e</span>(direction)
+        and phase_d["phase_d_ready"]
+    ):
+        hyp = self._phase_d(direction, cursor_time, {...})
+        return self._commit(hyp)
+
+	    phase_c_from_e = self._phase_c_setup(snapshot, ltf, direction)
+	    fast_hard_pullback = self._phase_c_fast_hard_pullback_setup(debug, phase_c_from_e)
+	    if (
+	        self.state.previous_phase != "B"
+	        and fast_hard_pullback["phase_c_fast_hard_pullback_ready"]
+	    ):
+	        hyp = self._phase_c(direction, ..., phase_sub_status=<span class="hl">"hard_pullback"</span>)
+	        return self._commit(hyp)
+
+	    if (
+	        self.state.previous_phase != "B"
+	        and self.state.<span class="hl">phase_e_shadow_node</span> == "E.pullback_developing"
+        and phase_c_from_e["phase_c_story_ready"]
+    ):
+        hyp = self._phase_c(direction, ..., phase_sub_status=<span class="hl">"slow_pullback"</span>)
+        return self._commit(hyp)
+
+    <span class="cm"># ── Fallback: stay in Phase E ──</span>
+    if phase == "open" or (
+        phase == "pullback_confirmed" and self.state.previous_phase == "E"
+    ):
+        if phase == "pullback_confirmed":
+            debug["phase_e_hold_reason"] = <span class="hl">"pullback_confirmed_without_explicit_exit"</span>
+        hyp = self._phase_e(direction, cursor_time, debug, ltf)
+        return self._commit(hyp)</pre>
+<pre><span class="cm"># Shadow node state machine — runs inside every Phase E bar</span>
+<span class="hl">def</span> _phase_e_shadow_facts(self, ltf, direction, debug):
+    previous_node = self.state.phase_e_shadow_node
+    pd_expanding  = bool(debug.get(<span class="hl">"phase_e_context_new_htf_extreme"</span>))
+    clean_counter_orderflow = (
+        debug.get("phase_e_context_ltf_counter_orderflow_clean")
+        and not debug.get("phase_e_context_ltf_counter_orderflow_broken")
+        and debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
+    )
+
+	    orderflow_source_id = debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
+	    orderflow_broken = bool(debug.get("phase_e_context_ltf_counter_orderflow_broken"))
+
+	    <span class="cm"># Transition table</span>
+	    if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
+	        selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># fresh entry</span>
+	    elif pd_expanding:
+        selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># new extreme → reset</span>
+    elif previous_node == "E.seeking":
+        selected_node = <span class="hl">"E.stalling"</span>         <span class="cm"># no new extreme</span>
+    elif previous_node == "E.stalling":
+	        if clean_counter_orderflow:
+	            selected_node = <span class="hl">"E.pullback_developing"</span>
+	        else:
+	            selected_node = "E.stalling"
+	    elif previous_node == "E.pullback_developing":
+	        if orderflow_broken:
+	            selected_node = <span class="hl">"E.stalling"</span>
+	        else:
+	            selected_node = "E.pullback_developing"
+
+    <span class="cm"># Consume the orderflow leg that triggered the transition</span>
+    if clean_counter_orderflow:
+        self.state.phase_e_shadow_source_orderflow_leg_id = orderflow_source_id
+        self.state.phase_e_shadow_consumed_orderflow_leg_id = orderflow_source_id
+
+    self.state.phase_e_shadow_node = selected_node
+    phase_sub_status = selected_node.split(".", 1)[1] if "." in selected_node else None
+    return {"phase_sub_status": phase_sub_status, "phase_e_shadow_node": selected_node, ...}</pre>
+<pre><span class="cm"># _phase_e_reaction() now copies EC phase_e_context facts into Layer 4 debug.</span>
+phase_e, facts = _ec_candidate(snapshot, <span class="hl">"phase_e_context"</span>)
+if phase_e.get("status") == "ready":
+    debug.update({
+        "phase_e_context_new_htf_extreme": bool(facts.get("new_htf_extreme")),
+        "phase_e_context_htf_pd_stopped_expanding": bool(facts.get("htf_pd_stopped_expanding")),
+        "reaction_warning": bool(facts.get("reaction_warning")),
+        "reaction_confirmed": bool(facts.get("reaction_confirmed")),
+        "reaction_failed": bool(facts.get("reaction_failed")),
+        "reaction_failed_rule": facts.get("reaction_failed_rule"),
+        "new_htf_extreme": bool(facts.get("new_htf_extreme")),
+    })
+
+<span class="cm"># B branches consume EC new_htf_extreme directly.</span>
+if debug.get("new_htf_extreme"):
+    hyp = self._phase_e(direction, cursor_time, debug, ltf)</pre>
+    </div>
+
+    <!-- ── §06 Config ── -->
+    <h2 id="config"><span class="sec-num">06</span> Config</h2>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">HypothesisClassifier.__init__()</button>
+      </div>
+<pre class="on"><span class="cm"># ultrab/src/ultrab/replayer/config.yaml</span>
+hypothesis:
+  enabled: true
+  <span class="hl">first_slice</span>: phase_e_d           <span class="cm"># E/D/C/B slice is the active classifier</span>
+  <span class="hl">reaction_confirmation</span>: close_through_previous_htf_bar  <span class="cm"># two-bar rule mode</span></pre>
+<pre><span class="cm"># HypothesisClassifier.__init__() — config is passed through, not read directly</span>
+<span class="hl">def</span> __init__(self, config: dict[str, Any] | None = None) -> None:
+    self.config = config or {}
+    self.state  = HypothesisClassifierState()
+
+<span class="cm"># The two-bar rule is hardcoded to "close_through_previous_htf_bar".</span>
+<span class="cm"># config["reaction_confirmation"] is not yet read — the behaviour is fixed.</span>
+<span class="cm"># config["allow_pullback_trade"] is read in _phase_c() for entry_policy.</span></pre>
+    </div>
+
+    <!-- ── §07 Open Issues ── -->
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues · Edge Cases · Next Milestone</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>No previous HTF bar on first tick.</b>
+        <code>_phase_e_reaction()</code> returns all-false when <code>previous_bar is None</code>.
+        On the very first bar the replayer processes, the two-bar signal is silent.
+        The shadow node also initialises to <code>E.seeking</code> regardless.
+        This is correct but means Phase D cannot fire on bar 1.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Shadow node not reset on direction flip within same epoch.</b>
+        If HTF bias flips from bullish to bearish within the same epoch ID (rare but possible
+        in range conditions), <code>active_phase_e_direction != direction</code> triggers
+        <code>selected_node = "E.seeking"</code> — which is correct — but the consumed attempt ID
+        is not cleared, so a prior attempt cannot re-trigger <code>E.pullback_developing</code>
+        on the new direction.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>E.pullback_developing has no timeout decay.</b>
+        The shadow node can now return to <code>E.stalling</code> when EC reports broken/disrupted
+        counter orderflow, but there is still no bar-count timeout. If orderflow remains clean
+        but never matures into C, the node can hold <code>E.pullback_developing</code> indefinitely
+        until a new HTF extreme or another explicit transition appears.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>reaction_confirmation config key not read.</b>
+        <code>config.yaml</code> sets <code>reaction_confirmation: close_through_previous_htf_bar</code>
+        but <code>HypothesisClassifier.__init__()</code> does not read it.
+        The two-bar rule is hardcoded. If a "wick-through" variant is ever needed,
+        this key would be the hook.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Shadow node migration.</b>
+        Completed: Phase E shadow memory now lives in a phase-owned <code>PhaseEShadow</code>
+        object while the emitted <code>phase_e_shadow_*</code> output keys remain unchanged. Use
+        <a href="./40x-hypothesis-migration.html">40x hypothesis migration</a>
+        as the open issue ledger for the cross-phase boundary.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Formalize <code>E.stalling</code> ownership.</b>
+        Completed: <code>phase_e_context</code> now emits stopped-extension, LTF counter-bias,
+        and LTF probe facts. <code>E.stalling</code> still follows the legacy transition shape:
+        no new HTF P/D extreme after <code>E.seeking</code>, with LTF counter facts attached as
+        evidence rather than required for the first pause transition.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Define clean orderflow trigger for <code>E.pullback_developing</code>.</b>
+        Completed: <code>phase_e_context</code> now emits clean/broken LTF counter-orderflow
+        facts, orderflow leg id, start time, and pullback depth as a supporting metric.
+        <code>E.stalling</code> moves to <code>E.pullback_developing</code> on clean unbroken
+        counter orderflow. Failed pro-attempt evidence alone remains <code>E.stalling</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Migrate _phase_e_reaction() to read from EC phase_e_context candidate.</b>
+        Completed: <code>_phase_e_reaction()</code> now reads
+        <code>reaction_confirmed</code>, <code>reaction_warning</code>, and reaction bar facts
+        from the EC <code>phase_e_context</code> candidate.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>HTF EQH/EQL should enrich <code>E.stalling</code>, not keep <code>E.seeking</code>.</b>
+        Completed: EC now treats Phase E extension as a strict break of the prior watermark and
+        emits <code>htf_equal_extreme_*</code> facts for equal high/low retests. Layer 4 copies
+        those facts into Phase E debug output, so EQH/EQL can explain <code>E.stalling</code>
+        without classifying Phase D by itself.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Direct E→B path is now blocked in Layer 4.</b>
+        Completed: generic B setup and B-initiation setup still read EC evidence for debug, but
+        the DAG now forces <code>phase_b_ready = false</code> while the origin is active/previous
+        Phase E. <code>E.pullback_developing</code> must first mature into C before B can evaluate
+        reclaim, and the classifier emits <code>phase_b_blocked_by_dag</code> plus
+        <code>phase_b_dag_blocked_reason</code> for replay inspection.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>401 DAG return path is now implemented.</b>
+        Completed: <code>E.pullback_developing</code> can return to <code>E.stalling</code> when
+        EC reports <code>ltf_counter_orderflow_broken</code>. Phase E shadow records
+        <code>phase_e_shadow_pullback_disrupted</code> and the disrupted orderflow leg id. A later
+        clean counter leg is held at <code>E.stalling</code> for the unresolved Phase D boundary
+        rather than silently looping back into <code>E.pullback_developing</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Phase E attempt debug keys are deprecated.</b>
+        Completed: Phase E no longer reads <code>structure_attempt</code> or writes orderflow leg
+        ids into attempt fields. Clean counter pullback memory now uses
+        <code>phase_e_shadow_source_orderflow_leg_id</code> and
+        <code>phase_e_shadow_consumed_orderflow_leg_id</code>. Legacy
+        <code>phase_e_context_attempt_*</code> and <code>phase_e_shadow_source_attempt_id</code>
+        keys remain empty as deprecated aliases for one migration pass.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Fast E→C hard pullback shortcut added.</b>
+        Completed: after D is checked, clean unbroken LTF counter orderflow with
+        <code>ltf_pullback_depth_pct >= 50</code> now emits <code>C.hard_pullback</code> from
+        <code>E.fast_hard_pullback</code>. This handles tight P/D range pullbacks that breach
+        the midpoint before the slow <code>E.seeking → E.stalling → E.pullback_developing</code>
+        walk can unfold.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Warm-state <code>pullback_confirmed</code> now holds Phase E.</b>
+        Completed: if Phase E already exists and HTF later reports
+        <code>phase = "pullback_confirmed"</code>, the classifier re-emits Phase E when no
+        explicit D/B/fast-C/slow-C exit fires. The debug output includes
+        <code>phase_e_hold_reason = "pullback_confirmed_without_explicit_exit"</code>, so the
+        replayer can distinguish this intentional hold from <code>none / htf_resolve_unclassified</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Classifier-local Phase E extreme tracker removed.</b>
+        Completed: Layer 4 no longer stores <code>active_phase_e_extreme_price</code> or
+        <code>active_phase_e_extreme_time</code>. EC <code>phase_e_context</code> owns
+        <code>active_phase_e_extreme_price</code>, <code>active_phase_e_extreme_time</code>,
+        <code>new_htf_extreme</code>, and <code>reaction_failed</code>. Layer 4 consumes those
+        facts directly and keeps only <code>active_phase_e_direction</code> as DAG origin memory.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ── Tab switcher ── */
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns  = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+/* ── Active nav link on scroll ── */
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks  = document.querySelectorAll("nav a[href^='#']");
+const observer  = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

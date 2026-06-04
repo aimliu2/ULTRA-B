@@ -1,0 +1,817 @@
+<!-- source: ultrab/ln-notes/2marking/203-Pivot-events.md
+     algo:   ultrab/src/ultrab/core/smc/pivotEvent.py
+     config: ultrab/src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>203 · Pivot Events: STR / ITR / LTR</title>
+
+<!-- KaTeX — local copy (assets/katex/) -->
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  /* ── nav ── */
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  /* ── header ── */
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+
+  /* ── section headings ── */
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  /* ── details / collapsible ── */
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "▸";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  /* ── tabs ── */
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  /* ── plain pre/code blocks ── */
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  /* ── callout ── */
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  /* ── image ── */
+  .figure {
+    margin: 24px 0;
+    max-width: 700px;
+  }
+  .figure img {
+    width: 100%;
+    border-radius: 8px;
+    border: 1.5px solid var(--border);
+    display: block;
+  }
+  .figure figcaption {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-top: 7px;
+    font-family: var(--sans);
+  }
+
+  /* ── step list ── */
+  ol.steps {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ol.steps li {
+    margin-bottom: 10px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  ol.steps li b { color: var(--text-head); }
+
+  ul.plain {
+    padding-left: 20px;
+    max-width: 660px;
+    margin: 10px 0 14px;
+  }
+  ul.plain li {
+    margin-bottom: 8px;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+
+  /* ── tag chip ── */
+  .chip {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: var(--tag-bg);
+    color: var(--text-dim);
+    border: 1.5px solid var(--border);
+    border-radius: 22px;
+    padding: 2px 10px;
+    font-family: var(--sans);
+    vertical-align: middle;
+  }
+
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+
+  /* ── open issues ── */
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+
+  /* KaTeX display override */
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── side nav ── -->
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#hierarchy">Hierarchy</a>
+    <a href="#str">STR Confirmation</a>
+    <a href="#str" class="l2">Break modes</a>
+    <a href="#str" class="l2">Alternation</a>
+    <a href="#str" class="l2">Best candidate</a>
+    <a href="#itr">ITR Compression</a>
+    <a href="#itr" class="l2">Group extreme</a>
+    <a href="#itr" class="l2">Alternation</a>
+    <a href="#ltr">LTR Compression</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#algo" class="l2">Engine loop</a>
+    <a href="#algo" class="l2">Payload shape</a>
+    <a href="#config">Config</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/pivotEvent.py</code>
+      <code>replayer/config.yaml:175</code>
+    </div>
+  </nav>
+
+  <!-- ── main ── -->
+  <main>
+    <header>
+      <a href="201-event.html" style="display:inline-block;margin-bottom:14px;font-size:12px;color:var(--accent);text-decoration:none;font-family:var(--mono);letter-spacing:0.04em;">← Event diagram</a>
+      <div class="eyebrow">Layer 2 · Marking · Pivot Events</div>
+      <h1>STR / ITR / LTR — Tiered Pivot Compression</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — Three tiers of pivot detection built on one rule: <em>a candle extreme remains unbroken for N future units</em>.
+        STR fires from raw candles. ITR fires when a new STR extreme fails to break the prior group peak (right-shoulder confirmation).
+        LTR repeats that logic one tier higher using ITR pivots.
+        Alternation (high → low → high) and best-eligible selection keep every tier clean and non-repeating.
+        Crucially, <code>pivotTimestamp</code> (where the pivot is) and <code>eventTimestamp</code> (when it becomes usable) are always separate — the engine is causal by design.
+      </div>
+    </header>
+
+    <!-- ── Hierarchy ── -->
+    <h2 id="hierarchy"><span class="sec-num">00</span> Core Hierarchy</h2>
+    <p>Each tier compresses the raw extremes of the tier below it:</p>
+    <pre class="block">raw candles  →  STR  (survival N bars)
+STR pivots   →  ITR  (group compression: lower high / higher low)
+ITR pivots   →  LTR  (same rule, one tier up)</pre>
+
+    <figure class="figure">
+      <img src="../assets/203_marking_EURUSD.png"
+           alt="EURUSD pivot marking example showing STR / ITR tiers">
+      <figcaption>EURUSD — STR and ITR pivot sequence. ITR highs land on the STR group extreme (the head), confirmed by the right-shoulder STR.</figcaption>
+    </figure>
+
+    <div class="callout">
+      <span class="ico">⟳</span>
+      <div>The ITR and LTR pivots do <em>not</em> land on the right shoulder. They land on the group extreme — the head. The right-shoulder STR/ITR is only the <b>trigger</b> that confirms the compression. This distinction matters for <code>pivotTimestamp</code> vs <code>eventTimestamp</code>.</div>
+    </div>
+
+    <!-- ── §1 STR ── -->
+    <h2 id="str"><span class="sec-num">01</span> STR — Survival-based Confirmation</h2>
+    <p>
+      STR (Short-Term Range) is the first pivot layer from raw candles.
+      A candle high or low is promoted to STR only after it <em>remains unbroken</em> for <code>N</code> future bars.
+      This deliberately separates <code>pivotTimestamp</code> (the candidate candle) from <code>eventTimestamp</code> (the confirmation candle) — the engine is causal at the source.
+    </p>
+
+    <h3>Discretionary → Algorithm mapping</h3>
+
+    <details open>
+      <summary>Step 1 · Submit every new high/low as a candidate <span class="where">pivotEvent.py:on_bar</span></summary>
+      <div class="body">
+        <p>On each bar, the engine adds the current bar's high and low to a candidate pool. Candidates age one bar per tick. A candidate is <em>not yet a pivot</em> — it is just an unresolved extreme waiting for survival confirmation.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Step 2 · Age and break — evict anything that gets broken <span class="where">pivotEvent.py:_breaks_candidate</span></summary>
+      <div class="body">
+        <p>Each bar, every live candidate is checked. If a future bar breaks it (body or wick depending on mode), it is discarded. Otherwise its age counter increments.</p>
+        <p><b>Conservative mode</b> (default): only body movement breaks a candidate.</p>
+        <pre class="block">body_high = max(open, close)
+body_low  = min(open, close)
+
+high candidate broken if body_high &gt; candidate.price
+low  candidate broken if body_low  &lt; candidate.price</pre>
+        <p><b>Aggressive mode</b>: any wick extension breaks it.</p>
+        <pre class="block">high candidate broken if bar.high &gt; candidate.price
+low  candidate broken if bar.low  &lt; candidate.price</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Step 3 · Confirm at age N — apply alternation and best-eligible selection <span class="where">pivotEvent.py:_select_eligible_candidate</span></summary>
+      <div class="body">
+        <p>When a candidate reaches age ≥ <code>str_bars</code> (N), it becomes eligible for promotion. The engine applies two gates:</p>
+        <ol class="steps">
+          <li><b>Alternation:</b> after a confirmed high, only a low candidate is accepted, and vice versa.</li>
+          <li><b>Best-eligible:</b> if multiple candidates of the expected side are eligible simultaneously, emit only the most extreme one — highest for highs, lowest for lows.</li>
+        </ol>
+        <p>This suppresses the common doji-cluster problem where N bars of tight overlap would otherwise emit a burst of same-side events.</p>
+      </div>
+    </details>
+
+    <p>The formal survival condition for a high candidate at candle $i$:</p>
+    $$
+    \text{STR High} \iff \forall k \in \{i+1,\dots,i+N\}: \; \mathrm{body\_high}(k) \le \mathrm{price}(i)
+    \quad\text{(conservative)}
+    $$
+    <p>
+      And the alternation gate — let $s_n$ be the confirmed pivot side sequence:
+      $$s_{n+1} = -s_n \quad\text{(strictly alternating)}$$
+    </p>
+
+    <div class="rule-block">
+      STR does not use a symmetric window (middle-of-3). It uses survival: a candidate must outlast N future bars without being broken. N directly controls sensitivity; the event is available only after N future closes, so the model is causal by construction.
+    </div>
+
+    <h3>N sensitivity</h3>
+    <pre class="block">N = 1   very short structure (noisy)
+N = 2   short structure  ← current config default
+N = 3   slower / cleaner
+N = 5   much slower</pre>
+
+    <!-- ── §2 ITR ── -->
+    <h2 id="itr"><span class="sec-num">02</span> ITR — Group Compression</h2>
+    <p>
+      ITR (Intermediate-Term Range) compresses confirmed STR extremes.
+      The idea: when a new STR high is <em>lower</em> than the current group extreme (right-shoulder failure), it confirms that the group has peaked. The ITR pivot is assigned to the group extreme — the head.
+    </p>
+
+    <h3>How the group extreme works</h3>
+    <p>The engine tracks a running high group (for ITR highs) and a running low group (for ITR lows):</p>
+
+    <details open>
+      <summary>ITR High — right-shoulder lower high <span class="where">pivotEvent.py:_itr_event_from_str</span></summary>
+      <div class="body">
+<pre class="block">STR high group:
+  H1 = 1.1000   ← starts group
+  H2 = 1.1050   ← new group extreme (head)
+  H3 = 1.1020   ← lower high = right shoulder
+
+when H3 confirms:
+  ITR high fires at H2 (pivotTimestamp = H2's timestamp)
+  eventTimestamp = H3's confirmation timestamp</pre>
+        <p>The relation field is set to <code>lower_high</code>. The confirmation STR pivot reference (H3) is carried in <code>sourceCandleRefs</code>.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>ITR Low — right-shoulder higher low <span class="where">pivotEvent.py:_itr_event_from_str</span></summary>
+      <div class="body">
+<pre class="block">STR low group:
+  L1 = 1.0900   ← starts group
+  L2 = 1.0850   ← new group extreme (head)
+  L3 = 1.0880   ← higher low = right shoulder
+
+when L3 confirms:
+  ITR low fires at L2
+  relation = higher_low</pre>
+      </div>
+    </details>
+
+    <h3>Alternation</h3>
+    <p>
+      Without alternation, an uptrend creates many <code>higher_low</code> ITR lows in sequence, producing the same noise problem as raw STR without alternation.
+      The gate enforces <code>PE03 → PE04 → PE03</code> — repeated same-side ITR events are suppressed until the opposite ITR side fires.
+    </p>
+
+    <div class="callout">
+      <span class="ico">★</span>
+      <div>Use primitive structure terms in code, not pattern names. The engine uses <code>lower_high</code> / <code>higher_low</code> for <code>relation</code> — not "right shoulder" or "CHoCH". Layer 3 and Layer 4 apply semantic interpretation.</div>
+    </div>
+
+    <!-- ── §3 LTR ── -->
+    <h2 id="ltr"><span class="sec-num">03</span> LTR — Tier Compression</h2>
+    <p>
+      LTR (Long-Term Range) mirrors ITR exactly, one tier higher. The raw unit changes from STR pivots to ITR pivots. Everything else — group extreme tracking, right-shoulder confirmation, alternation — is identical.
+    </p>
+<pre class="block">ITR high group:
+  H1 = 1.1200   ← starts group
+  H2 = 1.1250   ← ITR group extreme (head)
+  H3 = 1.1220   ← lower ITR high = right shoulder
+
+when H3 confirms:
+  LTR high fires at H2
+  sourceTier = "itr"
+  eventCode  = "PE05" (ltrHighConfirmed)</pre>
+
+    <p>LTR can only land on an existing ITR pivot — never directly on STR or raw candles. Enabling LTR requires ITR to be enabled first.</p>
+
+    <div class="rule-block">
+      Chain dependency: disabling STR disables ITR and LTR. Disabling ITR disables LTR. The tiers cascade.
+    </div>
+
+    <!-- ── §4 Algorithm ── -->
+    <h2 id="algo"><span class="sec-num">04</span> Algorithm</h2>
+    <p>The engine runs one <code>on_bar()</code> call per bar in the replay loop. All three tiers process in a single pass.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">on_bar() core loop</button>
+        <button data-t="1">break detection</button>
+        <button data-t="2">best-eligible selection</button>
+      </div>
+<pre class="on"><span class="cm"># pivotEvent.py — PivotEventEngine.on_bar()</span>
+<span class="hl">def</span> on_bar(self, row: pd.Series) -> list[PivotEvent]:
+    emitted: list[PivotEvent] = []
+    survivors, eligible = [], []
+
+    <span class="cm"># Age + break existing candidates</span>
+    for candidate in self._candidates:
+        if self._breaks_candidate(candidate, open, high, low, close):
+            continue          <span class="cm"># broken — discard</span>
+        candidate.age += 1
+        if candidate.age >= self.str_bars:
+            eligible.append(candidate)
+        else:
+            survivors.append(candidate)
+
+    <span class="cm"># Promote best eligible candidate (alternation + extreme selection)</span>
+    selected = self._select_eligible_candidate(eligible)
+    if selected is not None:
+        str_ev = self._event_from_candidate(selected, ts)
+        if self.str_enabled:  emitted.append(str_ev)
+        itr_ev = self._itr_event_from_str(str_ev) if self.itr_enabled else None
+        if itr_ev and self._itr_side_is_expected(itr_ev.pivot_side):
+            emitted.append(itr_ev)
+            ltr_ev = self._ltr_event_from_itr(itr_ev) if self.ltr_enabled else None
+            if ltr_ev and self._ltr_side_is_expected(ltr_ev.pivot_side):
+                emitted.append(ltr_ev)
+            self._remember_itr_event(itr_ev)
+        self._remember_str_event(str_ev)
+        self._last_confirmed_side = selected.side
+
+    <span class="cm"># Always register the current bar's new candidates</span>
+    survivors.append(_Candidate(side=1,  price=high, timestamp=ts, ...))
+    survivors.append(_Candidate(side=-1, price=low,  timestamp=ts, ...))
+    self._candidates = survivors
+    return emitted</pre>
+<pre><span class="cm"># Conservative mode (default)</span>
+body_high = max(open, close)
+body_low  = min(open, close)
+
+if candidate.side == 1:   <span class="cm"># high candidate</span>
+    broken = body_high > candidate.price
+else:                     <span class="cm"># low candidate</span>
+    broken = body_low  < candidate.price
+
+<span class="cm"># Aggressive mode</span>
+if candidate.side == 1:
+    broken = bar.high > candidate.price
+else:
+    broken = bar.low  < candidate.price</pre>
+<pre><span class="cm"># Alternation gate: only accept the expected side</span>
+expected_side = -1 if last_confirmed_side == 1 else 1
+
+eligible = [c for c in candidates if c.side == expected_side]
+if not eligible:
+    return None
+
+<span class="cm"># Best-extreme selection</span>
+if expected_side == 1:
+    return <span class="hl">max</span>(eligible, key=lambda c: c.price)  <span class="cm"># highest high</span>
+return <span class="hl">min</span>(eligible, key=lambda c: c.price)          <span class="cm"># lowest low</span></pre>
+    </div>
+
+    <h3>Payload shape</h3>
+    <p>All three tiers use a single <code>PivotEvent</code> dataclass. The <code>eventId</code> is deterministic and human-readable:</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">STR payload (PE01)</button>
+        <button data-t="1">ITR payload (PE03)</button>
+        <button data-t="2">LTR payload (PE05)</button>
+      </div>
+<pre class="on">{
+  <span class="hl">"eventId"</span>:         "PE:PE01:15m:2024-08-28T00:00:00Z:2024-08-24T00:00:00Z:1.120030",
+  "eventCode":       "PE01",
+  "eventName":       "strHighConfirmed",
+  "eventGroup":      "PE",
+  "tier":            "str",
+  "timeframe":       "15m",
+  "pivotSide":       1,                <span class="cm">// 1 = high, -1 = low</span>
+  <span class="hl">"pivotTimestamp"</span>:  "2024-08-24T00:00:00Z",  <span class="cm">// where the pivot is</span>
+  <span class="hl">"eventTimestamp"</span>:  "2024-08-28T00:00:00Z",  <span class="cm">// when it becomes usable</span>
+  "causalAvailableAt": "2024-08-28T00:00:00Z",
+  "pivotPrice":      1.12003,
+  "mode":            "conservative",
+  "survivalBars":    2,
+  "sourceBarIndexes": [100, 102],
+  "sourceCandleRefs": [
+    {"role": "candidate",    "timestamp": "2024-08-24T00:00:00Z"},
+    {"role": "confirmation", "timestamp": "2024-08-28T00:00:00Z"}
+  ]
+}</pre>
+<pre>{
+  "eventCode":    "PE03",
+  "eventName":    "itrHighConfirmed",
+  "tier":         "itr",
+  "sourceTier":   "str",
+  "sourceEventCode": "PE01",
+  <span class="hl">"pivotTimestamp"</span>:  "2024-08-24T00:00:00Z",  <span class="cm">// group extreme (head)</span>
+  <span class="hl">"eventTimestamp"</span>:  "2024-08-28T00:00:00Z",  <span class="cm">// right-shoulder confirms</span>
+  "confirmationTimestamp":      "2024-08-27T00:00:00Z",
+  "confirmationEventTimestamp": "2024-08-28T00:00:00Z",
+  "confirmationPrice":          1.102,
+  <span class="hl">"relation"</span>:        "lower_high",
+  "sourceCandleRefs": [
+    {"role": "source_pivot",        "timestamp": "2024-08-24T00:00:00Z"},
+    {"role": "confirmation_pivot",  "timestamp": "2024-08-27T00:00:00Z"},
+    {"role": "confirmation_event",  "timestamp": "2024-08-28T00:00:00Z"}
+  ]
+}</pre>
+<pre>{
+  "eventCode":    "PE05",
+  "eventName":    "ltrHighConfirmed",
+  "tier":         "ltr",
+  "sourceTier":   "itr",        <span class="cm">// source is ITR, not STR</span>
+  "sourceEventCode": "PE03",
+  "relation":     "lower_high",
+  <span class="cm">// identical shape to ITR — pivot lands on ITR group extreme</span>
+}</pre>
+    </div>
+
+    <h3>Event code reference</h3>
+    <pre class="block">PE01  strHighConfirmed   (side=1)
+PE02  strLowConfirmed    (side=-1)
+PE03  itrHighConfirmed   (side=1)   ← primary structure tier
+PE04  itrLowConfirmed    (side=-1)  ← primary structure tier
+PE05  ltrHighConfirmed   (side=1)   optional — slower
+PE06  ltrLowConfirmed    (side=-1)  optional — slower</pre>
+
+    <!-- ── §5 Config ── -->
+    <h2 id="config"><span class="sec-num">05</span> Config</h2>
+    <p>All pivot event settings live under <code>pivot_events:</code> in <code>config.yaml</code>. The <code>compute:</code> block controls which tiers run; <code>display:</code> controls visibility independently.</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">PivotEventEngine init</button>
+      </div>
+<pre class="on"><span class="cm"># replayer/config.yaml:175</span>
+pivot_events:
+  enabled: true
+  mode: <span class="hl">conservative</span>   <span class="cm"># conservative | aggressive</span>
+  str_bars: <span class="hl">2</span>          <span class="cm"># N — survival bar count</span>
+  compute:
+    str: true
+    itr: true
+    ltr: true
+  display:
+    event_log:
+      str: false         <span class="cm"># hide STR rows — too noisy for review</span>
+      itr: true
+      ltr: true
+    chart_markers:
+      str: false
+      itr: true
+      ltr: true</pre>
+<pre><span class="cm"># PivotEventEngine.__init__() reads the same cfg dict</span>
+self.mode     = cfg.get("mode", "conservative")
+self.str_bars = int(cfg.get("str_bars", 1))      <span class="cm"># must be >= 1</span>
+
+compute = cfg.get("compute", {})
+self.str_enabled = bool(compute.get("str", True))
+self.itr_enabled = self.str_enabled and bool(compute.get("itr", False))
+self.ltr_enabled = self.itr_enabled and bool(compute.get("ltr", False))
+
+<span class="cm"># LTR requires ITR; ITR requires STR — chain dependency enforced here</span></pre>
+    </div>
+
+    <div class="callout">
+      <span class="ico">!</span>
+      <div>Turning off <code>str: false</code> in <code>compute:</code> silently disables ITR and LTR too, because the engine gates <code>itr_enabled = str_enabled and ...</code>. This is intentional — ITR/LTR have no meaning without a live STR feed.</div>
+    </div>
+
+    <!-- ── Open Issues ── -->
+    <h2 id="issues"><span class="sec-num">06</span> Open Issues · Edge Cases · Next Milestone</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Warmup sensitivity.</b> At the left edge of history the first visible pivot depends on where the dataset starts. The engine starts expecting a high first (cold-start default). Warmup bars are needed before the first ITR/LTR can be trusted.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>EQH / EQL tie.</b> Two candles with the exact same high (or low) both survive N bars and become eligible on the same tick. <code>max()</code> returns the first match in the list — the older candle — so STR lands on the earlier bar. Correct behavior, but implicit.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>BoS / structural repair events.</b> SC01–SC04 live in the Structure Context (Layer 3), not in the pivot event engine. No BoS event codes (old PE07–PE08 style) are planned at the marking layer. Rebuild starts from clean STR.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Aggressive mode suppresses STR during doji sessions.</b> In aggressive mode, any wick beyond a candidate breaks it — so in a tight doji cluster, constant wick noise evicts candidates before they age to N bars and STR goes quiet. Conservative mode is safer here: doji bodies rarely exceed a prior extreme, so candidates survive and STR fires normally.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Contract Cleanup</div>
+        <p><b>Legacy payload aliases.</b> The active PE emitter uses the canonical event-stream envelope, but replay/UI adapters still carry compatibility fields such as <code>tf</code>, <code>event_code</code>, <code>decision_ts</code>, and <code>anchor_ts</code>. The old marker contract should also be retired or clearly marked inactive once the UI no longer depends on these names.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+/* ── Tab switcher ── */
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns  = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+/* ── Active nav link on scroll ── */
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks  = document.querySelectorAll("nav a[href^='#']");
+const observer  = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

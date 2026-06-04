@@ -1,0 +1,581 @@
+<!-- source: ultrab/src/ultrab/core/smc/fusion.py
+     source: ultrab/src/ultrab/core/smc/snapshot_normalizer.py
+     source: ultrab/src/ultrab/runtime/dual_smc.py
+     ref:    ultrab/docs/301-context.html  (node 10) -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>310 – Fusion Context</title>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: var(--sans);
+    border-bottom: 1px solid transparent;
+    margin-right: 16px;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ── NAV ─────────────────────────────────────────────────────────────── -->
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core Concept</a>
+    <a href="#modes">Single vs Dual TF</a>
+    <a href="#shape">DualContextSnapshot</a>
+    <a href="#stream">Snapshot Stream</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/fusion.py</code>
+      <code>core/smc/snapshot_normalizer.py</code>
+      <code>runtime/dual_smc.py</code>
+    </div>
+  </nav>
+
+  <!-- ── MAIN ────────────────────────────────────────────────────────────── -->
+  <main>
+    <header>
+      <div class="eyebrow">Layer 3 · Context · Node 10</div>
+      <h1>Fusion — Current-State Collapse</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — Fusion reads normalized <code>ContextSnapshot</code>(s) from Snapshot Normalizer and collapses them into a single runtime current truth. In single-TF mode it is an identity pass-through. In dual-TF mode it combines lower and higher snapshots into a <code>DualContextSnapshot</code> that projects HTF objects onto the LTF pane. Fusion does not re-read raw channels, does not qualify evidence, and does not make thesis decisions. That belongs to Evidence Compiler and Layer 4.
+      </div>
+      <a class="panel-link" href="./301-context.html">← Back to 301 Layer 3 Context</a>
+      <a class="panel-link" href="./309-normalizer-context.html">→ 309 Snapshot Normalizer</a>
+    </header>
+
+    <!-- §00 Core Concept ─────────────────────────────────────────────────── -->
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>The three-step pipeline inside Layer 3 after all channel writes are done:</p>
+    <pre class="block">09  Snapshot Normalizer
+      reads State Store after Detector writes
+      projects one ContextSnapshot per TF
+      strictly read-only
+
+10  Fusion
+      reads ContextSnapshot(s) from 09
+      collapses into runtime current truth
+      does not re-read channels
+
+11  Evidence Compiler
+      reads the stream of fused snapshots bar by bar
+      detects transitions between consecutive snapshots
+      emits dated evidence records → evidence candidates → Layer 4</pre>
+
+    <p>Fusion's place in the pipeline is the handoff boundary between per-channel state and cross-channel current truth. Everything downstream reads the fused snapshot, not raw channel dicts.</p>
+
+    <details open>
+      <summary>Step 1 · Snapshot Normalizer projects per-TF snapshots <span class="where">Node 09</span></summary>
+      <div class="body">
+        <p>After the Detector finishes writing lifecycle transitions, Snapshot Normalizer reads State Store and projects a clean <code>ContextSnapshot</code> for each active timeframe. Fields include bias, rangeState, pdPosition, nearestSupplyZones, nearestDemandZones, keyLevels, liquidity, orderflow, structureAttempt, and invalidationRefs. All timestamps on individual objects are preserved in full.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Step 2 · Fusion collapses snapshot(s) into current truth <span class="where">Node 10</span></summary>
+      <div class="body">
+        <p>In single-TF mode Fusion returns the snapshot unchanged. In dual-TF mode Fusion derives cross-TF alignment, narrative, HTF projections, and packs both snapshots into a <code>DualContextSnapshot</code>. It does not re-read structure, SD zones, liquidity, or orderflow engines.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Step 3 · Evidence Compiler reads the fused snapshot stream <span class="where">Node 11</span></summary>
+      <div class="body">
+        <p>Evidence Compiler sees consecutive fused snapshots, one per bar. It watches for field transitions — <code>rangeState</code> flipping to <code>pullback_confirmed</code>, a zone entering <code>TAPPED</code>, a liquidity pool moving to <code>sweep_confirmed</code>. Those transitions become evidence records with <code>seen_at</code>, <code>confirmed_at</code>, and source object refs.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      09 normalizes channels into ContextSnapshot. 10 fuses one or more ContextSnapshots into runtime current truth. 11 compiles transitions and evidence from those fused snapshots.
+    </div>
+
+    <!-- §01 Single vs Dual TF ─────────────────────────────────────────────── -->
+    <h2 id="modes"><span class="sec-num">01</span> Single vs Dual TF Mode</h2>
+    <p>Mode is determined at the runtime level, not inside Fusion itself.</p>
+    <pre class="block">Single TF
+  fused_snapshot = context_snapshot          (identity)
+  payload["context_snapshot"] = Fusion.fuse_single(snapshot)
+
+Dual TF
+  lower_snapshot  = SnapshotNormalizer.project(LTF cursor + LTF channels)
+  higher_snapshot = SnapshotNormalizer.project(HTF cursor + HTF channels)
+  fused_snapshot  = Fusion.fuse_dual(lower_snapshot, higher_snapshot,
+                      execution_tf=lower_label,
+                      reference_tf=higher_label,
+                      symbol=symbol)
+  payload["context_snapshot"] = fused_snapshot</pre>
+
+    <p>In dual mode the LTF is always the execution TF. The HTF snapshot is read from what the HTF pipeline has already produced — there is no waiting for an HTF bar close.</p>
+
+    <div class="rule-block">
+      No lookahead: only use HTF objects whose timestamps existed before the current LTF bar close.
+    </div>
+
+    <!-- §02 DualContextSnapshot shape ──────────────────────────────────────── -->
+    <h2 id="shape"><span class="sec-num">02</span> DualContextSnapshot Shape</h2>
+    <p>The output of <code>Fusion.fuse_dual()</code>:</p>
+    <pre class="block">mode                      "dual"
+symbol                    instrument
+currentTimestamp          LTF current bar close timestamp
+currentPrice              LTF current bar close price
+execution_tf              LTF label  (e.g. "15M")
+reference_tf              HTF label  (e.g. "1H")
+
+lower_context_snapshot    full ContextSnapshot for execution TF
+higher_context_snapshot   full ContextSnapshot for reference TF
+execution_context         alias → lower_context_snapshot
+reference_context         alias → higher_context_snapshot
+
+htf_bias                  bullish | bearish | None  (from higher snapshot)
+cross_tf_alignment        pullback | continuation | counter_trend | unknown
+narrative                 "LTF bullish pullback inside HTF bearish"  | None
+execution_pd              premium | discount | midpoint | unknown
+
+projected_htf_levels      HTF keyLevelsAbove + keyLevelsBelow
+projected_htf_zones       HTF nearestSupplyZones + nearestDemandZones
+confluence_zones          zones present on both TFs  (stub → Evidence Compiler)</pre>
+
+    <p><code>cross_tf_alignment</code> logic: if HTF and LTF biases match and <code>rangeState == pullback_confirmed</code> → <code>pullback</code>; same bias, not pullback → <code>continuation</code>; opposite biases → <code>counter_trend</code>.</p>
+
+    <!-- §03 Snapshot Stream & Evidence Compiler ────────────────────────────── -->
+    <h2 id="stream"><span class="sec-num">03</span> Snapshot Stream &amp; Evidence Compiler</h2>
+    <p>A single fused snapshot answers <em>"what is true right now."</em> It does not record how many bars a condition has held, or what the state was two bars ago.</p>
+    <p>This does not mean timing is lost. Timestamps on every contained object — levels, zones, anchors, pools — are preserved in full inside the nested <code>ContextSnapshot</code>. What the snapshot does not carry is the transition history between bars.</p>
+    <p>That history lives in the <strong>stream</strong>. Evidence Compiler observes the fused snapshot on every bar and records when fields change:</p>
+    <pre class="block">bar N:    rangeState = open,               bias = bullish
+bar N+1:  rangeState = pullback_confirmed,  bias = bullish   ← transition
+bar N+2:  htf_bias   = bearish,  cross_tf_alignment = counter_trend  ← transition</pre>
+    <p>Each transition becomes a dated evidence record with the source object id, <code>seen_at</code> timestamp, price relation, and orderflow context at the time. Evidence Compiler owns that accumulation. Fusion stays thin.</p>
+
+    <div class="rule-block">
+      Do not use a single fused snapshot as a history store. Use the transition stream Evidence Compiler observes across consecutive bars.
+    </div>
+
+    <!-- §04 Algorithm ──────────────────────────────────────────────────────── -->
+    <h2 id="algo"><span class="sec-num">04</span> Algorithm</h2>
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-tab="0">fuse_single</button>
+        <button data-tab="1">fuse_dual</button>
+        <button data-tab="2">helpers</button>
+      </div>
+      <pre class="on"><span class="cm"># core/smc/fusion.py</span>
+
+<span class="hl">class</span> Fusion:
+
+    <span class="hl">@staticmethod</span>
+    <span class="hl2">def</span> fuse_single(
+        context_snapshot: <span class="hl">dict</span>
+    ) -> <span class="hl">dict</span>:
+        <span class="cm"># Identity pass-through for single-TF mode.</span>
+        <span class="hl">return</span> context_snapshot</pre>
+      <pre><span class="cm"># core/smc/fusion.py</span>
+
+    <span class="hl">@staticmethod</span>
+    <span class="hl2">def</span> fuse_dual(
+        lower_snapshot: <span class="hl">dict</span>,
+        higher_snapshot: <span class="hl">dict</span>,
+        *,
+        execution_tf: <span class="hl">str</span>,
+        reference_tf: <span class="hl">str</span>,
+        symbol: <span class="hl">str</span>,
+    ) -> <span class="hl">dict</span>:
+        htf_bias       = higher_snapshot.get(<span class="hl2">"bias"</span>)
+        ltf_bias       = lower_snapshot.get(<span class="hl2">"bias"</span>)
+        ltf_range_state = lower_snapshot.get(<span class="hl2">"rangeState"</span>)
+
+        alignment = _cross_tf_alignment(htf_bias, ltf_bias, ltf_range_state)
+        narrative = _narrative(htf_bias, ltf_bias, ltf_range_state)
+
+        projected_htf_levels = (
+            higher_snapshot.get(<span class="hl2">"keyLevelsAbove"</span>, []) +
+            higher_snapshot.get(<span class="hl2">"keyLevelsBelow"</span>, [])
+        )
+        projected_htf_zones = (
+            higher_snapshot.get(<span class="hl2">"nearestSupplyZones"</span>, []) +
+            higher_snapshot.get(<span class="hl2">"nearestDemandZones"</span>, [])
+        )
+
+        <span class="hl">return</span> {
+            <span class="hl2">"mode"</span>: <span class="hl2">"dual"</span>,
+            <span class="hl2">"symbol"</span>: symbol,
+            <span class="hl2">"currentTimestamp"</span>: lower_snapshot.get(<span class="hl2">"currentTimestamp"</span>),
+            <span class="hl2">"currentPrice"</span>:     lower_snapshot.get(<span class="hl2">"currentPrice"</span>),
+            <span class="hl2">"execution_tf"</span>:     execution_tf,
+            <span class="hl2">"reference_tf"</span>:     reference_tf,
+            <span class="hl2">"lower_context_snapshot"</span>:  lower_snapshot,
+            <span class="hl2">"higher_context_snapshot"</span>: higher_snapshot,
+            <span class="hl2">"execution_context"</span>:       lower_snapshot,
+            <span class="hl2">"reference_context"</span>:       higher_snapshot,
+            <span class="hl2">"htf_bias"</span>:             htf_bias,
+            <span class="hl2">"cross_tf_alignment"</span>:   alignment,
+            <span class="hl2">"narrative"</span>:            narrative,
+            <span class="hl2">"execution_pd"</span>:         lower_snapshot.get(<span class="hl2">"pdPosition"</span>, <span class="hl2">"unknown"</span>),
+            <span class="hl2">"projected_htf_levels"</span>: projected_htf_levels,
+            <span class="hl2">"projected_htf_zones"</span>:  projected_htf_zones,
+            <span class="hl2">"confluence_zones"</span>:     _confluence_zones(lower_snapshot, higher_snapshot),
+        }</pre>
+      <pre><span class="cm"># cross_tf_alignment</span>
+<span class="hl2">def</span> _cross_tf_alignment(htf_bias, ltf_bias, ltf_range_state) -> str:
+    <span class="hl">if not</span> htf_bias <span class="hl">or not</span> ltf_bias:
+        <span class="hl">return</span> <span class="hl2">"unknown"</span>
+    <span class="hl">if</span> htf_bias == ltf_bias:
+        <span class="hl">if</span> ltf_range_state == <span class="hl2">"pullback_confirmed"</span>:
+            <span class="hl">return</span> <span class="hl2">"pullback"</span>
+        <span class="hl">return</span> <span class="hl2">"continuation"</span>
+    <span class="hl">return</span> <span class="hl2">"counter_trend"</span>
+
+<span class="cm"># narrative</span>
+<span class="hl2">def</span> _narrative(htf_bias, ltf_bias, ltf_range_state) -> str | None:
+    <span class="hl">if not</span> htf_bias <span class="hl">or not</span> ltf_bias:
+        <span class="hl">return</span> None
+    <span class="hl">if</span> htf_bias == ltf_bias:
+        phase = <span class="hl2">"pullback"</span> <span class="hl">if</span> ltf_range_state == <span class="hl2">"pullback_confirmed"</span> <span class="hl">else</span> <span class="hl2">"continuation"</span>
+        <span class="hl">return</span> f<span class="hl2">"LTF {ltf_bias} {phase} inside HTF {htf_bias}"</span>
+    <span class="hl">return</span> f<span class="hl2">"LTF {ltf_bias} counter-trend inside HTF {htf_bias}"</span>
+
+<span class="cm"># confluence_zones — thin stub</span>
+<span class="hl2">def</span> _confluence_zones(lower_snap, higher_snap) -> list:
+    <span class="cm"># Evidence Compiler handles cross-TF zone matching.</span>
+    <span class="hl">return</span> []</pre>
+    </div>
+
+    <!-- §05 Open Issues ────────────────────────────────────────────────────── -->
+    <h2 id="issues"><span class="sec-num">05</span> Open Issues</h2>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Confluence zone matching.</b> <code>_confluence_zones()</code> is a stub. Price-proximity matching across TF zone lists belongs to Evidence Compiler, not Fusion.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>OTE posture.</b> Optimal Trade Entry posture belongs to Layer 5 after Layer 4 defines the active thesis leg. Fusion does not derive entry zones.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>HTF clock guard.</b> Projected HTF levels and zones should carry their source timestamp so Evidence Compiler can reject objects created after the current LTF bar.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>HTF not yet warmed up.</b> If <code>higher_context_snapshot.bias</code> is <code>None</code> at session start, <code>cross_tf_alignment</code> returns <code>"unknown"</code> and Evidence Compiler should treat any candidate as blocked until HTF bias resolves.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // ── Tab switcher ────────────────────────────────────────────────────────
+  document.querySelectorAll('[data-tabs]').forEach(container => {
+    const buttons = container.querySelectorAll('.tabbar button');
+    const panes   = container.querySelectorAll('pre');
+    buttons.forEach((btn, i) => {
+      btn.addEventListener('click', () => {
+        buttons.forEach(b => b.classList.remove('on'));
+        panes.forEach(p => p.classList.remove('on'));
+        btn.classList.add('on');
+        panes[i].classList.add('on');
+      });
+    });
+  });
+
+  // ── Nav active highlight ────────────────────────────────────────────────
+  const navLinks = document.querySelectorAll('nav a');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        navLinks.forEach(a => a.classList.remove('active'));
+        const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (match) match.classList.add('active');
+      }
+    });
+  }, { rootMargin: '0px 0px -60% 0px', threshold: 0.1 });
+  document.querySelectorAll('h2[id]').forEach(h => observer.observe(h));
+</script>
+</body>
+</html>
