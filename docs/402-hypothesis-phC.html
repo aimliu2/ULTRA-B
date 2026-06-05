@@ -621,32 +621,46 @@ entry_policy = "hybrid" if (
       This page only lists Phase C issues. Completed Phase E migration items stay on the Phase E note.
     </p>
 
-    <div class="issue-grid">
-      <div class="issue-card">
-        <div class="issue-label">Open Issue</div>
+    <div class=”issue-grid”>
+      <div class=”issue-card”>
+        <div class=”issue-label”>Open Issue</div>
         <p>
-          <strong>C.slow_pullback and C.hard_pullback are still conflating with each other.</strong>
-          The current code uses <code>ltf_counter_story</code> for both and then assigns hard/slow mostly from origin path. Hard has a clear fast midpoint rule, but slow is currently “E.pullback_developing + story_ready,” which may describe maturity rather than true slowness/uncleanliness. This needs cleanup before Phase C can be trusted as a precise chart-language boundary.
+          <strong>C.slow_pullback and C.hard_pullback run on different evidence models, not just different origin paths.</strong>
+          The slow path requires <code>ltf_counter_story</code> (LTF structural bias flip) plus <code>E.pullback_developing</code> (which itself requires ChoCh). The fast path requires <code>ltf_counter_orderflow_clean</code> + depth ≥ 50% but does <em>not</em> check <code>phase_c_story_ready</code> at all — meaning it can technically fire without the LTF structural bias having flipped. Design call: leave the fast path as a deliberate orderflow-only shortcut, or add <code>story_ready</code> as an additional gate to ensure structural alignment without collapsing it into the slow path.
         </p>
       </div>
-      <div class="issue-card">
-        <div class="issue-label">Open Issue</div>
+      <div class=”issue-card”>
+        <div class=”issue-label”>Open Issue</div>
         <p>
           <strong>Phase C quality language is incomplete.</strong>
-          <code>phase_c_quality</code> is set on the fast hard path, but the generic D-to-C and slow E-to-C paths do not yet carry a comparable quality field. That makes debug comparison between C variants uneven.
+          <code>phase_c_quality</code> is set on the fast hard path (<code>choppy_tight_range_fast_pullback</code>), but the generic D-to-C and slow E-to-C paths do not yet carry a comparable quality field. That makes debug comparison between C variants uneven.
         </p>
       </div>
-      <div class="issue-card">
-        <div class="issue-label">Edge Case</div>
+      <div class=”issue-card”>
+        <div class=”issue-label”>Edge Case</div>
+        <p>
+          <strong>Cold-start C.hard_pullback does not set <code>active_phase_e_direction</code>.</strong>
+          When the fast hard pullback fires without a prior E classification, <code>_phase_e()</code> is never called, so <code>active_phase_e_direction</code> stays <code>”none”</code>. The C carry block guards on <code>active_phase_e_direction == direction</code>; it fails, and the next bar falls through to a fresh E classification rather than carrying C. The existing test at line 717 is a single-snapshot test and does not cover this next-bar behaviour. Confirmed known: cold-start self-location beyond <code>none → E</code> is listed as in-flight in CLAUDE.md.
+        </p>
+      </div>
+      <div class=”issue-card”>
+        <div class=”issue-label”>Edge Case</div>
         <p>
           <strong>Watching C can exist without a selected POI.</strong>
           This is probably correct, but it means a strong counter story can be visible in Layer 4 while Layer 5 still has no tradeable object. Replayer UI should make the difference between <code>watching</code> and <code>armed</code> obvious.
         </p>
       </div>
-      <div class="issue-card">
-        <div class="issue-label">Next Milestone</div>
+      <div class=”issue-card”>
+        <div class=”issue-label”>Verify</div>
         <p>
-          Reconcile Phase C with the Phase E shadow migration. C should consume cleanly named origin memory from Phase E/D/B instead of inferring too much from a single generic <code>ltf_counter_story</code> gate.
+          <strong><code>E.pullback_developing → E.stalling</code> disruption exit is absent — confirm intentional.</strong>
+          CLAUDE.md “Done” section lists the broken-orderflow disruption exit as implemented, but the current <code>_phase_e_shadow_facts()</code> holds at <code>E.pullback_developing</code> unconditionally. The related fields (<code>disrupted_orderflow_leg_id</code>) are marked deprecated. If disruption was intentionally dropped, confirm whether a second-pullback Phase D boundary can now fire without an explicit disruption guard, and remove the stale “Done” entry.
+        </p>
+      </div>
+      <div class=”issue-card”>
+        <div class=”issue-label”>Next Milestone</div>
+        <p>
+          Reconcile Phase C with the Phase E shadow migration. C should consume cleanly named origin memory from Phase E/D/B instead of inferring too much from a single generic <code>ltf_counter_story</code> gate. Run the full suite after review to confirm Q3 (no stale EC fact shape assertions in D→C and C-hold tests).
         </p>
       </div>
     </div>
