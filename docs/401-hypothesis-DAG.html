@@ -434,10 +434,9 @@ flowchart LR
   E_seek --> C_hard
   E_stall --> C_hard
 
-  %% ── E pullback outcomes (skip D, resume, or reset) ──────────
+  %% ── E pullback outcomes (skip D, or reset on new extreme) ────
   E_pull --> C_hard
   E_pull --> C_slow
-  E_pull -.-> E_stall
   E_pull -.-> E_seek
 
   %% ── D → C ───────────────────────────────────────────────────
@@ -590,7 +589,7 @@ Not enough for D, C, or B yet</div>
   <li>D.reaction_point — if HTF reaction-point evidence appears</li>
   <li>D.htf_pd_grab_reclaim — if HTF P/D boundary is tested</li>
   <li>D.htf_eq_grab_reclaim — if HTF EQ pool is tested</li>
-  <li>E.pullback_developing — if price moves materially back into P/D</li>
+  <li>E.pullback_developing — if a counter ChoCh fires on the LTF</li>
   <li>C.hard_pullback — if tight P/D range pullback breaches midpoint with clean counter orderflow</li>
   <li>E.seeking — if continuation resumes (new extreme)</li>
 </ul>
@@ -601,25 +600,24 @@ Not enough for D, C, or B yet</div>
       num:   "e3",
       tag:   "Phase E",
       title: "E.pullback_developing",
-      meta:  "Clean LTF counter orderflow before Phase C maturity",
-      body:  `<p><strong>E.pullback_developing</strong> is distinct from D, C, and B. It means HTF Phase E stopped extending, then clean unbroken LTF counter orderflow began while HTF may still report phase=open. No confirmed D/C/B resolution yet.</p>
+      meta:  "LTF counter ChoCh confirmed — pullback developing",
+      body:  `<p><strong>E.pullback_developing</strong> fires when the LTF confirms a counter-direction ChoCh while the HTF is stalling. The ChoCh is the formal structural evidence that the pullback is developing — not a price floor breach and not orderflow quality.</p>
 <p><strong>Bullish HTF trigger:</strong></p>
-<div class="code-block">HTF: bullish, no new P/D high
-LTF: clean bearish counter orderflow
-orderflow_broken: false</div>
+<div class="code-block">HTF: bullish, no new P/D high (stalling)
+LTF: last_sc.choch == true
+     last_sc.breakDirection == "down"   # bearish LTF ChoCh</div>
 <p><strong>Bearish HTF trigger:</strong></p>
-<div class="code-block">HTF: bearish, no new P/D low
-LTF: clean bullish counter orderflow
-orderflow_broken: false</div>
-<p><strong>Priority of exits (from high to low):</strong></p>
+<div class="code-block">HTF: bearish, no new P/D low (stalling)
+LTF: last_sc.choch == true
+     last_sc.breakDirection == "up"     # bullish LTF ChoCh</div>
+<p><strong>Exits (no return to E.stalling):</strong></p>
 <ul>
-  <li>D.reaction_point — if HTF reaction-point evidence appears</li>
-  <li>C.hard_pullback — if LTF counter structure is clean, especially if the tight P/D midpoint is breached</li>
-  <li>C.slow_pullback — if counter structure exists but is unclean</li>
-  <li>E.stalling — if the counter orderflow weakens and a pro-continuation test begins without a new HTF extreme</li>
-  <li>E.seeking — if HTF P/D expands and continuation resumes</li>
+  <li>D.reaction_point — if the D gate fires (failed pro-continuation from pullback)</li>
+  <li>C.hard_pullback — if LTF counter structure is clean and P/D midpoint breached</li>
+  <li>C.slow_pullback — if LTF bias flips counter but structure is unclean</li>
+  <li>E.seeking — new HTF extreme appears (pro-continuation absorbed the pullback)</li>
 </ul>
-<div class="rule-block">E.pullback_developing is not D (no reaction-point evidence required), not C (C still needs maturity), and not B (B requires a prior pullback context). The DAG should not walk E.pullback_developing → B.initiation_watch directly.</div>
+<div class="rule-block">No return path to E.stalling. A failed pro-continuation attempt from E.pullback_developing belongs to Phase D, not back to stalling. The DAG should not walk E.pullback_developing → B.initiation_watch directly.</div>
 <div class="rule-block">Layer 5 stance: skip until B or C permission exists. Do not treat as clean E.</div>`,
     },
 
@@ -1173,12 +1171,11 @@ epoch_reset
     },
     E_stall: {
       out: ['E_pull', 'D_react', 'D_pd', 'D_eq', 'C_hard'],
-      in:  ['E_seek', { id:'E_pull', dashed:true, note:'resume test' }],
+      in:  ['E_seek'],
     },
     E_pull: {
       out: ['D_react', 'C_hard', 'C_slow',
-            { id:'E_stall', dashed:true, note:'resume test' },
-            { id:'E_seek',  dashed:true, note:'resumes' }],
+            { id:'E_seek', dashed:true, note:'new HTF extreme' }],
       in:  ['E_stall'],
     },
     D_react: {

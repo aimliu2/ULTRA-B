@@ -596,7 +596,7 @@ direction == "short":
       <div class="state-node active">E.seeking</div>
       <div class="state-arrow"><span>→</span><small>stopped expanding</small></div>
       <div class="state-node">E.stalling</div>
-      <div class="state-arrow"><span>→</span><small>clean counter orderflow</small></div>
+      <div class="state-arrow"><span>→</span><small>LTF counter ChoCh confirmed</small></div>
       <div class="state-node">E.pullback_developing</div>
     </div>
     <div class="state-row" style="margin-top:4px;">
@@ -616,8 +616,8 @@ direction == "short":
     <h3>E.stalling</h3>
     <p>
       No new HTF extreme this bar. The expansion has paused. The machine waits here until
-      either a new extreme appears (→ <code>E.seeking</code>) or clean LTF counter orderflow
-      develops (→ <code>E.pullback_developing</code>).
+      either a new extreme appears (→ <code>E.seeking</code>) or a counter ChoCh fires on
+      the LTF (→ <code>E.pullback_developing</code>).
     </p>
     <details open>
       <summary>E.stalling flow — pause before proven pullback <span class="where">EC → DAG → shadow</span></summary>
@@ -656,59 +656,64 @@ Phase E shadow memory:
       </div>
     </details>
     <p>
-      A failed LTF pro attempt is not enough by itself. Without clean counter-orderflow
-      evidence, the machine stays in <code>E.stalling</code>; the failed attempt is only
+      A failed LTF pro attempt is not enough by itself. Without a confirmed counter ChoCh
+      on the LTF, the machine stays in <code>E.stalling</code>; the failed attempt is only
       debug context.
     </p>
 
     <h3>E.pullback_developing</h3>
     <p>
-      Clean LTF counter orderflow was observed while the HTF was stalling. The expansion
-      did not produce another pro-side extension; instead price began a one-way slow bleed
-      away from the Phase E peak. The machine holds here while the counter orderflow remains
-      intact. If EC later reports that the counter orderflow was disrupted, the node can move
-      back to <code>E.stalling</code>; if the slow pullback matures, the DAG can promote it into
-      Phase C.
+      A counter ChoCh fired on the LTF while the HTF was stalling — the formal structural
+      evidence that the pullback is developing. The ChoCh stream (<code>ltf_counter_choch</code>)
+      is an independent EC candidate; it does not require the LTF to breach a price floor.
+      The node holds until a new HTF extreme resets to <code>E.seeking</code> or the D gate
+      fires from the EC. There is no <code>E.pullback_developing → E.stalling</code> return
+      path; a failed pro-continuation attempt from this node belongs to Phase D, not back
+      to stalling.
     </p>
     <details open>
-      <summary>E.pullback_developing flow — clean orderflow before Phase C <span class="where">EC → DAG → shadow</span></summary>
+      <summary>E.pullback_developing flow — LTF counter ChoCh before Phase C <span class="where">EC → DAG → shadow</span></summary>
       <div class="body">
         <p>
-          Discretionary read: price reached the Phase E peak, stopped extending, then pulled
-          away through clean LTF counter orderflow. Depth is useful context, but it is not the
-          definition. A 70% pullback is a measurement; clean unbroken orderflow is the reason
-          the pullback is developing.
+          Discretionary read: price reached the Phase E peak and stopped extending. The LTF
+          then confirmed a counter ChoCh — a formal break of the bullish (or bearish) LTF
+          swing structure in the counter direction. That ChoCh is the evidence the pullback
+          is developing, not a price floor breach or orderflow quality label.
         </p>
-        <pre class="block">EC facts:
+        <pre class="block">EC facts (ltf_counter_choch candidate — independent stream):
+  ltf_counter_choch_seen == true           <span class="hl">← entry trigger</span>
+    last_sc.choch == true
+    last_sc.breakDirection == "down"       # bullish HTF: counter break is "down"
+  ltf_counter_choch_event_at = timestamp   # when the ChoCh was confirmed
+  ltf_counter_choch_level = price          # the broken swing level
+
+EC facts (phase_e_context candidate — supporting):
   htf_pd_stopped_expanding == true
   new_htf_extreme == false
-  ltf_counter_orderflow_direction = bearish | bullish
-  ltf_counter_orderflow_clean == true
-  ltf_counter_orderflow_broken == false
-  ltf_counter_orderflow_leg_id = ...
-  ltf_pullback_depth_pct = number | null       # supporting metric
-  reaction_confirmed == false                 # otherwise D can win
+  ltf_pullback_depth_pct = number | null   # supporting metric
+  reaction_confirmed == false              # otherwise D can win
 
-DAG gate:
+DAG gate (reads both EC streams):
   previous E shadow node == E.stalling
-  clean unbroken LTF counter orderflow exists
+  ltf_counter_choch_seen == true
   no higher-priority E→D exit fired
   => keep phase == E
   => ask Phase E shadow to move into E.pullback_developing
 
-	Phase E shadow memory:
-	  node = E.pullback_developing
-	  previous_node = E.stalling
-	  source_orderflow_leg_id = ...
-	  source_orderflow_started_at = ...
-	  bars_in_node starts / increments
-	  pullback_disrupted = false</pre>
+Phase E shadow memory:
+  node = E.pullback_developing
+  previous_node = E.stalling
+  bars_in_node starts / increments
+
+Exits from E.pullback_developing:
+  new HTF extreme (pd_expanding)  →  E.seeking  (expansion resumed)
+  D gate ready                    →  Phase D    (failed pro attempt)
+  neither                         →  hold E.pullback_developing</pre>
         <p>
           Phase C is the next maturity step, not the same event. Promote from
           <code>E.pullback_developing</code> to C only after the LTF counter story is mature:
-          counter PD break, counter pullback confirmed, counter POI formed, or another chosen
-          orderflow maturity rule. Depth can help rank quality, but it should not be the only
-          threshold.
+          counter bias confirmed, counter POI formed. Depth can help rank quality but is not
+          the primary threshold.
         </p>
       </div>
     </details>
@@ -718,26 +723,6 @@ DAG gate:
       to Phase C with <code>sub_status = "slow_pullback"</code>, bypassing Phase D entirely.
       This is the "slow pullback from E" path.
     </p>
-
-    <details open>
-      <summary>LTF orderflow leg consumed — preventing double-fire <span class="where">_phase_e_shadow_facts()</span></summary>
-      <div class="body">
-        <p>
-          The source that triggered <code>E.pullback_developing</code> is stored in
-          <code>phase_e_shadow_consumed_orderflow_leg_id</code>. The source is the clean counter
-          orderflow leg id. Future bars with the same orderflow leg id are ignored — the
-          transition only fires once per unique source.
-        </p>
-        <p>
-          The source leg id and started-at timestamp are also stored in
-          <code>phase_e_shadow_source_orderflow_leg_id</code> and
-          <code>phase_e_shadow_source_orderflow_started_at</code> for downstream debug.
-          The legacy <code>phase_e_context_attempt_*</code> and
-          <code>phase_e_shadow_source_attempt_id</code> fields are deprecated and should remain
-          empty because Phase E no longer reads <code>structure_attempt</code>.
-        </p>
-      </div>
-    </details>
 
     <div class="rule-block">
       The shadow node is reset to <code>E.seeking</code> on every epoch boundary
@@ -910,37 +895,27 @@ if phase in {"open", "pullback_confirmed"} and direction != "none":
 <span class="hl">def</span> _phase_e_shadow_facts(self, ltf, direction, debug):
     previous_node = self.state.phase_e_shadow_node
     pd_expanding  = bool(debug.get(<span class="hl">"phase_e_context_new_htf_extreme"</span>))
-    clean_counter_orderflow = (
-        debug.get("phase_e_context_ltf_counter_orderflow_clean")
-        and not debug.get("phase_e_context_ltf_counter_orderflow_broken")
-        and debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
+
+    <span class="cm"># ltf_counter_choch is read from the independent ltf_counter_choch EC stream,
+    # not from phase_e_context (which only knows about price / expansion facts).</span>
+    ltf_counter_choch_seen = bool(
+        debug.get(<span class="hl">"phase_e_context_ltf_counter_choch_seen"</span>)
     )
 
-	    orderflow_source_id = debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
-	    orderflow_broken = bool(debug.get("phase_e_context_ltf_counter_orderflow_broken"))
-
-	    <span class="cm"># Transition table</span>
-	    if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
-	        selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># fresh entry</span>
-	    elif pd_expanding:
+    <span class="cm"># Transition table</span>
+    if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
+        selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># fresh entry</span>
+    elif pd_expanding:
         selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># new extreme → reset</span>
     elif previous_node == "E.seeking":
         selected_node = <span class="hl">"E.stalling"</span>         <span class="cm"># no new extreme</span>
     elif previous_node == "E.stalling":
-	        if clean_counter_orderflow:
-	            selected_node = <span class="hl">"E.pullback_developing"</span>
-	        else:
-	            selected_node = "E.stalling"
-	    elif previous_node == "E.pullback_developing":
-	        if orderflow_broken:
-	            selected_node = <span class="hl">"E.stalling"</span>
-	        else:
-	            selected_node = "E.pullback_developing"
-
-    <span class="cm"># Consume the orderflow leg that triggered the transition</span>
-    if clean_counter_orderflow:
-        self.state.phase_e_shadow_source_orderflow_leg_id = orderflow_source_id
-        self.state.phase_e_shadow_consumed_orderflow_leg_id = orderflow_source_id
+        if ltf_counter_choch_seen:
+            selected_node = <span class="hl">"E.pullback_developing"</span>  <span class="cm"># counter ChoCh confirmed</span>
+        else:
+            selected_node = "E.stalling"
+    elif previous_node == "E.pullback_developing":
+        selected_node = "E.pullback_developing"   <span class="cm"># hold; D gate fires independently</span>
 
     self.state.phase_e_shadow_node = selected_node
     phase_sub_status = selected_node.split(".", 1)[1] if "." in selected_node else None
@@ -1010,10 +985,13 @@ hypothesis:
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>E.pullback_developing has no timeout decay.</b>
-        The shadow node can now return to <code>E.stalling</code> when EC reports broken/disrupted
-        counter orderflow, but there is still no bar-count timeout. If orderflow remains clean
-        but never matures into C, the node can hold <code>E.pullback_developing</code> indefinitely
-        until a new HTF extreme or another explicit transition appears.</p>
+        The node holds indefinitely once a counter ChoCh is confirmed. There is no
+        bar-count timeout. The <code>ltf_counter_choch_seen</code> fact reflects the most
+        recent LTF SC event; if the LTF structure generates a new pro-direction SC the ChoCh
+        flag clears, but the shadow stays in <code>E.pullback_developing</code> because the
+        transition table has no return path to <code>E.stalling</code>. Only a new HTF
+        extreme resets to <code>E.seeking</code>, or the D gate fires. A bar-count threshold
+        could be added if the node proves to over-persist.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Out of Scope</div>
@@ -1041,11 +1019,15 @@ hypothesis:
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>Define clean orderflow trigger for <code>E.pullback_developing</code>.</b>
-        Completed: <code>phase_e_context</code> now emits clean/broken LTF counter-orderflow
-        facts, orderflow leg id, start time, and pullback depth as a supporting metric.
-        <code>E.stalling</code> moves to <code>E.pullback_developing</code> on clean unbroken
-        counter orderflow. Failed pro-attempt evidence alone remains <code>E.stalling</code>.</p>
+        <p><b>Replace orderflow trigger with LTF P/D range floor breach.</b>
+        Completed: <code>E.stalling → E.pullback_developing</code> now fires when
+        <code>ltf_pd_counter_range_breached</code> is true
+        (<code>current_price &lt; ltf_struct.range_low</code> for long;
+        <code>&gt; range_high</code> for short). The previous clean-orderflow gate
+        was too strict. <code>E.pullback_developing → E.stalling</code> disruption path
+        removed; <code>pullback_disrupted</code> and <code>disrupted_orderflow_leg_id</code>
+        fields removed from <code>PhaseEShadow</code>. Failed pro-continuation from
+        <code>E.pullback_developing</code> now belongs to Phase D, not back to stalling.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
@@ -1072,13 +1054,12 @@ hypothesis:
         <code>phase_b_dag_blocked_reason</code> for replay inspection.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Archived · Completed</div>
-        <p><b>401 DAG return path is now implemented.</b>
-        Completed: <code>E.pullback_developing</code> can return to <code>E.stalling</code> when
-        EC reports <code>ltf_counter_orderflow_broken</code>. Phase E shadow records
-        <code>phase_e_shadow_pullback_disrupted</code> and the disrupted orderflow leg id. A later
-        clean counter leg is held at <code>E.stalling</code> for the unresolved Phase D boundary
-        rather than silently looping back into <code>E.pullback_developing</code>.</p>
+        <div class="issue-label">Archived · Superseded</div>
+        <p><b>E.pullback_developing → E.stalling disruption path.</b>
+        Previously implemented but now removed. The disruption guard assumed the return path
+        to stalling was necessary to prevent a second pullback from looping. With Phase D
+        owning the failed pro-continuation outcome, the return path is redundant.
+        <code>E.pullback_developing</code> now holds until a new HTF extreme or D gate fires.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>

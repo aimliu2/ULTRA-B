@@ -3,6 +3,7 @@
 .claude
 ln-notes
 ln-data
+docs/debugging/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -625,14 +625,6 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
         graduate the second pullback into Phase D.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Open Issue</div>
-        <p><b>Move Phase E shadow memory under root Shadow Thesis.</b>
-        Current code keeps <code>state.phase_e_shadow</code> beside <code>state.shadow_thesis</code>,
-        while the architecture note now defines Shadow Thesis as the root Layer 4 memory component
-        with phase-owned ledgers. The implementation should eventually become
-        <code>state.shadow_thesis.phase_e</code> while preserving emitted debug keys.</p>
-      </div>
-      <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>Existing D names are liquidity/reaction oriented.</b>
         Current sub-statuses are <code>reaction_point</code>,
@@ -710,6 +702,19 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
         <code>ltf_counter_choch_direction</code>, <code>ltf_counter_choch_level</code>.
         Layer 4 then reads it via <code>_ec_candidate(snapshot, "ltf_counter_choch")</code>
         in addition to the existing <code>htf_counter_reaction</code> gate.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Move Phase E shadow memory under root Shadow Thesis.</b>
+        <code>PhaseEShadow</code> is now a ledger field of <code>ShadowThesis</code>
+        (<code>state.shadow_thesis.phase_e</code>). The top-level
+        <code>state.phase_e_shadow</code> field is removed.
+        <code>ShadowThesis.reset()</code> clears only Phase B commitment fields;
+        <code>phase_e.reset()</code> is called independently on epoch boundary.
+        All emitted <code>phase_e_shadow_*</code> debug keys are unchanged.
+        The <code>phase_e_shadow_node</code> property on
+        <code>HypothesisClassifierState</code> now delegates to
+        <code>shadow_thesis.phase_e.node</code>.</p>
       </div>
     </div>
   </main>

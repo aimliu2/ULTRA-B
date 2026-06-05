@@ -58,12 +58,37 @@ class Hypothesis:
 
 
 @dataclass
+class PhaseEShadow:
+    """Internal Phase E sub-node memory for expansion monitoring."""
+    node: str = "E.seeking"
+    previous_node: str | None = None
+    bars_in_node: int = 0
+    source_orderflow_leg_id: str | None = None
+    source_orderflow_started_at: str | None = None
+    consumed_orderflow_leg_id: str | None = None
+
+    def reset(self) -> None:
+        self.node = "E.seeking"
+        self.previous_node = None
+        self.bars_in_node = 0
+        self.source_orderflow_leg_id = None
+        self.source_orderflow_started_at = None
+        self.consumed_orderflow_leg_id = None
+
+
+@dataclass
 class ShadowThesis:
-    """Commitment memory for Phase B shallow-reclaim tracking.
+    """Root Layer 4 memory component with phase-owned ledgers.
 
     Survives D→C→B re-entry and normal phase transitions.
     Only cleared on epoch boundary reset or explicit invalidation.
+
+    phase_e  — Phase E expansion sub-node ledger (PhaseEShadow).
+    B-phase fields (status, selected_poi_*…) — commitment memory for
+    Phase B shallow-reclaim tracking. reset() clears only these fields;
+    phase_e has its own reset via phase_e.reset().
     """
+    phase_e: PhaseEShadow = field(default_factory=PhaseEShadow)
     status: str | None = None
     opened_at: str | None = None
     selected_poi_id: str | None = None
@@ -74,6 +99,7 @@ class ShadowThesis:
     weakening_reason: str | None = None
 
     def reset(self) -> None:
+        """Reset Phase B commitment fields. Does NOT reset phase_e ledger."""
         self.status = None
         self.opened_at = None
         self.selected_poi_id = None
@@ -85,46 +111,22 @@ class ShadowThesis:
 
 
 @dataclass
-class PhaseEShadow:
-    """Internal Phase E sub-node memory for expansion monitoring."""
-    node: str = "E.seeking"
-    previous_node: str | None = None
-    bars_in_node: int = 0
-    source_orderflow_leg_id: str | None = None
-    source_orderflow_started_at: str | None = None
-    consumed_orderflow_leg_id: str | None = None
-    pullback_disrupted: bool = False
-    disrupted_orderflow_leg_id: str | None = None
-
-    def reset(self) -> None:
-        self.node = "E.seeking"
-        self.previous_node = None
-        self.bars_in_node = 0
-        self.source_orderflow_leg_id = None
-        self.source_orderflow_started_at = None
-        self.consumed_orderflow_leg_id = None
-        self.pullback_disrupted = False
-        self.disrupted_orderflow_leg_id = None
-
-
-@dataclass
 class HypothesisClassifierState:
     hypothesis_id: str = field(default_factory=lambda: uuid4().hex)
     phase_episode_id: str = field(default_factory=lambda: uuid4().hex)
     previous_phase: Phase = "none"
     htf_pd_epoch_id: str | None = None
     active_phase_e_direction: Direction = "none"
-    phase_e_shadow: PhaseEShadow = field(default_factory=PhaseEShadow)
     shadow_thesis: ShadowThesis = field(default_factory=ShadowThesis)
     current_hypothesis: Hypothesis | None = None
 
     @property
     def phase_e_shadow_node(self) -> str:
-        return self.phase_e_shadow.node
+        return self.shadow_thesis.phase_e.node
 
     @phase_e_shadow_node.setter
     def phase_e_shadow_node(self, value: str) -> None:
-        self.phase_e_shadow.node = value
+        self.shadow_thesis.phase_e.node = value
 
 
 def _direction_from_bias(bias: str | None) -> Direction:
@@ -1499,6 +1501,24 @@ class HypothesisClassifier:
             "reaction_failed": False,
             "reaction_failed_rule": None,
         }
+        # ChoCh stream is independent of phase_e_context — always read it first.
+        _choch_ec, choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
+        facts.update(
+            {
+                "phase_e_context_ltf_counter_choch_seen": bool(
+                    choch_facts.get("ltf_counter_choch_seen")
+                ),
+                "phase_e_context_ltf_counter_choch_event_at": choch_facts.get(
+                    "ltf_counter_choch_event_at"
+                ),
+                "phase_e_context_ltf_counter_choch_direction": choch_facts.get(
+                    "ltf_counter_choch_direction"
+                ),
+                "phase_e_context_ltf_counter_choch_level": choch_facts.get(
+                    "ltf_counter_choch_level"
+                ),
+            }
+        )
         phase_e, phase_e_facts = _ec_candidate(snapshot, "phase_e_context")
         if phase_e.get("status") == "ready":
             facts.update(
@@ -1515,6 +1535,9 @@ class HypothesisClassifier:
                         phase_e_facts.get("ltf_probe_outside_htf_pd_range")
                     ),
                     "phase_e_context_ltf_probe_direction": phase_e_facts.get("ltf_probe_direction"),
+                    "phase_e_context_ltf_pd_counter_range_breached": bool(
+                        phase_e_facts.get("ltf_pd_counter_range_breached")
+                    ),
                     "phase_e_context_htf_equal_extreme_retest": bool(
                         phase_e_facts.get("htf_equal_extreme_retest")
                     ),
@@ -1581,7 +1604,7 @@ class HypothesisClassifier:
         return facts
 
     def _reset_phase_e_shadow(self) -> None:
-        self.state.phase_e_shadow.reset()
+        self.state.shadow_thesis.phase_e.reset()
 
     def _reset_phase_b_shadow(self) -> None:
         self.state.shadow_thesis.reset()
@@ -1691,57 +1714,36 @@ class HypothesisClassifier:
         direction: Direction,
         debug: dict[str, Any],
     ) -> dict[str, Any]:
-        s = self.state.phase_e_shadow
+        s = self.state.shadow_thesis.phase_e
         previous_node = s.node
         selected_node = previous_node
         selection_reason = "phase_e_shadow_held"
         candidate_nodes: list[str] = []
-        # Deprecated: Phase E no longer reads LTF structure_attempt. Clean/broken
-        # orderflow facts own E.stalling <-> E.pullback_developing transitions.
         if "phase_e_context_new_htf_extreme" in debug:
             pd_expanding = bool(debug.get("phase_e_context_new_htf_extreme"))
         else:
             pd_expanding = bool(debug.get("new_htf_extreme"))
-        orderflow_source_id = debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
-        orderflow_clean = bool(debug.get("phase_e_context_ltf_counter_orderflow_clean"))
-        orderflow_broken = bool(debug.get("phase_e_context_ltf_counter_orderflow_broken"))
-        clean_counter_orderflow = bool(
-            orderflow_clean
-            and not orderflow_broken
-            and orderflow_source_id
-            and orderflow_source_id != s.consumed_orderflow_leg_id
+        ltf_counter_choch_seen = bool(
+            debug.get("phase_e_context_ltf_counter_choch_seen")
         )
 
         if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
             selected_node = "E.seeking"
             selection_reason = "phase_e_shadow_initialized"
-            s.pullback_disrupted = False
-            s.disrupted_orderflow_leg_id = None
         elif pd_expanding:
             selected_node = "E.seeking"
             selection_reason = "htf_pd_expanded"
-            s.pullback_disrupted = False
-            s.disrupted_orderflow_leg_id = None
         elif previous_node == "E.seeking":
             selected_node = "E.stalling"
             selection_reason = "htf_pd_stopped_expanding"
         elif previous_node == "E.stalling":
-            if clean_counter_orderflow and not s.pullback_disrupted:
+            if ltf_counter_choch_seen:
                 selected_node = "E.pullback_developing"
-                selection_reason = "clean_ltf_counter_orderflow_after_e_stalling"
-            elif clean_counter_orderflow and s.pullback_disrupted:
-                selected_node = "E.stalling"
-                selection_reason = "second_counter_pullback_requires_phase_d_boundary"
+                selection_reason = "ltf_counter_choch_after_e_stalling"
             else:
                 selected_node = "E.stalling"
         elif previous_node == "E.pullback_developing":
-            if orderflow_broken:
-                selected_node = "E.stalling"
-                selection_reason = "counter_orderflow_disrupted_after_pullback_developing"
-                s.pullback_disrupted = True
-                s.disrupted_orderflow_leg_id = str(orderflow_source_id) if orderflow_source_id else None
-            else:
-                selected_node = "E.pullback_developing"
+            selected_node = "E.pullback_developing"
 
         candidate_nodes.append(selected_node)
         if selected_node != previous_node:
@@ -1750,12 +1752,6 @@ class HypothesisClassifier:
         else:
             s.bars_in_node += 1
         s.node = selected_node
-
-        if clean_counter_orderflow:
-            source_orderflow_leg_id = str(orderflow_source_id)
-            s.source_orderflow_leg_id = source_orderflow_leg_id
-            s.source_orderflow_started_at = debug.get("phase_e_context_ltf_counter_orderflow_started_at")
-            s.consumed_orderflow_leg_id = source_orderflow_leg_id
 
         phase_sub_status = selected_node.split(".", 1)[1] if "." in selected_node else None
         return {
@@ -1769,11 +1765,11 @@ class HypothesisClassifier:
             "phase_e_shadow_source_orderflow_leg_id": s.source_orderflow_leg_id,
             "phase_e_shadow_source_orderflow_started_at": s.source_orderflow_started_at,
             "phase_e_shadow_consumed_orderflow_leg_id": s.consumed_orderflow_leg_id,
-            "phase_e_shadow_pullback_disrupted": s.pullback_disrupted,
-            "phase_e_shadow_disrupted_orderflow_leg_id": s.disrupted_orderflow_leg_id,
-            "phase_e_shadow_source_attempt_id": None,  # Deprecated: use source_orderflow_leg_id.
-            "phase_e_shadow_source_itr_level_id": None,  # Deprecated: Phase E no longer uses structure_attempt.
-            "phase_e_context_attempt_id": None,  # Deprecated: Phase E no longer uses structure_attempt.
+            "phase_e_shadow_pullback_disrupted": None,       # Deprecated: removed.
+            "phase_e_shadow_disrupted_orderflow_leg_id": None,  # Deprecated: removed.
+            "phase_e_shadow_source_attempt_id": None,  # Deprecated.
+            "phase_e_shadow_source_itr_level_id": None,  # Deprecated.
+            "phase_e_context_attempt_id": None,  # Deprecated.
             "phase_e_context_attempt_status": None,
             "phase_e_context_attempt_origin": None,
             "phase_e_context_attempt_orderflow_quality": None,

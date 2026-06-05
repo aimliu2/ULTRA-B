@@ -1627,6 +1627,19 @@ class EvidenceCompiler:
                 ltf_probe_outside_htf_pd_range = True
                 ltf_probe_direction = "pro" if direction == "short" else "counter"
 
+        ltf_pd_counter_range_breached = False
+        if current_price is not None and ltf_struct:
+            ltf_range_low = ltf_struct.get("range_low")
+            ltf_range_high = ltf_struct.get("range_high")
+            try:
+                price = float(current_price)
+                if direction == "long" and ltf_range_low is not None:
+                    ltf_pd_counter_range_breached = price < float(ltf_range_low)
+                elif direction == "short" and ltf_range_high is not None:
+                    ltf_pd_counter_range_breached = price > float(ltf_range_high)
+            except (TypeError, ValueError):
+                pass
+
         # Two-bar reaction signal (previous HTF bar vs current HTF bar close)
         reaction_confirmed = False
         reaction_warning = False
@@ -1710,6 +1723,7 @@ class EvidenceCompiler:
                 "ltf_bias_counter_htf": ltf_bias_counter,
                 "ltf_probe_outside_htf_pd_range": ltf_probe_outside_htf_pd_range,
                 "ltf_probe_direction": ltf_probe_direction,
+                "ltf_pd_counter_range_breached": ltf_pd_counter_range_breached,
                 "ltf_counter_orderflow_direction": ltf_counter_orderflow_direction,
                 "ltf_counter_orderflow_clean": ltf_counter_orderflow_clean,
                 "ltf_counter_orderflow_broken": ltf_counter_orderflow_broken,

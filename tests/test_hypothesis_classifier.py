@@ -5,7 +5,14 @@ from ultrab.core.smc.evidence_compiler import EvidenceCompiler
 from ultrab.core.smc.hypothesis import HypothesisClassifier
 
 
-def structure(bias="bullish", phase="open", high=1.12, low=1.10):
+def structure(bias="bullish", phase="open", high=1.12, low=1.10, choch=False):
+    last_sc: dict = {
+        "eventTimestamp": "2024-01-01T00:00:00+00:00",
+        "eventCode": "SC01" if bias == "bullish" else "SC02",
+        "breakDirection": "up" if bias == "bullish" else "down",
+    }
+    if choch:
+        last_sc["choch"] = True
     return {
         "tier": "itr",
         "bias": bias,
@@ -17,11 +24,7 @@ def structure(bias="bullish", phase="open", high=1.12, low=1.10):
         "confirmed_by": None,
         "confirmed_zone_id": None,
         "pullback_confirmed_ts": None,
-        "last_sc": {
-            "eventTimestamp": "2024-01-01T00:00:00+00:00",
-            "eventCode": "SC01" if bias == "bullish" else "SC02",
-            "breakDirection": "up" if bias == "bullish" else "down",
-        },
+        "last_sc": last_sc,
         "phase_start_ts": "2024-01-01T00:00:00+00:00",
         "range_high_ts": "2024-01-01T04:00:00+00:00",
         "range_low_ts": "2024-01-01T00:00:00+00:00",
@@ -507,10 +510,8 @@ class HypothesisClassifierTests(unittest.TestCase):
         )
         self.assertIsNone(stalling.debug_facts["phase_e_shadow_source_attempt_id"])
         self.assertIsNone(stalling.debug_facts["phase_e_context_attempt_status"])
-        self.assertEqual(classifier.state.phase_e_shadow.node, "E.stalling")
+        self.assertEqual(classifier.state.shadow_thesis.phase_e.node, "E.stalling")
 
-        ltf_failed = structure("bullish", "open", high=1.120, low=1.109)
-        ltf_failed["structure_attempt"] = structure_attempt("failed")
         developing = classify_with_auto_ec(classifier,
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
@@ -518,20 +519,17 @@ class HypothesisClassifierTests(unittest.TestCase):
                     {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
                     {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
                 ],
-                ltf=ltf_failed,
-                lower_orderflow=clean_orderflow("bearish", "OF:phase-e-pullback"),
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             )
         )
         self.assertEqual(developing.phase, "E")
         self.assertEqual(developing.phase_sub_status, "pullback_developing")
         self.assertEqual(
             developing.debug_facts["phase_e_shadow_selection_reason"],
-            "clean_ltf_counter_orderflow_after_e_stalling",
+            "ltf_counter_choch_after_e_stalling",
         )
         self.assertIsNone(developing.debug_facts["phase_e_shadow_source_attempt_id"])
-        self.assertEqual(developing.debug_facts["phase_e_shadow_source_orderflow_leg_id"], "OF:phase-e-pullback")
-        self.assertEqual(developing.debug_facts["phase_e_shadow_consumed_orderflow_leg_id"], "OF:phase-e-pullback")
-        self.assertEqual(developing.debug_facts["phase_e_shadow_source_orderflow_started_at"], "2024-01-01T10:00:00+00:00")
+        self.assertTrue(developing.debug_facts["phase_e_context_ltf_counter_choch_seen"])
 
     def test_phase_e_failed_pro_attempt_without_clean_orderflow_stays_stalling(self):
         classifier = HypothesisClassifier()
@@ -576,7 +574,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(held.debug_facts["phase_e_shadow_selection_reason"], "phase_e_shadow_held")
         self.assertIsNone(held.debug_facts["phase_e_shadow_source_attempt_id"])
 
-    def test_phase_e_pullback_developing_returns_to_stalling_when_counter_orderflow_breaks(self):
+    def test_phase_e_pullback_developing_holds_on_pro_continuation(self):
         classifier = HypothesisClassifier()
         bars_1 = [
             {"time": "2024-01-01T04:00:00+00:00", "open": 1.11, "high": 1.12, "low": 1.105, "close": 1.118},
@@ -584,13 +582,11 @@ class HypothesisClassifierTests(unittest.TestCase):
         ]
         classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_1))
 
-        ltf_active = structure("bullish", "pullback_confirmed", high=1.120, low=1.110)
-        ltf_active["structure_attempt"] = structure_attempt("active")
         bars_2 = [
             bars_1[-1],
             {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
         ]
-        classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2, ltf=ltf_active))
+        classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2))
 
         bars_3 = [
             bars_2[-1],
@@ -601,8 +597,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bullish", "pullback_confirmed", high=1.120, low=1.109),
-                lower_orderflow=clean_orderflow("bearish", "OF:phase-e-pullback"),
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             ),
         )
         self.assertEqual(developing.phase_sub_status, "pullback_developing")
@@ -611,93 +606,67 @@ class HypothesisClassifierTests(unittest.TestCase):
             bars_3[-1],
             {"time": "2024-01-01T20:00:00+00:00", "open": 1.110, "high": 1.120, "low": 1.109, "close": 1.118},
         ]
-        stalling = classify_with_auto_ec(
+        held = classify_with_auto_ec(
             classifier,
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_4,
                 ltf=structure("bullish", "open", high=1.120, low=1.109),
-                lower_orderflow=pro_continuation_orderflow("bullish", "OF:pro-continuation"),
+                current_price=1.115,
             ),
         )
 
-        self.assertEqual(stalling.phase, "E")
-        self.assertEqual(stalling.phase_sub_status, "stalling")
-        self.assertTrue(stalling.debug_facts["phase_e_context_ltf_counter_orderflow_broken"])
-        self.assertTrue(stalling.debug_facts["phase_e_shadow_pullback_disrupted"])
-        self.assertEqual(
-            stalling.debug_facts["phase_e_shadow_selection_reason"],
-            "counter_orderflow_disrupted_after_pullback_developing",
-        )
-        self.assertEqual(stalling.debug_facts["phase_e_shadow_disrupted_orderflow_leg_id"], "OF:pro-continuation")
+        self.assertEqual(held.phase, "E")
+        self.assertEqual(held.phase_sub_status, "pullback_developing")
+        self.assertEqual(held.debug_facts["phase_e_shadow_selection_reason"], "phase_e_shadow_held")
+        self.assertIsNone(held.debug_facts["phase_e_shadow_pullback_disrupted"])
+        self.assertIsNone(held.debug_facts["phase_e_shadow_disrupted_orderflow_leg_id"])
 
-    def test_phase_e_disrupted_pullback_does_not_loop_back_to_pullback_developing(self):
+    def test_phase_e_pullback_developing_resets_to_seeking_on_new_htf_extreme(self):
         classifier = HypothesisClassifier()
         bars_1 = [
             {"time": "2024-01-01T04:00:00+00:00", "open": 1.11, "high": 1.12, "low": 1.105, "close": 1.118},
             {"time": "2024-01-01T08:00:00+00:00", "open": 1.118, "high": 1.123, "low": 1.111, "close": 1.121},
         ]
         classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_1))
+
         bars_2 = [
             bars_1[-1],
             {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
         ]
-        classify_with_auto_ec(
-            classifier,
-            dual_snapshot(
-                structure("bullish", "open", high=1.123, low=1.10),
-                bars_2,
-                ltf=structure("bullish", "pullback_confirmed", high=1.120, low=1.110),
-            ),
-        )
+        classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2))
+
         bars_3 = [
             bars_2[-1],
             {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
         ]
-        classify_with_auto_ec(
+        developing = classify_with_auto_ec(
             classifier,
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bullish", "pullback_confirmed", high=1.120, low=1.109),
-                lower_orderflow=clean_orderflow("bearish", "OF:phase-e-pullback"),
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             ),
         )
+        self.assertEqual(developing.phase_sub_status, "pullback_developing")
+
         bars_4 = [
             bars_3[-1],
-            {"time": "2024-01-01T20:00:00+00:00", "open": 1.110, "high": 1.120, "low": 1.109, "close": 1.118},
+            {"time": "2024-01-01T20:00:00+00:00", "open": 1.110, "high": 1.130, "low": 1.109, "close": 1.128},
         ]
-        classify_with_auto_ec(
+        seeking = classify_with_auto_ec(
             classifier,
             dual_snapshot(
-                structure("bullish", "open", high=1.123, low=1.10),
+                structure("bullish", "open", high=1.130, low=1.10),
                 bars_4,
-                ltf=structure("bullish", "open", high=1.120, low=1.109),
-                lower_orderflow=pro_continuation_orderflow("bullish", "OF:pro-continuation"),
+                ltf=structure("bullish", "open", high=1.130, low=1.115),
+                current_price=1.128,
             ),
         )
 
-        bars_5 = [
-            bars_4[-1],
-            {"time": "2024-01-02T00:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.107, "close": 1.109},
-        ]
-        held = classify_with_auto_ec(
-            classifier,
-            dual_snapshot(
-                structure("bullish", "open", high=1.123, low=1.10),
-                bars_5,
-                ltf=structure("bullish", "pullback_confirmed", high=1.119, low=1.107),
-                lower_orderflow=clean_orderflow("bearish", "OF:second-phase-e-pullback"),
-            ),
-        )
-
-        self.assertEqual(held.phase, "E")
-        self.assertEqual(held.phase_sub_status, "stalling")
-        self.assertTrue(held.debug_facts["phase_e_shadow_pullback_disrupted"])
-        self.assertEqual(
-            held.debug_facts["phase_e_shadow_selection_reason"],
-            "second_counter_pullback_requires_phase_d_boundary",
-        )
+        self.assertEqual(seeking.phase, "E")
+        self.assertEqual(seeking.phase_sub_status, "seeking")
+        self.assertEqual(seeking.debug_facts["phase_e_shadow_selection_reason"], "htf_pd_expanded")
 
     def test_phase_e_equal_high_retest_moves_to_stalling(self):
         classifier = HypothesisClassifier()
@@ -797,8 +766,6 @@ class HypothesisClassifierTests(unittest.TestCase):
         ]
         classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2, ltf=ltf_active))
 
-        ltf_failed = structure("bullish", "pullback_confirmed", high=1.120, low=1.109)
-        ltf_failed["structure_attempt"] = structure_attempt("failed")
         bars_3 = [
             bars_2[-1],
             {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
@@ -807,21 +774,19 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=ltf_failed,
-                lower_orderflow=clean_orderflow("bearish", "OF:phase-e-pullback"),
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             )
         )
         self.assertEqual(developing.phase, "E")
         self.assertEqual(developing.phase_sub_status, "pullback_developing")
 
-        ltf_counter = structure("bearish", "open", high=1.120, low=1.108)
-        ltf_counter["structure_attempt"] = structure_attempt("failed")
         bars_4 = [
             bars_3[-1],
             {"time": "2024-01-01T20:00:00+00:00", "open": 1.110, "high": 1.111, "low": 1.104, "close": 1.106},
         ]
         slow_c = classify_with_auto_ec(classifier,
-            dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_4, ltf=ltf_counter)
+            dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_4,
+                          ltf=structure("bearish", "open", high=1.120, low=1.108))
         )
         self.assertEqual(slow_c.phase, "C")
         self.assertEqual(slow_c.phase_sub_status, "slow_pullback")
@@ -847,8 +812,6 @@ class HypothesisClassifierTests(unittest.TestCase):
         ]
         classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2, ltf=ltf_active))
 
-        ltf_failed = structure("bullish", "pullback_confirmed", high=1.120, low=1.109)
-        ltf_failed["structure_attempt"] = structure_attempt("failed")
         bars_3 = [
             bars_2[-1],
             {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
@@ -858,8 +821,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=ltf_failed,
-                lower_orderflow=clean_orderflow("bearish", "OF:phase-e-pullback"),
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             ),
         )
         self.assertEqual(developing.phase, "E")
@@ -909,8 +871,6 @@ class HypothesisClassifierTests(unittest.TestCase):
         ]
         classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2, ltf=ltf_active))
 
-        ltf_failed = structure("bullish", "pullback_confirmed", high=1.120, low=1.109)
-        ltf_failed["structure_attempt"] = structure_attempt("failed")
         bars_3 = [
             bars_2[-1],
             {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
@@ -920,19 +880,17 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=ltf_failed,
-                lower_orderflow=clean_orderflow("bearish", "OF:phase-e-pullback"),
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             ),
         )
 
-        ltf_counter = structure("bearish", "open", high=1.120, low=1.108)
-        ltf_counter["structure_attempt"] = structure_attempt("failed")
         bars_4 = [
             bars_3[-1],
             {"time": "2024-01-01T20:00:00+00:00", "open": 1.110, "high": 1.111, "low": 1.104, "close": 1.106},
         ]
         slow_c = classify_with_auto_ec(classifier,
-            dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_4, ltf=ltf_counter)
+            dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_4,
+                          ltf=structure("bearish", "open", high=1.120, low=1.108))
         )
         self.assertEqual(slow_c.phase, "C")
         self.assertEqual(slow_c.phase_sub_status, "slow_pullback")
