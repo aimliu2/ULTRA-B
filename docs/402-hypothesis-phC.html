@@ -106,7 +106,7 @@
     font-weight: 500;
     font-size: 32px;
     color: var(--text-head);
-    letter-spacing: 0;
+    letter-spacing: -0.01em;
     margin-bottom: 14px;
   }
   .tldr {
@@ -190,7 +190,7 @@
   summary::before {
     content: ">";
     color: var(--accent);
-    font-family: var(--mono);
+    font-family: var(--sans);
     font-size: 12px;
     transition: transform 120ms;
     flex-shrink: 0;
@@ -214,45 +214,54 @@
     overflow: hidden;
     max-width: 760px;
   }
-  .tab-buttons {
+  .tabbar {
     display: flex;
     border-bottom: 1px solid var(--border);
     background: var(--gray-150);
     flex-wrap: wrap;
   }
-  .tab-buttons button {
+  .tabbar button {
     appearance: none;
-    border: 0;
-    background: transparent;
-    padding: 10px 14px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    cursor: pointer;
-  }
-  .tab-buttons button.on {
-    background: var(--surface);
-    color: var(--text-head);
-    box-shadow: inset 0 -2px 0 var(--accent);
-  }
-  pre {
-    display: none;
-    padding: 16px;
-    overflow-x: auto;
+    border: none;
+    background: none;
     font-family: var(--mono);
     font-size: 12px;
-    line-height: 1.7;
-    color: var(--text);
-    background: var(--surface);
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
   }
-  pre.on { display: block; }
-  pre.block {
-    display: block;
-    max-width: 700px;
-    margin: 16px 0;
-    border: 1.5px solid var(--border);
-    border-radius: 10px;
+  .tabbar button.on {
     background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
   }
   .hl { color: var(--accent); font-weight: 700; }
   .cm { color: var(--text-dim); font-style: italic; }
@@ -289,9 +298,9 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
-  .issue-card p { margin: 0; font-size: 13px; }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
 
   ::selection { background: var(--oat); }
 </style>
@@ -509,11 +518,11 @@ C → E.seeking if the prior Phase E direction resumes and reaction fails</pre>
     </p>
 
     <div class="tabs" data-tabs>
-      <div class="tab-buttons">
-        <button class="on">E / D / C slice</button>
-        <button>_phase_c_setup()</button>
-        <button>_phase_c()</button>
-        <button>Fast hard path</button>
+      <div class="tabbar">
+        <button class="on" data-t="0">E / D / C slice</button>
+        <button data-t="1">_phase_c_setup()</button>
+        <button data-t="2">_phase_c()</button>
+        <button data-t="3">Fast hard path</button>
       </div>
 <pre class="on"><span class="cm"># classify(), simplified</span>
 if previous_phase == <span class="hl">"D"</span>:
@@ -593,9 +602,9 @@ if previous_phase != "B" and phase_e_shadow_node == <span class="hl">"E.pullback
     </p>
 
     <div class="tabs" data-tabs>
-      <div class="tab-buttons">
-        <button class="on">config.yaml</button>
-        <button>HypothesisClassifier</button>
+      <div class="tabbar">
+        <button class="on" data-t="0">config.yaml</button>
+        <button data-t="1">HypothesisClassifier</button>
       </div>
 <pre class="on">hypothesis:
   enabled: true
@@ -668,30 +677,29 @@ entry_policy = "hybrid" if (
 </div>
 
 <script>
-document.querySelectorAll('[data-tabs]').forEach(group => {
-  const buttons = Array.from(group.querySelectorAll('.tab-buttons button'));
-  const panes = Array.from(group.querySelectorAll('pre'));
-  buttons.forEach((button, index) => {
-    button.addEventListener('click', () => {
-      buttons.forEach(b => b.classList.remove('on'));
-      panes.forEach(p => p.classList.remove('on'));
-      button.classList.add('on');
-      panes[index].classList.add('on');
-    });
-  });
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
 });
 
-const navLinks = Array.from(document.querySelectorAll('nav a[href^="#"]'));
-const byId = new Map(navLinks.map(a => [a.getAttribute('href').slice(1), a]));
-const obs = new IntersectionObserver(entries => {
-  entries.forEach(entry => {
-    if (!entry.isIntersecting) return;
-    navLinks.forEach(a => a.classList.remove('active'));
-    const link = byId.get(entry.target.id);
-    if (link) link.classList.add('active');
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks = document.querySelectorAll("nav a[href^='#']");
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
   });
-}, { rootMargin: '-20% 0px -70% 0px' });
-document.querySelectorAll('h2[id], h3[id]').forEach(h => obs.observe(h));
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
 </script>
 </body>
 </html>
