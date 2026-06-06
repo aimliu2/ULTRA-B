@@ -32,11 +32,11 @@ def _cmp(a: float, b: float) -> str:
 
 
 class OrderflowContext:
-    """Stateless Layer 3 orderflow projector over structure anchors + live probe."""
+    """Stateless Layer 3 orderflow projector over structure sequence + live probe."""
 
     def __init__(self, cfg: dict[str, Any] | None = None, timeframe: str | None = None) -> None:
         cfg = cfg or {}
-        self.source = str(cfg.get("source", "structure_anchor_sequence"))
+        self.source = str(cfg.get("source", "structure_sequence"))
         self.window_size = int(cfg.get("probe_points", cfg.get("window_size", 8)))
         self.starts_with = str(cfg.get("starts_with", "H"))
         self.timeframe = timeframe
@@ -50,12 +50,20 @@ class OrderflowContext:
         if not structure:
             return self._empty(evaluated_at, "insufficient_points")
 
+        probe_key = self.source.replace("_sequence", "_probe")
         anchors = [
             point
-            for point in structure.get("structure_anchor_sequence") or []
+            for point in structure.get(self.source) or []
             if _price(point) is not None
         ]
-        probe = structure.get("structure_anchor_probe")
+        if not anchors and self.source == "structure_sequence":
+            anchors = [
+                point
+                for point in structure.get("structure_anchor_sequence") or []
+                if _price(point) is not None
+            ]
+            probe_key = "structure_anchor_probe"
+        probe = structure.get(probe_key)
         if _price(probe or {}) is None:
             probe = None
 
@@ -66,6 +74,19 @@ class OrderflowContext:
         latest_low = self._latest_by_side(labels, "low")
         prev_high = self._previous_by_side(labels, "high")
         prev_low = self._previous_by_side(labels, "low")
+
+        mss_watch_confirmed = False
+        if len(labels) >= 2:
+            if score["direction"] == "bullish":
+                if (latest_low and latest_low.get("label") == "LL") or (
+                    latest_high and latest_high.get("label") == "LH"
+                ):
+                    mss_watch_confirmed = True
+            elif score["direction"] == "bearish":
+                if (latest_high and latest_high.get("label") == "HH") or (
+                    latest_low and latest_low.get("label") == "HL"
+                ):
+                    mss_watch_confirmed = True
 
         regime = "directional"
         monitor = "none"
@@ -88,19 +109,19 @@ class OrderflowContext:
             blocked_reason = "compression"
 
         probe_relation = self._locate_probe(probe, latest_high, latest_low)
-        if probe and score["direction"] == "bullish" and latest_low:
-            protected_anchor = latest_low
-            if _price(probe) < _price(latest_low) - EPS:
+        if probe and score["direction"] == "bullish":
+            protected_anchor = self._latest_by_label(labels, "HL")
+            if protected_anchor and _price(probe) < _price(protected_anchor) - EPS:
                 probe_breaks_protected_anchor = True
-                regime = "choch_watch"
+                regime = "mss_watch"
                 monitor = "watching_resolution"
                 live_pressure = "anchor_threat"
                 blocked_reason = None
-        if probe and score["direction"] == "bearish" and latest_high:
-            protected_anchor = latest_high
-            if _price(probe) > _price(latest_high) + EPS:
+        if probe and score["direction"] == "bearish":
+            protected_anchor = self._latest_by_label(labels, "LH")
+            if protected_anchor and _price(probe) > _price(protected_anchor) + EPS:
                 probe_breaks_protected_anchor = True
-                regime = "choch_watch"
+                regime = "mss_watch"
                 monitor = "watching_resolution"
                 live_pressure = "anchor_threat"
                 blocked_reason = None
@@ -112,12 +133,15 @@ class OrderflowContext:
                 live_pressure = "pullback_extending"
 
         sequence = [point["label"] for point in labels]
+        mss_trigger_source = "probe_vs_protected_anchor" if probe_breaks_protected_anchor else "none"
         return {
             "confirmed_direction": score["direction"],
             "regime": regime,
+            "mss_regime": regime,
+            "mss_watch_confirmed": mss_watch_confirmed,
             "quality": score["quality"],
             "live_pressure": live_pressure,
-            "choch_monitor_status": monitor,
+            "mss_monitor_status": monitor,
             "source": self.source,
             "window_size": self.window_size,
             "confirmed_sequence": sequence,
@@ -135,7 +159,7 @@ class OrderflowContext:
             "probe_price": _price(probe) if probe else None,
             "probe_breaks_protected_anchor": probe_breaks_protected_anchor,
             "probe_relation": probe_relation,
-            "choch_trigger_source": "probe_vs_protected_anchor" if probe_breaks_protected_anchor else "none",
+            "mss_trigger_source": mss_trigger_source,
             "liquidity_annotations": [
                 {"ref": _point_ref(point), "label": point["label"]}
                 for point in labels
@@ -151,9 +175,11 @@ class OrderflowContext:
         return {
             "confirmed_direction": "unknown",
             "regime": "unknown",
+            "mss_regime": "unknown",
+            "mss_watch_confirmed": False,
             "quality": "weak",
             "live_pressure": "none",
-            "choch_monitor_status": "none",
+            "mss_monitor_status": "none",
             "source": self.source,
             "window_size": self.window_size,
             "confirmed_sequence": [],
@@ -169,7 +195,7 @@ class OrderflowContext:
             "probe_ref": None,
             "probe_breaks_protected_anchor": False,
             "probe_relation": "unknown",
-            "choch_trigger_source": "none",
+            "mss_trigger_source": "none",
             "liquidity_annotations": [],
             "pullback_status": "unknown",
             "timeframe": self.timeframe,
@@ -225,6 +251,10 @@ class OrderflowContext:
     @staticmethod
     def _latest_by_side(labels: list[dict[str, Any]], side: str) -> dict[str, Any] | None:
         return next((point for point in reversed(labels) if point.get("side") == side), None)
+
+    @staticmethod
+    def _latest_by_label(labels: list[dict[str, Any]], label: str) -> dict[str, Any] | None:
+        return next((point for point in reversed(labels) if point.get("label") == label), None)
 
     @staticmethod
     def _previous_by_side(labels: list[dict[str, Any]], side: str) -> dict[str, Any] | None:

@@ -456,7 +456,7 @@ class HypothesisClassifier:
             if (
                 self.state.previous_phase != "B"
                 and self.state.phase_e_shadow_node == "E.pullback_developing"
-                and phase_c_from_e["phase_c_story_ready"]
+                and phase_c_from_e["phase_c_ltf_counter_bos_confirmed"]
             ):
                 debug.update(
                     {
@@ -1032,6 +1032,7 @@ class HypothesisClassifier:
             "phase_c_ltf_counter_pd_break": bool(facts.get("ltf_counter_pd_break")),
             "phase_c_ltf_counter_break_direction": ltf_counter_break_direction,
             "phase_c_ltf_counter_pullback_confirmed": bool(facts.get("ltf_counter_pullback_confirmed")),
+            "phase_c_ltf_counter_bos_confirmed": bool(facts.get("ltf_counter_bos_confirmed")),
             "phase_c_selected_poi_touched": touched,
         }
 
@@ -1565,6 +1566,24 @@ class HypothesisClassifier:
                     "phase_e_context_ltf_counter_orderflow_direction": phase_e_facts.get(
                         "ltf_counter_orderflow_direction"
                     ),
+                    "phase_e_context_ltf_counter_orderflow_mss_watch": bool(
+                        phase_e_facts.get("ltf_counter_orderflow_mss_watch")
+                    ),
+                    "phase_e_context_ltf_swing_orderflow_mss_watch": bool(
+                        phase_e_facts.get("ltf_swing_orderflow_mss_watch")
+                    ),
+                    "phase_e_context_ltf_counter_orderflow_mss_regime": phase_e_facts.get(
+                        "ltf_counter_orderflow_mss_regime"
+                    ),
+                    "phase_e_context_ltf_counter_orderflow_mss_monitor_status": phase_e_facts.get(
+                        "ltf_counter_orderflow_mss_monitor_status"
+                    ),
+                    "phase_e_context_ltf_counter_orderflow_mss_trigger_source": phase_e_facts.get(
+                        "ltf_counter_orderflow_mss_trigger_source"
+                    ),
+                    "phase_e_context_ltf_counter_orderflow_probe_breaks_protected_anchor": bool(
+                        phase_e_facts.get("ltf_counter_orderflow_probe_breaks_protected_anchor")
+                    ),
                     "phase_e_context_ltf_counter_orderflow_clean": bool(
                         phase_e_facts.get("ltf_counter_orderflow_clean")
                     ),
@@ -1723,8 +1742,14 @@ class HypothesisClassifier:
             pd_expanding = bool(debug.get("phase_e_context_new_htf_extreme"))
         else:
             pd_expanding = bool(debug.get("new_htf_extreme"))
-        ltf_counter_choch_seen = bool(
-            debug.get("phase_e_context_ltf_counter_choch_seen")
+        ltf_counter_orderflow_mss_watch = bool(
+            debug.get("phase_e_context_ltf_counter_orderflow_mss_watch")
+        )
+        ltf_counter_orderflow_leg_id = debug.get(
+            "phase_e_context_ltf_counter_orderflow_leg_id"
+        )
+        ltf_counter_orderflow_started_at = debug.get(
+            "phase_e_context_ltf_counter_orderflow_started_at"
         )
 
         if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
@@ -1737,9 +1762,12 @@ class HypothesisClassifier:
             selected_node = "E.stalling"
             selection_reason = "htf_pd_stopped_expanding"
         elif previous_node == "E.stalling":
-            if ltf_counter_choch_seen:
+            if ltf_counter_orderflow_mss_watch:
                 selected_node = "E.pullback_developing"
-                selection_reason = "ltf_counter_choch_after_e_stalling"
+                selection_reason = "ltf_counter_orderflow_mss_after_e_stalling"
+                s.source_orderflow_leg_id = ltf_counter_orderflow_leg_id
+                s.source_orderflow_started_at = ltf_counter_orderflow_started_at
+                s.consumed_orderflow_leg_id = ltf_counter_orderflow_leg_id
             else:
                 selected_node = "E.stalling"
         elif previous_node == "E.pullback_developing":

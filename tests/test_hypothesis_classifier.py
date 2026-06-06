@@ -231,6 +231,23 @@ def clean_orderflow(direction="bearish", leg_id="OF:bearish:1"):
     }
 
 
+def mss_watch_orderflow(direction="bullish", leg_id="OF:mss-watch:1"):
+    return {
+        "confirmed_direction": direction,
+        "quality": "clean",
+        "regime": "mss_watch",
+        "mss_regime": "mss_watch",
+        "mss_watch_confirmed": True,
+        "mss_monitor_status": "watching_resolution",
+        "range_ref": leg_id,
+        "protected_anchor_ref": f"{leg_id}:protected",
+        "disruption_point_ref": f"{leg_id}:probe",
+        "probe_breaks_protected_anchor": True,
+        "mss_trigger_source": "probe_vs_protected_anchor",
+        "last_shift_at": "2024-01-01T10:00:00+00:00",
+    }
+
+
 def pro_continuation_orderflow(direction="bullish", leg_id="OF:pro:1"):
     return {
         "confirmed_direction": direction,
@@ -519,17 +536,23 @@ class HypothesisClassifierTests(unittest.TestCase):
                     {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
                     {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
                 ],
-                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:1"),
             )
         )
         self.assertEqual(developing.phase, "E")
         self.assertEqual(developing.phase_sub_status, "pullback_developing")
         self.assertEqual(
             developing.debug_facts["phase_e_shadow_selection_reason"],
-            "ltf_counter_choch_after_e_stalling",
+            "ltf_counter_orderflow_mss_after_e_stalling",
         )
         self.assertIsNone(developing.debug_facts["phase_e_shadow_source_attempt_id"])
-        self.assertTrue(developing.debug_facts["phase_e_context_ltf_counter_choch_seen"])
+        self.assertFalse(developing.debug_facts["phase_e_context_ltf_counter_orderflow_clean"])
+        self.assertTrue(developing.debug_facts["phase_e_context_ltf_counter_orderflow_mss_watch"])
+        self.assertEqual(
+            developing.debug_facts["phase_e_shadow_source_orderflow_leg_id"],
+            "OF:e-pullback:1",
+        )
 
     def test_phase_e_failed_pro_attempt_without_clean_orderflow_stays_stalling(self):
         classifier = HypothesisClassifier()
@@ -556,8 +579,6 @@ class HypothesisClassifierTests(unittest.TestCase):
             )
         )
 
-        ltf_failed = structure("bullish", "open", high=1.120, low=1.109)
-        ltf_failed["structure_attempt"] = structure_attempt("failed")
         held = classify_with_auto_ec(classifier,
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
@@ -565,7 +586,7 @@ class HypothesisClassifierTests(unittest.TestCase):
                     {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
                     {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
                 ],
-                ltf=ltf_failed,
+                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
             )
         )
 
@@ -597,7 +618,8 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:hold"),
             ),
         )
         self.assertEqual(developing.phase_sub_status, "pullback_developing")
@@ -645,7 +667,8 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:reset"),
             ),
         )
         self.assertEqual(developing.phase_sub_status, "pullback_developing")
@@ -774,7 +797,8 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:slow-c"),
             )
         )
         self.assertEqual(developing.phase, "E")
@@ -786,7 +810,8 @@ class HypothesisClassifierTests(unittest.TestCase):
         ]
         slow_c = classify_with_auto_ec(classifier,
             dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_4,
-                          ltf=structure("bearish", "open", high=1.120, low=1.108))
+                          ltf=structure("bearish", "open", high=1.120, low=1.108),
+                          lower_orderflow=clean_orderflow("bearish"))
         )
         self.assertEqual(slow_c.phase, "C")
         self.assertEqual(slow_c.phase_sub_status, "slow_pullback")
@@ -821,7 +846,8 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:block-b"),
             ),
         )
         self.assertEqual(developing.phase, "E")
@@ -880,7 +906,8 @@ class HypothesisClassifierTests(unittest.TestCase):
             dual_snapshot(
                 structure("bullish", "open", high=1.123, low=1.10),
                 bars_3,
-                ltf=structure("bearish", "open", high=1.120, low=1.109, choch=True),
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:shallow-b"),
             ),
         )
 
@@ -890,7 +917,8 @@ class HypothesisClassifierTests(unittest.TestCase):
         ]
         slow_c = classify_with_auto_ec(classifier,
             dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_4,
-                          ltf=structure("bearish", "open", high=1.120, low=1.108))
+                          ltf=structure("bearish", "open", high=1.120, low=1.108),
+                          lower_orderflow=clean_orderflow("bearish"))
         )
         self.assertEqual(slow_c.phase, "C")
         self.assertEqual(slow_c.phase_sub_status, "slow_pullback")

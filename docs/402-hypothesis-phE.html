@@ -616,8 +616,8 @@ direction == "short":
     <h3>E.stalling</h3>
     <p>
       No new HTF extreme this bar. The expansion has paused. The machine waits here until
-      either a new extreme appears (→ <code>E.seeking</code>) or a counter ChoCh fires on
-      the LTF (→ <code>E.pullback_developing</code>).
+      either a new extreme appears (→ <code>E.seeking</code>) or a counter orderflow MSS /
+      P-D flip fires on the LTF (→ <code>E.pullback_developing</code>).
     </p>
     <details open>
       <summary>E.stalling flow — pause before proven pullback <span class="where">EC → DAG → shadow</span></summary>
@@ -656,46 +656,49 @@ Phase E shadow memory:
       </div>
     </details>
     <p>
-      A failed LTF pro attempt is not enough by itself. Without a confirmed counter ChoCh
-      on the LTF, the machine stays in <code>E.stalling</code>; the failed attempt is only
-      debug context.
+      A failed LTF pro attempt is not enough by itself. Without a confirmed counter
+      orderflow MSS / P-D flip on the LTF, the machine stays in <code>E.stalling</code>;
+      the failed attempt is only debug context.
     </p>
 
     <h3>E.pullback_developing</h3>
     <p>
-      A counter ChoCh fired on the LTF while the HTF was stalling — the formal structural
-      evidence that the pullback is developing. The ChoCh stream (<code>ltf_counter_choch</code>)
-      is an independent EC candidate; it does not require the LTF to breach a price floor.
+      A counter orderflow MSS fired on the LTF while the HTF was stalling — the slower
+      protected-anchor break that opens the LTF MSS monitor. This uses
+      <code>phase_e_context_ltf_counter_orderflow_mss_watch</code>, not the standalone
+      structural <code>ltf_counter_choch</code> stream, because structural ChoCh is too fast
+      and noisy for this shadow boundary.
       The node holds until a new HTF extreme resets to <code>E.seeking</code> or the D gate
       fires from the EC. There is no <code>E.pullback_developing → E.stalling</code> return
       path; a failed pro-continuation attempt from this node belongs to Phase D, not back
       to stalling.
     </p>
     <details open>
-      <summary>E.pullback_developing flow — LTF counter ChoCh before Phase C <span class="where">EC → DAG → shadow</span></summary>
+      <summary>E.pullback_developing flow — LTF counter orderflow MSS before Phase C <span class="where">EC → DAG → shadow</span></summary>
       <div class="body">
         <p>
           Discretionary read: price reached the Phase E peak and stopped extending. The LTF
-          then confirmed a counter ChoCh — a formal break of the bullish (or bearish) LTF
-          swing structure in the counter direction. That ChoCh is the evidence the pullback
-          is developing, not a price floor breach or orderflow quality label.
+          then broke the protected LTF orderflow anchor and opened a counter MSS watch. That
+          is the evidence the pullback is developing; a full counter-directional orderflow
+          verdict belongs to later C.slow maturity. A single structural ChoCh remains useful
+          chronology for Phase D liquidity, but is no longer enough for this Phase E node.
         </p>
-        <pre class="block">EC facts (ltf_counter_choch candidate — independent stream):
-  ltf_counter_choch_seen == true           <span class="hl">← entry trigger</span>
-    last_sc.choch == true
-    last_sc.breakDirection == "down"       # bullish HTF: counter break is "down"
-  ltf_counter_choch_event_at = timestamp   # when the ChoCh was confirmed
-  ltf_counter_choch_level = price          # the broken swing level
-
-EC facts (phase_e_context candidate — supporting):
+        <pre class="block">EC facts (phase_e_context candidate):
   htf_pd_stopped_expanding == true
   new_htf_extreme == false
+  ltf_counter_orderflow_mss_watch == true  <span class="hl">← entry trigger</span>
+    orderflow.mss_regime == "mss_watch"
+    orderflow.mss_monitor_status == "watching_resolution"
+    orderflow.mss_trigger_source == "probe_vs_protected_anchor"
+    orderflow.probe_breaks_protected_anchor == true
+  ltf_counter_orderflow_leg_id = id | null
+  ltf_counter_orderflow_started_at = timestamp | null
   ltf_pullback_depth_pct = number | null   # supporting metric
   reaction_confirmed == false              # otherwise D can win
 
-DAG gate (reads both EC streams):
+DAG gate:
   previous E shadow node == E.stalling
-  ltf_counter_choch_seen == true
+  ltf_counter_orderflow_mss_watch == true
   no higher-priority E→D exit fired
   => keep phase == E
   => ask Phase E shadow to move into E.pullback_developing
@@ -704,23 +707,26 @@ Phase E shadow memory:
   node = E.pullback_developing
   previous_node = E.stalling
   bars_in_node starts / increments
+  source_orderflow_leg_id = ltf_counter_orderflow_leg_id
+  source_orderflow_started_at = ltf_counter_orderflow_started_at
 
 Exits from E.pullback_developing:
   new HTF extreme (pd_expanding)  →  E.seeking  (expansion resumed)
   D gate ready                    →  Phase D    (failed pro attempt)
   neither                         →  hold E.pullback_developing</pre>
         <p>
-          Phase C is the next maturity step, not the same event. Promote from
-          <code>E.pullback_developing</code> to C only after the LTF counter story is mature:
-          counter bias confirmed, counter POI formed. Depth can help rank quality but is not
-          the primary threshold.
+          Phase C is the next maturity step and should be reviewed now that the same
+          orderflow flip is again the <code>E.pullback_developing</code> entry trigger. The
+          current runtime still promotes to slow C when <code>ltf_counter_bos_confirmed</code>
+          is true from <code>ltf_counter_story</code>.
         </p>
       </div>
     </details>
     <p>
-      When <code>phase_e_shadow_node == "E.pullback_developing"</code> and the LTF counter
-      story is ready (<code>phase_c_story_ready</code>), the classifier can promote directly
-      to Phase C with <code>sub_status = "slow_pullback"</code>, bypassing Phase D entirely.
+      When <code>phase_e_shadow_node == "E.pullback_developing"</code> and
+      <code>ltf_counter_bos_confirmed</code> is true (LTF orderflow <code>confirmed_direction == counter-HTF</code>
+      and <code>regime == "directional"</code>), the classifier promotes directly to Phase C
+      with <code>sub_status = "slow_pullback"</code>, bypassing Phase D entirely.
       This is the "slow pullback from E" path.
     </p>
 
@@ -796,8 +802,8 @@ Exits from E.pullback_developing:
         </p>
         <ol class="steps">
           <li><b>Not from B:</b> <code>previous_phase != "B"</code>.</li>
-          <li><b>Shadow node:</b> <code>phase_e_shadow_node == "E.pullback_developing"</code> — clean LTF counter orderflow is developing while the HTF is stalling.</li>
-          <li><b>LTF counter story:</b> <code>phase_c_story_ready</code> — LTF bias has flipped counter to HTF.</li>
+          <li><b>Shadow node:</b> <code>phase_e_shadow_node == "E.pullback_developing"</code> — LTF counter orderflow MSS / P-D flip was confirmed while HTF was stalling.</li>
+          <li><b>LTF orderflow BoS:</b> <code>ltf_counter_bos_confirmed</code> — LTF orderflow <code>confirmed_direction == counter-HTF</code> and <code>regime == "directional"</code> (Case F level). Counter bias alone is not sufficient.</li>
         </ol>
         <p>
           The emitted Phase C hypothesis carries debug keys:
@@ -878,7 +884,7 @@ if phase in {"open", "pullback_confirmed"} and direction != "none":
 	    if (
 	        self.state.previous_phase != "B"
 	        and self.state.<span class="hl">phase_e_shadow_node</span> == "E.pullback_developing"
-        and phase_c_from_e["phase_c_story_ready"]
+        and phase_c_from_e["phase_c_ltf_counter_bos_confirmed"]  <span class="cm"># Case F: confirmed_direction + regime directional</span>
     ):
         hyp = self._phase_c(direction, ..., phase_sub_status=<span class="hl">"slow_pullback"</span>)
         return self._commit(hyp)
@@ -896,10 +902,10 @@ if phase in {"open", "pullback_confirmed"} and direction != "none":
     previous_node = self.state.phase_e_shadow_node
     pd_expanding  = bool(debug.get(<span class="hl">"phase_e_context_new_htf_extreme"</span>))
 
-    <span class="cm"># ltf_counter_choch is read from the independent ltf_counter_choch EC stream,
-    # not from phase_e_context (which only knows about price / expansion facts).</span>
-    ltf_counter_choch_seen = bool(
-        debug.get(<span class="hl">"phase_e_context_ltf_counter_choch_seen"</span>)
+    <span class="cm"># Phase E waits for slower LTF orderflow MSS watch.
+    # Standalone structural ltf_counter_choch remains available for D/liquidity chronology.</span>
+    ltf_counter_orderflow_mss_watch = bool(
+        debug.get(<span class="hl">"phase_e_context_ltf_counter_orderflow_mss_watch"</span>)
     )
 
     <span class="cm"># Transition table</span>
@@ -910,8 +916,8 @@ if phase in {"open", "pullback_confirmed"} and direction != "none":
     elif previous_node == "E.seeking":
         selected_node = <span class="hl">"E.stalling"</span>         <span class="cm"># no new extreme</span>
     elif previous_node == "E.stalling":
-        if ltf_counter_choch_seen:
-            selected_node = <span class="hl">"E.pullback_developing"</span>  <span class="cm"># counter ChoCh confirmed</span>
+        if ltf_counter_orderflow_mss_watch:
+            selected_node = <span class="hl">"E.pullback_developing"</span>  <span class="cm"># counter orderflow MSS watch opened</span>
         else:
             selected_node = "E.stalling"
     elif previous_node == "E.pullback_developing":
@@ -985,10 +991,10 @@ hypothesis:
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>E.pullback_developing has no timeout decay.</b>
-        The node holds indefinitely once a counter ChoCh is confirmed. There is no
-        bar-count timeout. The <code>ltf_counter_choch_seen</code> fact reflects the most
-        recent LTF SC event; if the LTF structure generates a new pro-direction SC the ChoCh
-        flag clears, but the shadow stays in <code>E.pullback_developing</code> because the
+        The node holds indefinitely once counter orderflow MSS is confirmed. There is no
+        bar-count timeout. The source orderflow leg is retained in
+        <code>phase_e_shadow_source_orderflow_leg_id</code>, but the shadow stays in
+        <code>E.pullback_developing</code> because the
         transition table has no return path to <code>E.stalling</code>. Only a new HTF
         extreme resets to <code>E.seeking</code>, or the D gate fires. A bar-count threshold
         could be added if the node proves to over-persist.</p>
@@ -1019,12 +1025,13 @@ hypothesis:
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>Replace orderflow trigger with LTF P/D range floor breach.</b>
+        <p><b>Use LTF orderflow MSS for <code>E.pullback_developing</code>.</b>
         Completed: <code>E.stalling → E.pullback_developing</code> now fires when
-        <code>ltf_pd_counter_range_breached</code> is true
-        (<code>current_price &lt; ltf_struct.range_low</code> for long;
-        <code>&gt; range_high</code> for short). The previous clean-orderflow gate
-        was too strict. <code>E.pullback_developing → E.stalling</code> disruption path
+        <code>phase_e_context_ltf_counter_orderflow_mss_watch</code> is true: the LTF orderflow
+        MSS monitor is watching resolution because the live probe broke the protected anchor.
+        Full <code>confirmed_direction == counter-HTF</code> + <code>regime == directional</code>
+        remains the later C.slow maturity check. This restores the MSS boundary after
+        structural ChoCh proved too fast and noisy. <code>E.pullback_developing → E.stalling</code> disruption path
         removed; <code>pullback_disrupted</code> and <code>disrupted_orderflow_leg_id</code>
         fields removed from <code>PhaseEShadow</code>. Failed pro-continuation from
         <code>E.pullback_developing</code> now belongs to Phase D, not back to stalling.</p>

@@ -224,6 +224,21 @@ def _ltf_orderflow(fused: dict[str, Any]) -> dict[str, Any]:
     return orderflow if isinstance(orderflow, dict) else {}
 
 
+def _structure_event_action(last_sc: dict[str, Any]) -> str:
+    action = str(last_sc.get("eventAction") or "")
+    if action in {"structure_sb", "structure_choch"}:
+        return action
+    if last_sc.get("structure_choch") is True or last_sc.get("choch") is True:
+        return "structure_choch"
+    if last_sc.get("structure_sb") is True:
+        return "structure_sb"
+    return "unknown"
+
+
+def _structure_choch_seen(last_sc: dict[str, Any]) -> bool:
+    return _structure_event_action(last_sc) == "structure_choch"
+
+
 def _htf_zones(fused: dict[str, Any]) -> list[dict[str, Any]]:
     return _htf_ctx(fused).get("zones") or []
 
@@ -1124,7 +1139,7 @@ class EvidenceCompiler:
             )
             choch_at = last_sc.get("eventTimestamp")
             counter_choch_after_reclaim = bool(
-                last_sc.get("choch") is True
+                _structure_choch_seen(last_sc)
                 and last_sc.get("breakDirection") == expected_counter_break
                 and _timestamp_at_or_after(choch_at, reclaimed_at)
             )
@@ -1232,7 +1247,7 @@ class EvidenceCompiler:
         expected_counter_break = "down" if direction == "long" else "up"
 
         choch_seen = bool(
-            last_sc.get("choch") is True
+            _structure_choch_seen(last_sc)
             and last_sc.get("breakDirection") == expected_counter_break
         )
         choch_at = last_sc.get("eventTimestamp") if choch_seen else None
@@ -1253,6 +1268,7 @@ class EvidenceCompiler:
             ready_at=timestamp if choch_seen else None,
             debug_facts={
                 "ltf_counter_choch_seen": choch_seen,
+                "ltf_counter_structure_choch_seen": choch_seen,
                 "ltf_counter_choch_event_at": choch_at,
                 "ltf_counter_choch_direction": choch_direction,
                 "ltf_counter_choch_level": choch_level,
@@ -1300,6 +1316,14 @@ class EvidenceCompiler:
             and ltf_struct.get("bias") == counter_ltf_bias
         )
 
+        ltf_orderflow = _ltf_orderflow(fused)
+        orderflow_direction = ltf_orderflow.get("confirmed_direction")
+        orderflow_regime = ltf_orderflow.get("regime")
+        ltf_counter_bos_confirmed = bool(
+            orderflow_direction == counter_ltf_bias
+            and orderflow_regime == "directional"
+        )
+
         story_ready = ltf_bias_counter
         armed = bool(story_ready and selected_poi)
         touched = bool(armed and selected_poi and selected_poi.get("in_zone"))
@@ -1340,6 +1364,7 @@ class EvidenceCompiler:
                 "ltf_counter_sd_returned_zone_ids": [z.get("zone_id") for z in returned_zones],
                 "selected_poi_id": selected_poi.get("zone_id") if selected_poi else None,
                 "selected_poi": selected_poi,
+                "ltf_counter_bos_confirmed": ltf_counter_bos_confirmed,
             },
         )
 
@@ -1582,8 +1607,26 @@ class EvidenceCompiler:
         orderflow_direction = ltf_orderflow.get("confirmed_direction")
         orderflow_quality = ltf_orderflow.get("quality")
         orderflow_regime = ltf_orderflow.get("regime")
+        orderflow_mss_regime = ltf_orderflow.get("mss_regime") or orderflow_regime
+        orderflow_mss_monitor_status = ltf_orderflow.get("mss_monitor_status")
+        orderflow_mss_trigger_source = ltf_orderflow.get("mss_trigger_source")
+        orderflow_probe_breaks_protected_anchor = bool(
+            ltf_orderflow.get("probe_breaks_protected_anchor")
+        )
         ltf_counter_orderflow_direction = (
             orderflow_direction if orderflow_direction in {"bullish", "bearish"} else None
+        )
+        pro_ltf_bias = "bullish" if direction == "long" else "bearish"
+        ltf_counter_orderflow_mss_watch = bool(
+            ltf_counter_orderflow_direction == pro_ltf_bias
+            and orderflow_mss_regime == "mss_watch"
+            and orderflow_mss_monitor_status == "watching_resolution"
+            and orderflow_mss_trigger_source == "probe_vs_protected_anchor"
+            and orderflow_probe_breaks_protected_anchor
+        )
+        ltf_swing_orderflow_mss_watch = bool(
+            ltf_counter_orderflow_direction == pro_ltf_bias
+            and ltf_orderflow.get("mss_watch_confirmed", False)
         )
         ltf_counter_orderflow_clean = bool(
             ltf_counter_orderflow_direction == counter_ltf_bias
@@ -1725,6 +1768,12 @@ class EvidenceCompiler:
                 "ltf_probe_direction": ltf_probe_direction,
                 "ltf_pd_counter_range_breached": ltf_pd_counter_range_breached,
                 "ltf_counter_orderflow_direction": ltf_counter_orderflow_direction,
+                "ltf_counter_orderflow_mss_watch": ltf_counter_orderflow_mss_watch,
+                "ltf_swing_orderflow_mss_watch": ltf_swing_orderflow_mss_watch,
+                "ltf_counter_orderflow_mss_regime": orderflow_mss_regime,
+                "ltf_counter_orderflow_mss_monitor_status": orderflow_mss_monitor_status,
+                "ltf_counter_orderflow_mss_trigger_source": orderflow_mss_trigger_source,
+                "ltf_counter_orderflow_probe_breaks_protected_anchor": orderflow_probe_breaks_protected_anchor,
                 "ltf_counter_orderflow_clean": ltf_counter_orderflow_clean,
                 "ltf_counter_orderflow_broken": ltf_counter_orderflow_broken,
                 "ltf_counter_orderflow_leg_id": ltf_counter_orderflow_leg_id,

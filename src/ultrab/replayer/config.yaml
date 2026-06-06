@@ -193,7 +193,7 @@ replay:
   structure:
     enabled: true
     tier: "itr"          # "itr" (default) or "ltr"
-    anchor_sequence_limit: 8 # confirmed structure anchors retained for Orderflow + 1 live probe
+    structure_sequence_limit: 8 # confirmed structure points retained + 1 live probe
     dual_display: dual # dual mode: higher | lower | both | projected | dual
     # dual draws projected HTF P/D on the LTF pane plus dashed native LTF P/D.
     pd_lines:

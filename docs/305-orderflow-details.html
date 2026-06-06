@@ -334,7 +334,7 @@
     <a href="#contract">Snapshot Contract</a>
     <a href="#eh-el" class="l2">EH / EL assignment</a>
     <a href="#directional">Directional Cases</a>
-    <a href="#choch">ChoCh Resolution</a>
+    <a href="#choch">MSS Resolution</a>
     <a href="#messy">Messy Regimes</a>
     <a href="#algorithm">Algorithm</a>
     <a href="#config">Config</a>
@@ -351,20 +351,20 @@
   <main>
     <header>
       <div class="eyebrow">Layer 3 · Context · Orderflow Details</div>
-      <h1>Orderflow Details - Direction, Probe, ChoCh, Messy Regimes</h1>
+      <h1>Orderflow Details - Direction, Probe, MSS, Messy Regimes</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> - Confirmed anchors decide orderflow direction. The live probe is the current cursor test against those anchors: it is the ChoCh tripwire, the live pressure gauge, and the controlled-chase posture input. The algorithm should classify clean directional cases from confirmed points, open or update a ChoCh monitor when the probe attacks a protected anchor, and use regime labels such as compression or sweep_range as brakes when the sequence is too messy to trust.
+        <b>TL;DR</b> - Confirmed anchors decide orderflow direction. The live probe is the current cursor test against those anchors: it is the MSS tripwire, the live pressure gauge, and the controlled-chase posture input. The algorithm should classify clean directional cases from confirmed points, open or update an MSS monitor when the probe attacks a protected anchor, and use regime labels such as compression or sweep_range as brakes when the sequence is too messy to trust.
       </div>
     </header>
 
     <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
-    <p>This note turns arbitrary discretionary orderflow examples into a practical algorithm contract. It does not try to make every live probe movement into a trend decision, but it does treat the probe as necessary for live ChoCh detection. Structure anchors describe what has already been confirmed; the probe tells whether the current market is threatening, reclaiming, or resolving that structure.</p>
+    <p>This note turns arbitrary discretionary orderflow examples into a practical algorithm contract. It does not try to make every live probe movement into a trend decision, but it does treat the probe as necessary for live MSS detection. Structure sequence points describe what has already been confirmed; the probe tells whether the current market is threatening, reclaiming, or resolving that structure.</p>
     <pre class="block">confirmed anchors determine confirmed_direction
 probe determines live pressure against the active structure
-probe opens / updates / resolves ChoCh monitor
+probe opens / updates / resolves MSS monitor
 probe does not confirm a new trend by itself</pre>
 
-    <p>The probe can move up and down many times inside the active swing, so it is dangerous as a trend label. But it is essential as a live comparator: without the current probe, the system only knows the last confirmed anchors and cannot tell whether ChoCh pressure is forming right now. Its job is to help Layer 3 detect anchor threat/reclaim state and help Layer 5 answer execution questions: is price near OTE, attacking a protected anchor, reclaiming, or leaving a range?</p>
+    <p>The probe can move up and down many times inside the active swing, so it is dangerous as a trend label. But it is essential as a live comparator: without the current probe, the system only knows the last confirmed anchors and cannot tell whether MSS pressure is forming right now. Its job is to help Layer 3 detect anchor threat/reclaim state and help Layer 5 answer execution questions: is price near OTE, attacking a protected anchor, reclaiming, or leaving a range?</p>
 
     <details open>
       <summary>Step 1 · Read confirmed points <span class="where">direction source</span></summary>
@@ -373,9 +373,9 @@ probe does not confirm a new trend by itself</pre>
       </div>
     </details>
     <details>
-      <summary>Step 2 · Append live probe <span class="where">ChoCh + posture source</span></summary>
+      <summary>Step 2 · Append live probe <span class="where">MSS + posture source</span></summary>
       <div class="body">
-        <p>The live probe produces <code>probe_relation</code>, <code>live_pressure</code>, and ChoCh monitor transitions by comparing the current cursor price against <code>protected_anchor_ref</code> and <code>range_ref</code>. It can open a disruption watch or resolve inducement, but it cannot flip <code>confirmed_direction</code> by itself.</p>
+        <p>The live probe produces <code>probe_relation</code>, <code>live_pressure</code>, and MSS monitor transitions by comparing the current cursor price against <code>protected_anchor_ref</code> and <code>range_ref</code>. It can open a disruption watch or resolve inducement, but it cannot flip <code>confirmed_direction</code> by itself.</p>
       </div>
     </details>
     <details>
@@ -386,18 +386,18 @@ probe does not confirm a new trend by itself</pre>
     </details>
 
     <div class="rule-block">
-      Probe is mandatory for live ChoCh detection. Probe is still dangerous for final trend confirmation. Keep those two responsibilities separate: current pressure belongs to the probe; confirmed direction belongs to the anchor sequence.
+      Probe is mandatory for live MSS detection. Probe is still dangerous for final trend confirmation. Keep those two responsibilities separate: current pressure belongs to the probe; confirmed direction belongs to the anchor sequence.
     </div>
 
     <h2 id="contract"><span class="sec-num">01</span> Snapshot Contract</h2>
     <p>The detail note refines the OrderflowSnapshot so messy conditions can be represented without pretending they are clean trend states.</p>
     <pre class="block">OrderflowSnapshot:
   confirmed_direction = bullish | bearish | mixed | unknown
-  regime = directional | choch_watch | compression | sweep_range | unknown
+  regime = directional | mss_watch | compression | sweep_range | unknown
   quality = clean | weak | broken
   live_pressure = none | pullback_extending | anchor_threat | reclaiming | breakaway_watch
-  choch_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
-  source = structure_anchor_sequence | itr_sequence | ltr_sequence
+  mss_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
+  source = structure_sequence | itr_sequence | ltr_sequence
   window_size = 6
   confirmed_sequence = HH, HL, HH, HL...
   sequence_with_probe = HH, HL, HH, HL, probe...
@@ -412,7 +412,7 @@ probe does not confirm a new trend by itself</pre>
   probe_ref
   probe_breaks_protected_anchor = true | false
   probe_relation = above_active_high | below_active_low | upper_half | lower_half | inside_range | outside_range | unknown
-  choch_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
+  mss_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
   liquidity_annotations = EH / EL cluster refs only, not direction labels
   pullback_status = extending | decelerating | resolving | broken | unknown
   timeframe
@@ -496,48 +496,48 @@ protected_anchor_ref = HL3</pre>
       </div>
     </details>
 
-    <h2 id="choch"><span class="sec-num">03</span> ChoCh Resolution</h2>
-    <p>Cases C through F describe disruption, decisive range behavior, inducement resolution, and reversal confirmation. ChoCh is first detected as a live relation between the probe and a protected anchor. That relation opens a monitor; it does not instantly flip the orderflow.</p>
+    <h2 id="choch"><span class="sec-num">03</span> MSS Resolution</h2>
+    <p>Cases C through F describe disruption, decisive range behavior, inducement resolution, and reversal confirmation. MSS is first detected as a live relation between the probe and a protected anchor. That relation opens a monitor; it does not instantly flip the orderflow. The current anchor id stays <code>#choch</code> for link compatibility.</p>
 
     <details open>
       <summary>Case C · protected anchor breaks <span class="where">monitor opens</span></summary>
       <div class="body">
         <figure class="figure">
-          <img src="../assets/315-ofc.png" alt="Orderflow case C ChoCh monitor opens">
-          <figcaption>Case C - probe breaks below HL2 and opens a ChoCh monitor.</figcaption>
+          <img src="../assets/315-ofc.png" alt="Orderflow case C MSS monitor opens">
+          <figcaption>Case C - probe breaks below HL2 and opens an MSS monitor.</figcaption>
         </figure>
         <pre class="block">HH1, HL1, HH2, HL2, HH3, probe below HL2</pre>
-        <p>The confirmed stream remains weak bullish. The current probe below protected HL2 is the actual ChoCh tripwire: it creates a disruption watch, not a bearish verdict. Without the probe, the system would only know HL2 existed; it would not know the market is currently attacking it.</p>
+        <p>The confirmed stream remains weak bullish. The current probe below protected HL2 is the actual MSS tripwire: it creates a disruption watch, not a bearish verdict. Without the probe, the system would only know HL2 existed; it would not know the market is currently attacking it.</p>
         <pre class="block">confirmed_direction = bullish
-regime = choch_watch
+regime = mss_watch
 quality = weak
 live_pressure = anchor_threat
-choch_monitor_status = watching_resolution
+mss_monitor_status = watching_resolution
 protected_anchor_ref = HL2
 disruption_point_ref = current probe / LL candidate
-choch_trigger_source = probe_vs_protected_anchor
+mss_trigger_source = probe_vs_protected_anchor
 probe_breaks_protected_anchor = true</pre>
       </div>
     </details>
 
     <details>
-      <summary>Case D · decisive range after ChoCh <span class="where">unresolved</span></summary>
+      <summary>Case D · decisive range after MSS <span class="where">unresolved</span></summary>
       <div class="body">
         <figure class="figure">
-          <img src="../assets/315-ofd.png" alt="Orderflow case D decisive range after ChoCh">
+          <img src="../assets/315-ofd.png" alt="Orderflow case D decisive range after MSS">
           <figcaption>Case D - LL1 exists; probe moves inside the decisive range.</figcaption>
         </figure>
         <pre class="block">HH1, HL1, HH2, HL2, HH3, LL1, probe between HH3 and LL1</pre>
-        <p>The probe location describes posture inside HH3 / LL1. It can lean reclaiming or threatening, and it updates the ChoCh monitor while the sequence remains unresolved. The monitor resolves only when price either reclaims the original side or confirms a counter-sequence.</p>
+        <p>The probe location describes posture inside HH3 / LL1. It can lean reclaiming or threatening, and it updates the MSS monitor while the sequence remains unresolved. The monitor resolves only when price either reclaims the original side or confirms a counter-sequence.</p>
         <pre class="block">confirmed_direction = bullish
-regime = choch_watch
+regime = mss_watch
 quality = weak
-choch_monitor_status = watching_resolution
+mss_monitor_status = watching_resolution
 live_pressure = reclaiming | anchor_threat
 range_ref = HH3 / LL1
 decision_point_ref = right shoulder candidate, if present
 probe_relation = lower_half | upper_half
-choch_trigger_source = probe_vs_protected_anchor</pre>
+mss_trigger_source = probe_vs_protected_anchor</pre>
       </div>
     </details>
 
@@ -549,11 +549,11 @@ choch_trigger_source = probe_vs_protected_anchor</pre>
           <figcaption>Case E - price reclaims above HH3 after LL1 disruption.</figcaption>
         </figure>
         <pre class="block">HH1, HL1, HH2, HL2, HH3, LL1, probe above HH3</pre>
-        <p>The ChoCh resolves back into the original bullish direction. The disruption was inducement.</p>
+        <p>The MSS resolves back into the original bullish direction. The disruption was inducement.</p>
         <pre class="block">confirmed_direction = bullish
 regime = directional
 quality = weak | clean
-choch_monitor_status = resolved_inducement
+mss_monitor_status = resolved_inducement
 live_pressure = reclaiming
 probe_relation = above_active_high</pre>
       </div>
@@ -571,7 +571,7 @@ probe_relation = above_active_high</pre>
         <pre class="block">confirmed_direction = bearish
 regime = directional
 quality = weak | clean
-choch_monitor_status = confirmed_reversal
+mss_monitor_status = confirmed_reversal
 live_pressure = none | breakaway_watch
 decision_point_ref = LH1
 protected_anchor_ref = LH1
@@ -613,11 +613,11 @@ probe_relation = inside_range</pre>
           <figcaption>Case H - both sides are swept; wait for a new clean sequence.</figcaption>
         </figure>
         <pre class="block">HH1, HL1, LH1, LL1, HL2, HH2, HL3, HH4, LL2, probe between HH4 and LL2</pre>
-        <p>Both sides experienced ChoCh / sweep behavior. Do not call it a clean reversal. Watch the decisive range and wait for a new orderflow sequence after engulfing.</p>
+        <p>Both sides experienced MSS / sweep behavior. Do not call it a clean reversal. Watch the decisive range and wait for a new orderflow sequence after engulfing.</p>
         <pre class="block">confirmed_direction = mixed | unknown
 regime = sweep_range
 quality = broken
-choch_monitor_status = watching_resolution
+mss_monitor_status = watching_resolution
 live_pressure = breakaway_watch
 blocked_reason = noisy_overlap
 range_ref = HH4 / LL2
@@ -626,14 +626,14 @@ probe_relation = inside_range</pre>
     </details>
 
     <h2 id="algorithm"><span class="sec-num">05</span> Algorithm</h2>
-    <p>The algorithm is not a case matcher. Cases A-H are examples of the same stages: classify confirmed sequence, score regime, compare the live probe against protected anchors, and update the ChoCh monitor.</p>
+    <p>The algorithm is not a case matcher. Cases A-H are examples of the same stages: classify confirmed sequence, score regime, compare the live probe against protected anchors, and update the MSS monitor.</p>
 
     <div class="tabs" data-tabs>
       <div class="tabbar">
         <button class="on" data-t="0">on_bar()</button>
         <button data-t="1">regime</button>
         <button data-t="2">probe</button>
-        <button data-t="3">ChoCh</button>
+        <button data-t="3">MSS</button>
       </div>
 <pre class="on"><span class="cm"># proposed: OrderflowContext.on_bar()</span>
 <span class="hl">def</span> on_bar(self, cursor, state_store):
@@ -656,7 +656,7 @@ probe_relation = inside_range</pre>
         confirmed_points,
         regime,
     )
-    monitor = self._update_choch_monitor(
+    monitor = self._update_mss_monitor(
         direction=confirmed_direction,
         regime=regime,
         points=confirmed_points,
@@ -675,7 +675,7 @@ probe_relation = inside_range</pre>
         return "compression", compression_range(points), "compression"
 
     if protected_anchor_disrupted(labels, direction):
-        return "choch_watch", disruption_range(points), None
+        return "mss_watch", disruption_range(points), None
 
     if direction in {"bullish", "bearish"}:
         return "directional", active_swing_range(points), None
@@ -701,8 +701,8 @@ probe_relation = inside_range</pre>
         pressure = "none"
 
     return relation, pressure</pre>
-<pre><span class="cm"># ChoCh monitor is opened by probe-vs-anchor pressure</span>
-<span class="hl">def</span> update_choch_monitor(direction, regime, points, probe):
+<pre><span class="cm"># MSS monitor is opened by probe-vs-anchor pressure</span>
+<span class="hl">def</span> update_mss_monitor(direction, regime, points, probe):
     if regime == "compression":
         return monitor(status="none")
 
@@ -727,7 +727,7 @@ probe_relation = inside_range</pre>
     </div>
 
     <h2 id="config"><span class="sec-num">06</span> Config</h2>
-    <p>Orderflow has no committed engine config block yet. The implementation can begin by consuming existing Structure anchor retention and proposed source policy.</p>
+    <p>Orderflow has no committed engine config block yet. The implementation can begin by consuming existing Structure sequence retention and proposed source policy.</p>
 
     <div class="tabs" data-tabs>
       <div class="tabbar">
@@ -738,7 +738,7 @@ probe_relation = inside_range</pre>
 structure:
   enabled: true
   tier: "itr"
-  anchor_sequence_limit: 8
+  structure_sequence_limit: 8
 
 pivot_events:
   compute:
@@ -750,7 +750,7 @@ orderflow:
   window_size: 6
   probe_points: 8
   source_policy:
-    lower_timeframe: structure_anchor_sequence
+    lower_timeframe: structure_sequence
     higher_timeframe: itr_sequence
   regimes:
     compression_enabled: true
@@ -762,7 +762,7 @@ orderflow:
     <div class="issue-grid">
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
-        <p><b>Equal highs / equal lows.</b> Settled direction: EH/EL should not become core directional labels. Treat them as liquidity annotations or cluster refs attached to the nearest confirmed anchor. They may lower continuation confidence, set <code>regime = compression | sweep_range</code>, or create a liquidity candidate for Liquidity Context. Direction still comes from HH/HL/LH/LL anchors plus ChoCh monitor resolution.</p>
+        <p><b>Equal highs / equal lows.</b> Settled direction: EH/EL should not become core directional labels. Treat them as liquidity annotations or cluster refs attached to the nearest confirmed anchor. They may lower continuation confidence, set <code>regime = compression | sweep_range</code>, or create a liquidity candidate for Liquidity Context. Direction still comes from HH/HL/LH/LL anchors plus MSS monitor resolution.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Out of Scope</div>
@@ -770,7 +770,7 @@ orderflow:
       </div>
       <div class="issue-card">
         <div class="issue-label">Fallback</div>
-        <p><b>Source policy.</b> Keep HTF ITR for macro/B-D context, and consider adding LTF anchored swing liquidity as a separate Liquidity Context source for controlled chase. If structure anchors are too slow on LTF, try ITR; if ITR is too noisy, try LTR or stricter anchor filters.</p>
+        <p><b>Source policy.</b> Keep HTF ITR for macro/B-D context, and consider adding LTF anchored swing liquidity as a separate Liquidity Context source for controlled chase. If structure sequence points are too slow on LTF, try ITR; if ITR is too noisy, try LTR or stricter anchor filters.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Next Milestone</div>

@@ -261,6 +261,35 @@ class TestPhaseEContext:
         assert e_ctx.debug_facts["ltf_counter_orderflow_leg_id"] == "OF:bearish:1"
         assert e_ctx.debug_facts["ltf_pullback_depth_pct"] == 0.0
 
+    def test_phase_e_context_flags_counter_orderflow_mss_watch_before_direction_flip(self):
+        ec = EvidenceCompiler()
+        ec.update(_fused(), higher_bars=_htf_bars(last_high=51000))
+
+        candidates = ec.update(
+            _fused(
+                ltf_bias="bearish",
+                ltf_orderflow={
+                    "confirmed_direction": "bullish",
+                    "quality": "clean",
+                    "regime": "mss_watch",
+                    "mss_regime": "mss_watch",
+                    "mss_monitor_status": "watching_resolution",
+                    "probe_breaks_protected_anchor": True,
+                    "mss_trigger_source": "probe_vs_protected_anchor",
+                    "range_ref": "OF:mss-watch:1",
+                    "last_shift_at": "2025-01-01T11:00:00",
+                },
+            ),
+            higher_bars=_htf_bars(last_high=50900),
+        )
+
+        e_ctx = _candidate(candidates, "phase_e_context")
+        assert e_ctx is not None
+        assert e_ctx.debug_facts["ltf_counter_orderflow_mss_watch"] is True
+        assert e_ctx.debug_facts["ltf_counter_orderflow_clean"] is False
+        assert e_ctx.debug_facts["ltf_counter_orderflow_direction"] == "bullish"
+        assert e_ctx.debug_facts["ltf_counter_orderflow_mss_trigger_source"] == "probe_vs_protected_anchor"
+
     def test_phase_e_equal_high_enriches_stalling_not_new_extreme(self):
         ec = EvidenceCompiler()
         ec.update(_fused(htf_range_high=51000.0), higher_bars=_htf_bars(last_high=51000.0))
@@ -396,6 +425,54 @@ class TestHtfCounterReaction:
         assert event["price_reclaimed_inside_active_htf_pd"] is True
         assert event["ltf_counter_choch_event_at"] == "2025-01-01T11:00:00"
 
+    def test_liquidity_reclaim_reads_target_structure_choch_alias(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                ltf_bias="bearish",
+                ltf_last_sc={
+                    "structure_choch": True,
+                    "eventAction": "structure_choch",
+                    "breakDirection": "down",
+                    "eventTimestamp": "2025-01-01T11:00:00",
+                    "levelPrice": 50750.0,
+                    "biasFlip": True,
+                },
+                liquidity={
+                    "current_triggerable_liquidity_events": [_current_liquidity_event()],
+                },
+            ),
+            higher_bars=_htf_bars(),
+        )
+        cr = _candidate(candidates, "htf_counter_reaction")
+
+        assert cr is not None
+        event = cr.debug_facts["liquidity_reclaim_candidates"][0]
+        assert event["status"] == "ready"
+        assert event["ltf_counter_choch_after_reclaim"] is True
+
+    def test_ltf_counter_choch_stream_reads_target_structure_choch_alias(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                ltf_bias="bearish",
+                ltf_last_sc={
+                    "structure_choch": True,
+                    "eventAction": "structure_choch",
+                    "breakDirection": "down",
+                    "eventTimestamp": "2025-01-01T11:00:00",
+                    "levelPrice": 50750.0,
+                },
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.status == "ready"
+        assert choch.debug_facts["ltf_counter_choch_seen"] is True
+        assert choch.debug_facts["ltf_counter_structure_choch_seen"] is True
+
     def test_pd_and_eq_candidates_are_preserved_without_layer4_selection(self):
         ec = EvidenceCompiler()
         eq_event = _current_liquidity_event(
@@ -530,9 +607,38 @@ class TestLtfCounterStory:
         )
         candidates = ec.update(fused, higher_bars=_htf_bars())
         ls = _candidate(candidates, "ltf_counter_story")
-        # In-zone zone should be preferred
         assert ls.location_context["selected_poi_id"] == "ltf-s-old"
         assert ls.location_context["selected_poi_touched"] is True
+
+    def test_ltf_counter_bos_confirmed_true_when_orderflow_direction_and_regime_match(self):
+        ec = EvidenceCompiler()
+        fused = _fused(
+            ltf_bias="bearish",
+            ltf_orderflow={
+                "confirmed_direction": "bearish",
+                "regime": "directional",
+                "quality": "clean",
+            },
+        )
+        candidates = ec.update(fused, higher_bars=_htf_bars())
+        ls = _candidate(candidates, "ltf_counter_story")
+        assert ls is not None
+        assert ls.debug_facts["ltf_counter_bos_confirmed"] is True
+
+    def test_ltf_counter_bos_confirmed_false_when_orderflow_not_directional(self):
+        ec = EvidenceCompiler()
+        fused = _fused(
+            ltf_bias="bearish",
+            ltf_orderflow={
+                "confirmed_direction": "bearish",
+                "regime": "mss_watch",
+                "quality": "weak",
+            },
+        )
+        candidates = ec.update(fused, higher_bars=_htf_bars())
+        ls = _candidate(candidates, "ltf_counter_story")
+        assert ls is not None
+        assert ls.debug_facts["ltf_counter_bos_confirmed"] is False
 
 
 # ---------------------------------------------------------------------------

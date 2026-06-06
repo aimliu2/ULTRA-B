@@ -369,8 +369,8 @@
   range_high / range_low
   pd_value_pct
   range_position_pct
-  structure_anchor_sequence
-  structure_anchor_probe</pre>
+  structure_sequence
+  structure_probe</pre>
 
     <h3 id="sd">S/D Context</h3>
     <p>S/D Context provides active supply and demand zones, zone state, geometry, owner timeframe, and last resolved zone. Snapshot Normalizer sorts the relevant zones by current-price distance.</p>
@@ -398,12 +398,12 @@ htf_itr_anchor_run_ready</pre>
     </div>
 
     <h3 id="orderflow">Orderflow Context</h3>
-    <p>Orderflow is the migration target for useful legacy Structural Attempt language. Structure owns anchor facts; Orderflow owns current pressure, regime, ChoCH monitor state, protected anchor, decision point, and probe relation.</p>
+    <p>Orderflow is the migration target for useful legacy Structural Attempt language. Structure owns anchor facts; Orderflow owns current pressure, regime, MSS monitor state, protected anchor, decision point, and probe relation. Orderflow <code>choch_*</code> aliases are retired; consumers should read <code>mss_*</code> fields directly.</p>
     <pre class="block">orderflow:
   confirmed_direction
   regime
   live_pressure
-  choch_monitor_status
+  mss_monitor_status
   protected_anchor_ref
   disruption_point_ref
   decision_point_ref
@@ -411,7 +411,7 @@ htf_itr_anchor_run_ready</pre>
   probe_ref
   probe_relation
   probe_breaks_protected_anchor
-  choch_trigger_source
+  mss_trigger_source
   liquidity_annotations
   blocked_reason</pre>
 
@@ -428,10 +428,10 @@ legacy attempt decision area
   -> orderflow.decision_point_ref / orderflow.range_ref
 
 legacy failure / reversal attempt
-  -> orderflow.choch_monitor_status = confirmed_reversal | failed
+  -> orderflow.mss_monitor_status = confirmed_reversal | failed
 
 legacy inducement resolution
-  -> orderflow.choch_monitor_status = resolved_inducement</pre>
+  -> orderflow.mss_monitor_status = resolved_inducement</pre>
       </div>
     </details>
 
@@ -547,7 +547,7 @@ payload["orderflow"] = payload["context_snapshot"]["orderflow"]</pre>
     </div>
 
     <h2 id="config"><span class="sec-num">05</span> Config</h2>
-    <p>There is no committed standalone <code>snapshot_normalizer:</code> config block yet. The current relevant config is the channel source policy Snapshot Normalizer projects, especially Structure anchor retention for Orderflow.</p>
+    <p>There is no committed standalone <code>snapshot_normalizer:</code> config block yet. The current relevant config is the channel source policy Snapshot Normalizer projects, especially Structure sequence retention for Orderflow.</p>
     <div class="tabs" data-tabs>
       <div class="tabbar">
         <button class="on" data-t="0">config.yaml</button>
@@ -557,14 +557,14 @@ payload["orderflow"] = payload["context_snapshot"]["orderflow"]</pre>
 structure:
   enabled: true
   tier: "itr"
-  anchor_sequence_limit: 8
+  structure_sequence_limit: 8
   dual_display: dual
 
 <span class="cm"># proposed future scope</span>
 orderflow:
   probe_points: 8
   source_policy:
-    lower_timeframe: structure_anchor_sequence
+    lower_timeframe: structure_sequence
     higher_timeframe: itr_sequence</pre>
 <pre><span class="cm"># current runtime snapshot shape is still inline</span>
 <span class="hl">def</span> snapshot(self, classify=True):
@@ -601,7 +601,7 @@ orderflow:
       </div>
       <div class="issue-card">
         <div class="issue-label">Out of Scope</div>
-        <p><b>Do not score evidence here.</b> Sideway Orderflow can expose weak pressure, compression, or ChoCH watch, but confidence weighting and candidate qualification belong to Evidence Compiler. Layer 4 still owns thesis meaning.</p>
+        <p><b>Do not score evidence here.</b> Sideway Orderflow can expose weak pressure, compression, or MSS watch, but confidence weighting and candidate qualification belong to Evidence Compiler. Layer 4 still owns thesis meaning.</p>
       </div>
     </div>
   </main>

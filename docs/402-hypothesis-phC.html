@@ -106,7 +106,7 @@
     font-weight: 500;
     font-size: 32px;
     color: var(--text-head);
-    letter-spacing: 0;
+    letter-spacing: -0.01em;
     margin-bottom: 14px;
   }
   .tldr {
@@ -190,7 +190,7 @@
   summary::before {
     content: ">";
     color: var(--accent);
-    font-family: var(--mono);
+    font-family: var(--sans);
     font-size: 12px;
     transition: transform 120ms;
     flex-shrink: 0;
@@ -214,47 +214,59 @@
     overflow: hidden;
     max-width: 760px;
   }
-  .tab-buttons {
+  .tabbar {
     display: flex;
     border-bottom: 1px solid var(--border);
     background: var(--gray-150);
+    flex-wrap: wrap;
   }
-  .tab-buttons button {
+  .tabbar button {
     appearance: none;
-    border: 0;
-    background: transparent;
-    padding: 10px 14px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text-dim);
-    cursor: pointer;
-  }
-  .tab-buttons button.on {
-    background: var(--surface);
-    color: var(--text-head);
-    box-shadow: inset 0 -2px 0 var(--accent);
-  }
-  pre {
-    display: none;
-    padding: 16px;
-    overflow-x: auto;
+    border: none;
+    background: none;
     font-family: var(--mono);
     font-size: 12px;
-    line-height: 1.7;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
     color: var(--text);
-    background: var(--surface);
+    overflow-x: auto;
+    white-space: pre;
   }
-  pre.on { display: block; }
+  .tabs pre.on { display: block; }
+
   pre.block {
-    display: block;
-    max-width: 700px;
-    margin: 16px 0;
+    background: var(--gray-150);
     border: 1.5px solid var(--border);
-    border-radius: 10px;
-    background: var(--surface);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
   }
-  .hl { color: var(--accent); font-weight: 700; }
-  .cm { color: var(--text-dim); font-style: italic; }
+
+  .hl  { color: var(--accent); font-weight: 700; }
+  .cm  { color: var(--text-dim); font-style: italic; }
 
   .rule {
     max-width: 700px;
@@ -288,9 +300,9 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent);
-    margin-bottom: 8px;
+    margin-bottom: 6px;
   }
-  .issue-card p { margin: 0; font-size: 13px; }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
 
   ::selection { background: var(--oat); }
 </style>
@@ -341,7 +353,7 @@
       <summary>Discretionary read <span class="where">chart logic</span></summary>
       <div class="body">
         <p>
-          C is the moment where the pullback has a structure story of its own. The chart is no longer only saying “E stopped expanding”; it is saying “the counter leg has enough internal evidence to be tracked.”
+          C is the moment where the pullback has a structure story of its own. The chart is no longer only saying "E stopped expanding"; it is saying "the counter leg has enough internal evidence to be tracked."
         </p>
 <pre class="block">Phase E bullish:
   E expansion up
@@ -444,12 +456,25 @@ threshold = ltf_pullback_depth_pct >= 50</pre>
       <summary>C.slow_pullback <span class="where">E.pullback_developing → C</span></summary>
       <div class="body">
         <p>
-          The implemented slow path fires when the Phase E shadow node is already <code>E.pullback_developing</code> and the EC counter story becomes ready. It bypasses Phase D because the pullback has developed as a clean one-way counter process rather than a discrete D reaction.
+          The slow path currently fires when the Phase E shadow is already <code>E.pullback_developing</code> and LTF orderflow has confirmed a full counter-direction BoS/MSS — Case F level: <code>confirmed_direction == counter-HTF</code> and <code>regime == "directional"</code>. Because <code>E.pullback_developing</code> has been corrected back to an orderflow-MSS trigger, this path needs another review to avoid using the same orderflow verdict twice as both shadow entry and C maturity.
         </p>
-<pre class="block">phase_c_origin_node = E.pullback_developing
+<pre class="block">Gate:
+  previous_phase != "B"
+  phase_e_shadow_node == "E.pullback_developing"
+  ltf_counter_bos_confirmed == True            ← Case F: confirmed_direction + regime directional
+
+EC fact (ltf_counter_story.debug_facts):
+  ltf_counter_bos_confirmed =
+    orderflow.confirmed_direction == counter-HTF
+    and orderflow.regime == "directional"
+
+phase_c_origin_node = E.pullback_developing
 phase_c_sub_status = slow_pullback
 phase_c_selection_reason =
   ltf_pd_flipped_counter_after_failed_e_continuation_attempt</pre>
+        <p>
+          The failed pro-attempt is implicit: if we are still in <code>E.pullback_developing</code> when the BoS fires, Phase D never committed. If D had committed, the DAG would have left Phase E and the shadow would have reset.
+        </p>
       </div>
     </details>
 
@@ -508,7 +533,7 @@ C → E.seeking if the prior Phase E direction resumes and reaction fails</pre>
     </p>
 
     <div class="tabs" data-tabs>
-      <div class="tab-buttons">
+      <div class="tabbar">
         <button class="on" data-t="0">E / D / C slice</button>
         <button data-t="1">_phase_c_setup()</button>
         <button data-t="2">_phase_c()</button>
@@ -532,7 +557,7 @@ if previous_phase != "B" and fast_hard["phase_c_fast_hard_pullback_ready"]:
     return self._commit(hyp)
 
 if previous_phase != "B" and phase_e_shadow_node == <span class="hl">"E.pullback_developing"</span>:
-    if phase_c_from_e["phase_c_story_ready"]:
+    if phase_c_from_e["phase_c_ltf_counter_bos_confirmed"]:  <span class="cm"># Case F: confirmed_direction + regime directional</span>
         hyp = self._phase_c(..., phase_sub_status=<span class="hl">"slow_pullback"</span>)
         return self._commit(hyp)</pre>
 
@@ -592,7 +617,7 @@ if previous_phase != "B" and phase_e_shadow_node == <span class="hl">"E.pullback
     </p>
 
     <div class="tabs" data-tabs>
-      <div class="tab-buttons">
+      <div class="tabbar">
         <button class="on" data-t="0">config.yaml</button>
         <button data-t="1">HypothesisClassifier</button>
       </div>
@@ -620,30 +645,39 @@ entry_policy = "hybrid" if (
       This page only lists Phase C issues. Completed Phase E migration items stay on the Phase E note.
     </p>
 
-    <div class=”issue-grid”>
-      <div class=”issue-card”>
-        <div class=”issue-label”>Open Issue</div>
-        <p><b>Fast hard path and slow path run on different evidence models.</b> Slow requires <code>ltf_counter_story</code> (LTF structural bias flip) + ChoCh via <code>E.pullback_developing</code>. Fast requires <code>ltf_counter_orderflow_clean</code> + depth ≥ 50% and does not check <code>phase_c_story_ready</code>. Design call: keep the fast path as a deliberate orderflow-only shortcut, or add <code>story_ready</code> as an additional gate without collapsing it into the slow path.</p>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Slow C maturity after Phase E MSS watch.</b>
+        Resolved boundary: <code>E.pullback_developing</code> enters on
+        <code>ltf_counter_orderflow_mss_watch</code> when the protected LTF orderflow anchor
+        breaks and the MSS monitor opens. <code>C.slow_pullback</code> remains the later maturity
+        step: <code>E.pullback_developing</code> + <code>ltf_counter_bos_confirmed</code>
+        (Case F: <code>confirmed_direction</code> + <code>regime == directional</code>).</p>
       </div>
-      <div class=”issue-card”>
-        <div class=”issue-label”>Open Issue</div>
+      <div class="issue-card">
+        <div class="issue-label">Phase C Boundary</div>
+        <p><b>Choose the stream by job.</b> Structural ChoCh is the fresh one-bar chronology signal for D/liquidity evidence. Orderflow BoS / <code>confirmed_direction</code> is the later swing-sequence maturity signal for <code>C.slow_pullback</code>. Do not substitute structural ChoCh for the slow-C maturity gate.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
         <p><b>Phase C quality language is incomplete.</b> <code>phase_c_quality</code> is set on the fast hard path (<code>choppy_tight_range_fast_pullback</code>), but the D-to-C and slow E-to-C paths carry no equivalent quality field. Debug comparison between C variants is uneven until all paths emit a quality tag.</p>
       </div>
-      <div class=”issue-card”>
-        <div class=”issue-label”>Edge Case</div>
-        <p><b>Cold-start C.hard_pullback does not set <code>active_phase_e_direction</code>.</b> When the fast path fires without a prior E classification, <code>_phase_e()</code> is never called and <code>active_phase_e_direction</code> stays <code>”none”</code>. The C carry block guards on <code>active_phase_e_direction == direction</code>; it fails on the next bar and falls through to a fresh E classification. The test at line 717 is single-snapshot and does not cover this. Known: cold-start beyond <code>none → E</code> is in-flight in CLAUDE.md.</p>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Cold-start C.hard_pullback does not set <code>active_phase_e_direction</code>.</b> When the fast path fires without a prior E classification, <code>_phase_e()</code> is never called and <code>active_phase_e_direction</code> stays <code>"none"</code>. The C carry block guards on <code>active_phase_e_direction == direction</code>; it fails on the next bar and falls through to a fresh E classification. The test at line 717 is single-snapshot and does not cover this. Known: cold-start beyond <code>none → E</code> is in-flight in CLAUDE.md.</p>
       </div>
-      <div class=”issue-card”>
-        <div class=”issue-label”>Edge Case</div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
         <p><b>Watching C can exist without a selected POI.</b> This is probably correct, but it means a strong counter story is visible in Layer 4 while Layer 5 has no tradeable object. Replayer UI should make the difference between <code>watching</code> and <code>armed</code> visually clear.</p>
       </div>
-      <div class=”issue-card”>
-        <div class=”issue-label”>Verify</div>
-        <p><b>Confirm <code>E.pullback_developing → E.stalling</code> disruption exit was intentionally removed.</b> CLAUDE.md “Done” lists the broken-orderflow exit as implemented, but <code>_phase_e_shadow_facts()</code> now holds at <code>E.pullback_developing</code> unconditionally. <code>disrupted_orderflow_leg_id</code> is deprecated. If dropped intentionally, remove the stale “Done” entry and confirm whether a second-pullback Phase D boundary can fire without an explicit disruption guard.</p>
+      <div class="issue-card">
+        <div class="issue-label">Verify</div>
+        <p><b>Confirm <code>E.pullback_developing → E.stalling</code> disruption exit was intentionally removed.</b> CLAUDE.md "Done" lists the broken-orderflow exit as implemented, but <code>_phase_e_shadow_facts()</code> now holds at <code>E.pullback_developing</code> unconditionally. <code>disrupted_orderflow_leg_id</code> is deprecated. If dropped intentionally, remove the stale "Done" entry and confirm whether a second-pullback Phase D boundary can fire without an explicit disruption guard.</p>
       </div>
-      <div class=”issue-card”>
-        <div class=”issue-label”>Next Milestone</div>
-        <p>Reconcile Phase C with the Phase E shadow migration. C should consume cleanly named origin memory from Phase E/D/B rather than inferring from a single generic <code>ltf_counter_story</code> gate. Run the full suite to confirm Q3: no stale EC fact-shape assertions in D→C and C-hold tests.</p>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Reconcile Phase C with the Phase E shadow migration.</b> C should consume cleanly named origin memory from Phase E/D/B rather than inferring from a single generic <code>ltf_counter_story</code> gate. Run the full suite to confirm Q3: no stale EC fact-shape assertions in D→C and C-hold tests.</p>
       </div>
     </div>
   </main>
@@ -653,11 +687,11 @@ entry_policy = "hybrid" if (
 document.querySelectorAll("[data-tabs]").forEach(box => {
   const btns = box.querySelectorAll("button");
   const panes = box.querySelectorAll("pre");
-  btns.forEach(btn => btn.addEventListener("click", () => {
-    btns.forEach(b => b.classList.remove("on"));
-    panes.forEach(p => p.classList.remove("on"));
-    btn.classList.add("on");
-    panes[Number(btn.dataset.t)].classList.add("on");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
   }));
 });
 

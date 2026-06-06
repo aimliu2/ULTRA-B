@@ -345,7 +345,8 @@
   - HTF stopped-extending fact
   - LTF probe outside current HTF PD range
   - HTF close outside current HTF PD range
-  - clean unbroken LTF counter orderflow after E.stalling
+  - standalone LTF counter structural ChoCh for D/liquidity chronology
+  - clean unbroken LTF counter orderflow as Phase E pullback-developing trigger and fast-C context
   - LTF pullback depth / displacement as supporting metrics, not the first trigger
   - reaction_warning / reaction_confirmed / reaction_failed
   - raw evidence refs and debug facts explaining those observations
@@ -356,15 +357,15 @@ Layer 4 DAG owns:
     (E, D, C, B, or A)
   - holding E when LTF probes outside PD range before HTF close
   - E -> D transition only on the agreed counter-reaction contract
-  - E.stalling -> E.pullback_developing when clean unbroken LTF counter orderflow appears
+  - E.stalling -> E.pullback_developing when LTF counter orderflow MSS / P-D flip appears
   - E -> C slow-pullback transition only after shadow reports pullback_developing and the LTF counter story matures
   - disabled-phase blocked-transition debug during phase-by-phase replay
 
 Phase E shadow thesis owns:
   - current E shadow node: E.seeking, E.stalling, or E.pullback_developing
   - previous E shadow node and bars_in_node
-  - source LTF counter-orderflow leg id / started_at for pullback_developing
-  - consumed source id so one clean orderflow event does not double-fire
+  - source LTF counter orderflow leg id / started-at, when retained
+  - consumed source id so one orderflow MSS event does not double-fire
   - phase_sub_status output derived from the current E shadow node
 
 Phase E shadow thesis must not own:
@@ -382,10 +383,14 @@ Phase E shadow thesis must not own:
         </div>
         <div class="issue-card">
           <div class="issue-label">Archived · Completed</div>
-          <p><b>Clean orderflow facts drive <code>E.pullback_developing</code>.</b>
-          EC emits whether LTF counter orderflow is clean, unbroken, and counter to HTF after
-          <code>E.stalling</code>. Pullback depth remains a supporting metric, not the first
-          trigger.</p>
+          <p><b>Orderflow MSS drives <code>E.pullback_developing</code>.</b>
+          Layer 4 now waits for <code>phase_e_context_ltf_counter_orderflow_mss_watch</code>
+          after <code>E.stalling</code>: the live probe broke the protected LTF orderflow
+          anchor and the MSS monitor is watching resolution. Full
+          <code>confirmed_direction == counter-HTF</code> + <code>regime == directional</code>
+          remains the later C.slow maturity check. The standalone structural
+          <code>ltf_counter_choch</code> stream remains useful for Phase D liquidity chronology,
+          but is too fast and noisy for this Phase E shadow entry.</p>
         </div>
         <div class="issue-card">
           <div class="issue-label">Archived · Completed</div>
@@ -452,7 +457,12 @@ Phase E shadow thesis must not own:
       <div class="issue-grid">
         <div class="issue-card">
           <div class="issue-label">Next Milestone</div>
-          <p><b>Define the slow C origin.</b> Decide when <code>E.pullback_developing</code> is mature enough to become C, and which EC facts carry that maturity.</p>
+          <p><b>Re-review the slow C origin.</b> Runtime gate is currently
+          <code>ltf_counter_bos_confirmed</code> — LTF orderflow
+          <code>confirmed_direction == counter-HTF</code> and
+          <code>regime == directional</code>. Because <code>E.pullback_developing</code>
+          now enters on MSS watch, slow C can remain the later confirmed-direction maturity
+          step.</p>
         </div>
         <div class="issue-card">
           <div class="issue-label">Next Milestone</div>

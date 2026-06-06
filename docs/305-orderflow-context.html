@@ -369,7 +369,7 @@
     <a href="#purpose" class="l2">Layer 4 complement</a>
     <a href="#purpose" class="l2">Controlled chase</a>
     <a href="#points">Point Source Policy</a>
-    <a href="#choch">ChoCh Monitor</a>
+    <a href="#mss">MSS Monitor</a>
     <a href="#snapshot">Snapshot Contract</a>
     <a href="#eh-el" class="l2">EH / EL annotations</a>
     <a href="#details">Details Page</a>
@@ -389,9 +389,9 @@
   <main>
     <header>
       <div class="eyebrow">Layer 3 · Context · Orderflow</div>
-      <h1>Orderflow Context — Current Leg, ChoCh Monitor, Controlled Chase</h1>
+      <h1>Orderflow Context - BoS, MSS, Current Leg, Controlled Chase</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> — Orderflow Context is a separate Layer 3 semantic detector. Structure owns structural facts; Orderflow reads the configured point source plus the live probe, then projects what the current leg is doing. It does not choose Layer 4's thesis. It gives downstream layers named references for controlled chase: protected anchor, disruption point, decision point, probe relation, and ChoCh monitor resolution. Layer 5 computes OTE posture later from the active thesis leg.
+        <b>TL;DR</b> - Orderflow Context is a separate Layer 3 semantic detector over swing / pivot-sequence anchors. Its pro-direction continuation action is <code>BoS</code>; its counter-direction shift is <code>MSS</code>. MSS opens when the live probe breaks the protected anchor: latest <b>HL</b> in a bullish sequence, latest <b>LH</b> in a bearish sequence. Orderflow does not choose Layer 4's thesis; it gives downstream layers named references for controlled chase: protected anchor, disruption point, decision point, probe relation, and MSS resolution.
       </div>
       <p class="backlink"><a href="./301-context.html">Back to 301 Layer 3 Context</a></p>
     </header>
@@ -404,32 +404,32 @@ mixed:   progression exists, but alternation is messy
 unknown: not enough usable points</pre>
 
     <figure class="figure">
-      <img src="../assets/315-Orderflow.png" alt="Orderflow development mockup with ChoCh, inducement, and reversal branches">
-      <figcaption>Figure 1 — C opens ChoCh monitor; D becomes the decision point; E resolves as inducement; F confirms reversal.</figcaption>
+      <img src="../assets/315-Orderflow.png" alt="Orderflow development mockup with MSS, inducement, and reversal branches">
+      <figcaption>Figure 1 - C opens the MSS monitor; D becomes the decision point; E resolves as inducement; F confirms reversal.</figcaption>
     </figure>
 
     <div class="callout">
       <span class="ico">!</span>
-      <div>The current price is not a confirmed orderflow point. For LTF structure-anchor orderflow, Structure projects it as <b>structure_anchor_probe</b>: the +1 live point derived from the Layer 1 cursor and current structure lifecycle.</div>
+      <div>The current price is not a confirmed orderflow point. For LTF structure-sequence orderflow, Structure projects it as <b>structure_probe</b>: the +1 live point derived from the Layer 1 cursor and current structure lifecycle.</div>
     </div>
 
     <h3>Discretionary -> Algorithm mapping</h3>
     <details open>
       <summary>Step 1 · Remember structural points <span class="where">State Store</span></summary>
       <div class="body">
-        <p>The channel does not scan raw history. It reads State Store objects: LTF structure anchor points, HTF ITR pivots, and optional LTR fallbacks.</p>
+        <p>The channel does not scan raw history. It reads State Store objects: LTF structure sequence points, HTF ITR pivots, and optional LTR fallbacks.</p>
       </div>
     </details>
     <details>
       <summary>Step 2 · Append live probe, not pivot <span class="where">Structure projection</span></summary>
       <div class="body">
-        <p>The live probe answers whether price is attacking the next level, pulling into OTE, threatening the protected anchor, or resolving a ChoCh monitor. It is not retained as confirmed history.</p>
+        <p>The live probe answers whether price is attacking the next level, pulling into OTE, threatening the protected anchor, or resolving an MSS monitor. It is not retained as confirmed history.</p>
       </div>
     </details>
     <details>
       <summary>Step 3 · Project pressure, not thesis <span class="where">Layer 3 output</span></summary>
       <div class="body">
-        <p>The output is soft context: direction, quality, live pressure, ChoCh monitor state, and source references. Evidence Compiler may qualify it; Layer 4 remains the deterministic thesis owner.</p>
+        <p>The output is soft context: direction, quality, live pressure, MSS monitor state, and source references. Evidence Compiler may qualify it; Layer 4 remains the deterministic thesis owner.</p>
       </div>
     </details>
 
@@ -457,29 +457,42 @@ Bullish Phase C + LTF orderflow bearish
     <p>Controlled chase needs a structured path to follow. Orderflow supplies the named references instead of forcing Layer 5 to infer them from raw candles.</p>
     <pre class="block">Layer 4 thesis = bullish
 LTF orderflow has bearish pullback pressure
-ChoCh monitor opens
+MSS monitor opens
 D decision point forms
 live probe moves toward the execution leg
 live probe starts resolving / reclaiming
 controlled chase permission becomes possible</pre>
 
     <div class="rule-block">
-      The chase algorithm should be able to ask Orderflow for <code>choch_monitor_status</code>, <code>decision_point_ref</code>, and <code>protected_anchor_ref</code>. Layer 5 computes <code>ote_posture</code> later after Layer 4 defines the active thesis leg.
+      The chase algorithm should be able to ask Orderflow for <code>mss_monitor_status</code>, <code>decision_point_ref</code>, and <code>protected_anchor_ref</code>. Layer 5 computes <code>ote_posture</code> later after Layer 4 defines the active thesis leg.
     </div>
 
     <h2 id="points"><span class="sec-num">02</span> Point Source Policy</h2>
     <p>The point source is intentionally different by timeframe. LTF is used for execution posture, so it starts cleaner. HTF is used for macro posture, so regular ITR should be enough.</p>
 
     <details open>
-      <summary>LTF · structure anchor sequence <span class="where">initial policy</span></summary>
+      <summary>LTF · structure sequence <span class="where">initial policy</span></summary>
       <div class="body">
-        <p>LTF orderflow uses <code>structure_anchor_sequence</code> plus <code>structure_anchor_probe</code> produced by every active Structure Context instance. This should be less noisy than raw ITR and more execution-useful than a full LTR compression.</p>
-        <pre class="block">LTF source = structure_anchor_sequence + structure_anchor_probe
-shape = last 8 confirmed anchors + 1 live probe
+        <p>LTF orderflow uses <code>structure_sequence</code> plus <code>structure_probe</code> produced by every active Structure Context instance. Confirmed pivots are labeled as anchor swing points (HH/HL/LH/LL) by the orderflow engine — these are an orderflow concept, not the same as the raw source events.</p>
+        <pre class="block">LTF source = structure_sequence + structure_probe
+shape = last 8 confirmed structure points + 1 live probe
 questions:
   current leg = impulse | pullback | anchor_threat | broken | unknown
   probe relation = near protected anchor | reclaiming | breaking away
-  protected anchor respected?</pre>
+  protected anchor respected?
+
+MSS trigger (live probe — gate for E.pullback_developing):
+  bullish: protected anchor = latest confirmed HL
+           probe breaks below HL → mss_regime = "mss_watch"
+  bearish: protected anchor = latest confirmed LH
+           probe breaks above LH → mss_regime = "mss_watch"
+  → fires the moment price probes beyond the protected anchor
+
+MSS debug field (additional context, not the gate):
+  mss_watch_confirmed: confirmed counter-pivot exists in the sequence
+                       or HH or HL (bearish)
+  → fires when a confirmed counter-pivot exists in the sequence
+  → useful for downstream phase C / confirmed disruption checks</pre>
       </div>
     </details>
 
@@ -496,38 +509,37 @@ questions:
     </details>
 
     <details>
-      <summary>Fallback · keep source configurable <span class="where">config</span></summary>
+      <summary>Source boundary — naming resolves it <span class="where">design decision</span></summary>
       <div class="body">
-        <p>If LTF anchor points are too slow, use ITR. If LTF is still too noisy, use LTR or a stricter anchor-point filter.</p>
-        <pre class="block">source_policy:
-  lower_timeframe: structure_anchor_sequence
-  higher_timeframe: itr_sequence
-allowed_sources:
-  - structure_anchor_sequence
-  - itr_sequence
-  - ltr_sequence</pre>
+        <p>Orderflow and Structure are separate channels with separate anchor concepts. No source config is needed because the event name tells you which channel to read.</p>
+        <pre class="block">MSS / BoS  → orderflow channel → reads its own swing/pivot sequence
+SB / ChoCh → structure channel → reads ITR / LTR anchors
+
+"LTF MSS then LTF SB" = two reads from two channels — no ambiguity.</pre>
+        <p>The orderflow swing sequence happens to be built from confirmed LTF structure pivots stored in the State Store, but that is an implementation detail. Conceptually, orderflow owns its own sequence; the event name is the routing key.</p>
       </div>
     </details>
 
     <h3>Component ownership</h3>
     <pre class="block">Structure Context:
-  owns BoS / ChoCh structural lifecycle
+  owns SB / ChoCh structural lifecycle over STR / ITR / LTR anchors
   owns P/D range and ratchet reset
-  records confirmed structure anchors at semantic confirmation/reset moments
-  projects structure_anchor_probe from current lifecycle + cursor
+  records confirmed structure sequence points at semantic confirmation/reset moments
+  projects structure_probe from current lifecycle + cursor
   does not interpret orderflow direction
 
 State Store:
-  retains structure_anchor_sequence for every active StructureEngine instance
-  keeps last 8 confirmed anchors by default
-  exposes recent_structure_anchor_points and structure_anchor_probe
-  LTF and HTF both retain anchors unless that structure context is disabled
+  retains structure_sequence for every active StructureEngine instance
+  keeps last 8 confirmed structure points by default
+  exposes recent_structure_sequence_points and structure_probe
+  LTF and HTF both retain structure sequences unless that structure context is disabled
 
 Orderflow Context:
   is a separate Layer 3 context channel
-  consumes structure_anchor_sequence + structure_anchor_probe on LTF by default
+  consumes structure_sequence + structure_probe on LTF by default
   consumes itr_sequence on HTF by default
-  maintains direction, live pressure, ChoCh monitor, protected refs
+  owns BoS / MSS over swing-point or pivot-sequence anchors
+  maintains direction, live pressure, MSS monitor, protected refs
   writes OrderflowSnapshot back to State Store / Fusion surface</pre>
 
     <p>The comparison rule is simple: a high point compares to the previous high; a low point compares to the previous low.</p>
@@ -542,19 +554,23 @@ Orderflow Context:
       low_i < low_{i-1} \Rightarrow LL
     $$
 
-    <h2 id="choch"><span class="sec-num">03</span> ChoCh Monitor</h2>
-    <p>ChoCh is a monitor state, not an immediate reversal verdict. In the image, C disrupts bullish orderflow by creating a lower low. That opens a monitor. D is the decision point. E resolves as inducement. F confirms reversal.</p>
+    <h2 id="mss"><span class="sec-num">03</span> MSS Monitor</h2>
+    <p>MSS is the orderflow counter-shift monitor, not an immediate reversal verdict. In the image, C disrupts bullish orderflow when the live probe breaks the latest confirmed HL. That opens a monitor. D is the decision point. E resolves as inducement. F confirms reversal.</p>
 
     <details open>
       <summary>C · disruption opens monitor <span class="where">watching_resolution</span></summary>
       <div class="body">
-        <pre class="block">confirmed_direction = bullish
-protected_anchor = latest bullish HL
-live probe breaks below protected anchor
+        <pre class="block">bullish:
+  confirmed_direction = bullish
+  protected_anchor = latest confirmed HL
+  probe breaks below HL → MSS opens
+  mss_monitor_status = watching_resolution
 
-event = bullish_orderflow_disrupted
-live_pressure = anchor_threat
-choch_monitor_status = watching_resolution</pre>
+bearish:
+  confirmed_direction = bearish
+  protected_anchor = latest confirmed LH
+  probe breaks above LH → MSS opens
+  mss_monitor_status = watching_resolution</pre>
         <p>The market is unresolved here: possible inducement, possible reversal.</p>
       </div>
     </details>
@@ -574,12 +590,12 @@ candidate_direction = bearish</pre>
       <summary>E/F · resolve inducement or confirm reversal <span class="where">resolution</span></summary>
       <div class="body">
         <pre class="block">E inducement:
-  choch_monitor_status = resolved_inducement
+  mss_monitor_status = resolved_inducement
   confirmed_direction = bullish
   live_pressure = reclaiming
 
 F reversal:
-  choch_monitor_status = confirmed_reversal
+  mss_monitor_status = confirmed_reversal
   confirmed_direction = bearish
   live_pressure = none
   sequence = LL, LH, LL...</pre>
@@ -594,11 +610,11 @@ F reversal:
     <p>The OrderflowSnapshot is the current truth emitted to Interpreter and Fusion. Evidence Compiler consumes this shape and may turn it into soft support or tilt.</p>
     <pre class="block">OrderflowSnapshot:
   confirmed_direction = bullish | bearish | mixed | unknown
-  regime = directional | choch_watch | compression | sweep_range | unknown
+  regime = directional | mss_watch | compression | sweep_range | unknown
   quality = clean | weak | broken
   live_pressure = none | pullback_extending | anchor_threat | reclaiming | breakaway_watch
-  choch_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
-  source = structure_anchor_sequence | itr_sequence | ltr_sequence
+  mss_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
+  source = structure_sequence | itr_sequence
   window_size = 6
   confirmed_sequence = HH, HL, HH, HL...
   sequence_with_probe = HH, HL, HH, HL, probe...
@@ -613,7 +629,7 @@ F reversal:
   probe_ref
   probe_breaks_protected_anchor = true | false
   probe_relation = above_active_high | below_active_low | upper_half | lower_half | inside_range | outside_range | unknown
-  choch_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
+  mss_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
   liquidity_annotations = EH / EL cluster refs only, not direction labels
   pullback_status = extending | decelerating | resolving | broken | unknown
   timeframe
@@ -653,7 +669,7 @@ Annotation labels:
     <details>
       <summary>Forbidden effects <span class="where">no direction decision</span></summary>
       <div class="body">
-        <p>EH/EL must not flip <code>confirmed_direction</code>, confirm reversal, invalidate a thesis, or trigger an entry by itself. Direction still comes from HH/HL/LH/LL plus ChoCh monitor resolution.</p>
+        <p>EH/EL must not flip <code>confirmed_direction</code>, confirm reversal, invalidate a thesis, or trigger an entry by itself. Direction still comes from HH/HL/LH/LL plus MSS monitor resolution.</p>
       </div>
     </details>
 
@@ -667,7 +683,7 @@ Annotation labels:
       <div class="tabbar">
         <button class="on" data-t="0">on_bar()</button>
         <button data-t="1">classify sequence</button>
-        <button data-t="2">ChoCh monitor</button>
+        <button data-t="2">MSS monitor</button>
       </div>
 <pre class="on"><span class="cm"># proposed: OrderflowContext.on_bar()</span>
 <span class="hl">def</span> on_bar(self, cursor, state_store) -> OrderflowSnapshot:
@@ -692,7 +708,7 @@ Annotation labels:
         regime,
     )
 
-    monitor = self._update_choch_monitor(
+    monitor = self._update_mss_monitor(
         direction=confirmed_direction,
         regime=regime,
         points=confirmed_points,
@@ -704,7 +720,7 @@ Annotation labels:
         regime=regime,
         quality=quality,
         live_pressure=monitor.pressure or live_pressure,
-        choch_monitor_status=monitor.status,
+        mss_monitor_status=monitor.status,
         source=source,
         confirmed_sequence=confirmed_labels[-self.window_size:],
         probe_relation=probe_relation,
@@ -755,8 +771,8 @@ if confirmed_direction == "bullish":
     </div>
 
     <h3>Layer handoff</h3>
-    <pre class="block">State Store structure_anchor_sequence
-+ Structure-projected structure_anchor_probe
+    <pre class="block">State Store structure_sequence
++ Structure-projected structure_probe
 -> Orderflow Context
 -> State Store orderflow object
 -> Interpreter projects OrderflowSnapshot
@@ -765,7 +781,7 @@ if confirmed_direction == "bullish":
 -> Layer 4 may use it as context, not verdict</pre>
 
     <h2 id="config"><span class="sec-num">06</span> Config</h2>
-    <p>There is no committed <code>orderflow:</code> config block yet. The existing config already exposes the structure tier, pivot tiers, and anchor retention limit that Orderflow will consume.</p>
+    <p>There is no committed <code>orderflow:</code> config block yet. The existing config already exposes the structure tier, pivot tiers, and structure sequence retention limit that Orderflow will consume.</p>
 
     <div class="tabs" data-tabs>
       <div class="tabbar">
@@ -786,20 +802,14 @@ pivot_events:
 structure:
   enabled: true
   tier: "itr"          <span class="cm"># "itr" default, or "ltr"</span>
-  anchor_sequence_limit: 8</pre>
+  structure_sequence_limit: 8</pre>
 <pre><span class="cm"># proposed future block</span>
 orderflow:
   enabled: true
   window_size: 6
   probe_points: 8
-  source_policy:
-    lower_timeframe: structure_anchor_sequence
-    higher_timeframe: itr_sequence
-  allowed_sources:
-    - structure_anchor_sequence
-    - itr_sequence
-    - ltr_sequence
-  choch_monitor:
+  higher_timeframe_source: itr_sequence  <span class="cm"># LTF is fixed to structure_sequence</span>
+  mss_monitor:
     enabled: true
     require_decision_point: true
   regimes:
@@ -811,17 +821,25 @@ self.enabled = bool(cfg.get("enabled", True))
 self.window_size = int(cfg.get("window_size", 6))
 self.probe_points = int(cfg.get("probe_points", 8))
 
-policy = cfg.get("source_policy", {})
-self.lower_source = policy.get("lower_timeframe", "structure_anchor_sequence")
-self.higher_source = policy.get("higher_timeframe", "itr_sequence")
+<span class="cm"># LTF source is fixed; only HTF source is configurable</span>
+self.lower_source = "structure_sequence"
+self.higher_source = cfg.get("higher_timeframe_source", "itr_sequence")
 
-monitor_cfg = cfg.get("choch_monitor", {})
-self.choch_enabled = bool(monitor_cfg.get("enabled", True))
+monitor_cfg = cfg.get("mss_monitor", {})
+self.mss_enabled = bool(monitor_cfg.get("enabled", True))
 self.require_decision_point = bool(monitor_cfg.get("require_decision_point", True))</pre>
     </div>
 
     <h2 id="issues"><span class="sec-num">07</span> Open Issues · Edge Cases · Next Milestone</h2>
     <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Resolved · Naming Reconcile</div>
+        <p><b>MSS and SB/ChoCh are separate channels.</b> <b>Structural SB / ChoCh</b> (<code>last_sc.choch</code>, <code>structureEngine.py</code>) is a close-through event over ITR/LTR anchors — one bar, immediate. <b>Orderflow MSS</b> fires when the live probe breaks the latest confirmed <b>HL</b> (bullish) or <b>LH</b> (bearish) in the orderflow swing sequence. The event name is the routing key: MSS → read orderflow; SB/ChoCh → read structure. The same visual move can create a structural SB first and an orderflow BoS later; those are separate facts. EC's <code>ltf_counter_choch</code> reads the structural event for Phase D chronology. <code>mss_watch_confirmed</code> is emitted when a confirmed counter-pivot exists in the orderflow sequence — additional context, not the MSS gate.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>confirmed_direction ≠ structural ChoCh.</b> <code>confirmed_direction</code> flipping to counter-HTF requires accumulating 4+ scored pivot points (LH/LL for bearish, HH/HL for bullish). It lags behind structural ChoCh (<code>last_sc.choch</code>) and the initial MSS disruption. A grinding pullback can hold LTF bearish bias structurally while orderflow never reaches the clean-directional threshold. EC consumers must choose the stream by boundary: structural ChoCh for fresh one-bar chronology, orderflow MSS / <code>confirmed_direction + regime == directional</code> for slower P/D flip confirmation.</p>
+      </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>Equal highs / equal lows.</b> Settled direction: Orderflow assigns EH/EL only as liquidity annotations or cluster refs. They do not become HH/HL/LH/LL, do not flip direction, and do not trigger entry. They may lower continuation confidence, set <code>regime = compression | sweep_range</code>, or create a Liquidity Context candidate.</p>
@@ -836,11 +854,11 @@ self.require_decision_point = bool(monitor_cfg.get("require_decision_point", Tru
       </div>
       <div class="issue-card">
         <div class="issue-label">Fallback</div>
-        <p><b>LTF source too slow or noisy.</b> If structure anchor points lag too much, switch LTF to ITR. If that is too noisy, try LTR or a stricter anchor-point filter.</p>
+        <p><b>LTF source too slow or noisy.</b> If structure sequence points lag too much, switch LTF to ITR. If that is too noisy, try LTR or a stricter Orderflow anchor-point filter.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Next Milestone</div>
-        <p><b>Implementation pass.</b> Add an Orderflow Context channel that reads State Store points and the structure-projected live probe, writes lifecycle fields, and exposes them through Interpreter/Fusion: <code>confirmed_direction</code>, <code>regime</code>, <code>live_pressure</code>, <code>range_ref</code>, <code>probe_relation</code>, <code>choch_monitor_status</code>, <code>decision_point_ref</code>, <code>protected_anchor_ref</code>, and <code>liquidity_annotations</code>.</p>
+        <p><b>Implementation pass.</b> Add an Orderflow Context channel that reads State Store points and the structure-projected live probe, writes lifecycle fields, and exposes them through Interpreter/Fusion: <code>confirmed_direction</code>, <code>regime</code>, <code>live_pressure</code>, <code>range_ref</code>, <code>probe_relation</code>, <code>mss_monitor_status</code>, <code>decision_point_ref</code>, <code>protected_anchor_ref</code>, and <code>liquidity_annotations</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Next Milestone</div>
@@ -848,7 +866,7 @@ self.require_decision_point = bool(monitor_cfg.get("require_decision_point", Tru
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>Anchor sequence prerequisite.</b> Structure Context now emits and retains <code>structure_anchor_sequence</code> plus <code>structure_anchor_probe</code>. Orderflow implementation can consume this instead of reading P/D range fields as history.</p>
+        <p><b>Structure sequence prerequisite.</b> Structure Context now emits and retains <code>structure_sequence</code> plus <code>structure_probe</code>. Orderflow implementation can consume this instead of reading P/D range fields as history.</p>
       </div>
     </div>
   </main>

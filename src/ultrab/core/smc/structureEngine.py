@@ -14,7 +14,7 @@ StructureBias = Literal["neutral", "bullish", "bearish"]
 StructurePhase = Literal["neutral", "open", "pullback_confirmed"]
 StructureTier = Literal["itr", "ltr"]
 PullbackConfirmedBy = Literal["itr", "sd_zone"]
-StructureAnchorSide = Literal["high", "low"]
+StructureSequenceSide = Literal["high", "low"]
 
 _INF = float("inf")
 
@@ -22,7 +22,7 @@ _INF = float("inf")
 @dataclass
 class ScEvent:
     event_code: str                         # SC01 / SC02 / SC03 / SC04
-    event_name: str                         # itrBosUp / itrBosDown / ltrBosUp / ltrBosDown
+    event_name: str                         # target: itrSbUp / itrSbDown / ltrSbUp / ltrSbDown
     event_group: str                        # "SC"
     event_timestamp: pd.Timestamp
     level_tier: str                         # "itr" or "ltr"
@@ -36,9 +36,14 @@ class ScEvent:
     prior_anchor_low: float | None = None   # backward-compatible ChoCh field
 
     def to_dict(self) -> dict[str, Any]:
+        event_action = "structure_choch" if self.choch else "structure_sb"
+        runtime_alias = self.event_name.replace("Sb", "Bos")
         d: dict[str, Any] = {
             "eventCode": self.event_code,
             "eventName": self.event_name,
+            "targetEventName": self.event_name,
+            "runtimeAlias": runtime_alias,
+            "eventAction": event_action,
             "eventGroup": self.event_group,
             "eventTimestamp": self.event_timestamp.isoformat(),
             "levelTier": self.level_tier,
@@ -47,6 +52,8 @@ class ScEvent:
             "levelSide": self.level_side,
             "breakDirection": self.break_direction,
             "biasFlip": self.bias_flip,
+            "structure_sb": event_action == "structure_sb",
+            "structure_choch": event_action == "structure_choch",
             "choch": self.choch,
         }
         if self.prior_anchor_high is not None:
@@ -90,10 +97,10 @@ class StructureLevel:
 
 
 @dataclass
-class StructureAnchorPoint:
+class StructureSequencePoint:
     point_id: str
     timeframe: str
-    side: StructureAnchorSide
+    side: StructureSequenceSide
     role: str
     price: float
     timestamp: pd.Timestamp
@@ -171,9 +178,14 @@ class StructureEngine:
         raw_tier = str(config.get("tier", "itr")).lower()
         self._tier: StructureTier = "ltr" if raw_tier == "ltr" else "itr"
         self._recent_level_limit = max(1, int(config.get("recent_level_limit", 20)))
-        self._structure_anchor_limit = max(
+        self._structure_sequence_limit = max(
             1,
-            int(config.get("anchor_sequence_limit", config.get("structure_anchor_limit", 8))),
+            int(
+                config.get(
+                    "structure_sequence_limit",
+                    config.get("structure_anchor_limit", config.get("anchor_sequence_limit", 8)),
+                )
+            ),
         )
 
         # tier-specific PE codes
@@ -181,16 +193,16 @@ class StructureEngine:
             self._pe_high_code = "PE03"   # itrHighConfirmed
             self._pe_low_code  = "PE04"   # itrLowConfirmed
             self._sc_up_code   = "SC01"
-            self._sc_up_name   = "itrBosUp"
+            self._sc_up_name   = "itrSbUp"
             self._sc_dn_code   = "SC02"
-            self._sc_dn_name   = "itrBosDown"
+            self._sc_dn_name   = "itrSbDown"
         else:
             self._pe_high_code = "PE05"   # ltrHighConfirmed
             self._pe_low_code  = "PE06"   # ltrLowConfirmed
             self._sc_up_code   = "SC03"
-            self._sc_up_name   = "ltrBosUp"
+            self._sc_up_name   = "ltrSbUp"
             self._sc_dn_code   = "SC04"
-            self._sc_dn_name   = "ltrBosDown"
+            self._sc_dn_name   = "ltrSbDown"
 
         # state
         self._bias: StructureBias = "neutral"
@@ -225,7 +237,7 @@ class StructureEngine:
         self._latest_level_high: StructureLevel | None = None
         self._latest_level_low: StructureLevel | None = None
         self._structure_attempt: StructureAttempt | None = None
-        self._structure_anchor_sequence: list[StructureAnchorPoint] = []
+        self._structure_sequence: list[StructureSequencePoint] = []
 
         # warmup gate — flips True on first SC; post-warmup uses wick range
         self._warmup_complete: bool = False
@@ -356,15 +368,25 @@ class StructureEngine:
             ),
             "structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
             "ltf_structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
+            "structure_sequence": [
+                point.to_dict()
+                for point in self._structure_sequence
+            ],
+            "structure_probe": self._structure_probe(current_price),
+            "recent_structure_sequence_points": [
+                point.to_dict()
+                for point in self._structure_sequence
+            ],
+            # Compatibility aliases for the current Orderflow/docs migration.
             "structure_anchor_sequence": [
-                anchor.to_dict()
-                for anchor in self._structure_anchor_sequence
+                point.to_dict()
+                for point in self._structure_sequence
             ],
             "recent_structure_anchor_points": [
-                anchor.to_dict()
-                for anchor in self._structure_anchor_sequence
+                point.to_dict()
+                for point in self._structure_sequence
             ],
-            "structure_anchor_probe": self._structure_anchor_probe(current_price),
+            "structure_anchor_probe": self._structure_probe(current_price),
             # timestamps for P/D line drawing on the chart
             "phase_start_ts": self._phase_start_ts.isoformat() if self._phase_start_ts is not None else None,
             "range_high_ts": self._range_high_ts.isoformat() if self._range_high_ts is not None else None,
@@ -389,7 +411,7 @@ class StructureEngine:
                 bar_high,
                 range_low_ts=anchor_ts,
             )
-            self._record_structure_anchor(
+            self._record_structure_point(
                 "low",
                 "range_origin",
                 anchor_price,
@@ -425,7 +447,7 @@ class StructureEngine:
                 bar_low,
                 range_high_ts=anchor_ts,
             )
-            self._record_structure_anchor(
+            self._record_structure_point(
                 "high",
                 "range_origin",
                 anchor_price,
@@ -466,7 +488,7 @@ class StructureEngine:
                 prior_high = self._range_high
                 prior_high_ts = self._range_high_ts or ts
                 prior_low = self._range_low
-                self._record_structure_anchor(
+                self._record_structure_point(
                     "high",
                     "reversal_ceiling",
                     prior_high,
@@ -495,7 +517,7 @@ class StructureEngine:
                 new_floor = self._pullback_low if self._pullback_low is not None else bar_low
                 new_floor_ts = self._pullback_low_ts if self._pullback_low is not None else ts
                 self._confirm_structure_attempt(ts)
-                self._record_structure_anchor(
+                self._record_structure_point(
                     "low",
                     "range_origin",
                     new_floor,
@@ -516,7 +538,7 @@ class StructureEngine:
                 prior_high = self._range_high
                 prior_low = self._range_low
                 prior_low_ts = self._range_low_ts or ts
-                self._record_structure_anchor(
+                self._record_structure_point(
                     "low",
                     "reversal_floor",
                     prior_low,
@@ -545,7 +567,7 @@ class StructureEngine:
                 new_ceiling = self._pullback_high if self._pullback_high is not None else bar_high
                 new_ceiling_ts = self._pullback_high_ts if self._pullback_high is not None else ts
                 self._confirm_structure_attempt(ts)
-                self._record_structure_anchor(
+                self._record_structure_point(
                     "high",
                     "range_origin",
                     new_ceiling,
@@ -618,9 +640,9 @@ class StructureEngine:
             self._latest_level_low = level
         return level
 
-    def _anchor_id(
+    def _sequence_point_id(
         self,
-        side: StructureAnchorSide,
+        side: StructureSequenceSide,
         price: float,
         timestamp: pd.Timestamp,
         confirmed_at: pd.Timestamp,
@@ -637,9 +659,9 @@ class StructureEngine:
             ]
         )
 
-    def _record_structure_anchor(
+    def _record_structure_point(
         self,
-        side: StructureAnchorSide,
+        side: StructureSequenceSide,
         role: str,
         price: float,
         timestamp: pd.Timestamp,
@@ -647,9 +669,9 @@ class StructureEngine:
         source_transition: str,
         *,
         source_event_id: str | None = None,
-    ) -> StructureAnchorPoint:
-        anchor = StructureAnchorPoint(
-            point_id=self._anchor_id(side, price, timestamp, confirmed_at, source_transition),
+    ) -> StructureSequencePoint:
+        point = StructureSequencePoint(
+            point_id=self._sequence_point_id(side, price, timestamp, confirmed_at, source_transition),
             timeframe=self._tf,
             side=side,
             role=role,
@@ -660,20 +682,20 @@ class StructureEngine:
             source_event_id=source_event_id,
         )
 
-        if self._structure_anchor_sequence and self._structure_anchor_sequence[-1].side == side:
-            self._structure_anchor_sequence[-1] = anchor
+        if self._structure_sequence and self._structure_sequence[-1].side == side:
+            self._structure_sequence[-1] = point
         else:
-            self._structure_anchor_sequence.append(anchor)
+            self._structure_sequence.append(point)
 
-        if len(self._structure_anchor_sequence) > self._structure_anchor_limit:
-            self._structure_anchor_sequence = self._structure_anchor_sequence[-self._structure_anchor_limit :]
-        return anchor
+        if len(self._structure_sequence) > self._structure_sequence_limit:
+            self._structure_sequence = self._structure_sequence[-self._structure_sequence_limit :]
+        return point
 
-    def _structure_anchor_probe(self, current_price: float) -> dict[str, Any] | None:
+    def _structure_probe(self, current_price: float) -> dict[str, Any] | None:
         if self._bias == "neutral":
             return None
 
-        side: StructureAnchorSide
+        side: StructureSequenceSide
         role: str
         price: float | None = None
         timestamp: pd.Timestamp | None = None
@@ -902,7 +924,7 @@ class StructureEngine:
         zone_id: str | None = None,
     ) -> None:
         if self._bias == "bullish" and self._range_high is not None:
-            self._record_structure_anchor(
+            self._record_structure_point(
                 "high",
                 "extension_extreme",
                 self._range_high,
@@ -911,7 +933,7 @@ class StructureEngine:
                 "pullback_confirmed",
             )
         elif self._bias == "bearish" and self._range_low is not None:
-            self._record_structure_anchor(
+            self._record_structure_point(
                 "low",
                 "extension_extreme",
                 self._range_low,

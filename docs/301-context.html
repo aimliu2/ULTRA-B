@@ -464,8 +464,8 @@ FVG Events (CE)
   active S/D zones             fed by CE02
   liquidity pools              fed by SC / P-D / EQ context
   open P/D ranges              fed by SC lifecycle transitions
-  structure anchor sequence    fed by Structure Context
-  structure anchor probe       projected by active Structure Context
+  structure sequence          fed by Structure Context
+  structure probe             projected by active Structure Context
   HTF / LTF ITR context        fed by selected PE tier
   orderflow context            fed by anchor / ITR source policy
   structure attempts           fed by remembered ITR/LTR anchors
@@ -492,13 +492,13 @@ consistent snapshot projection</div>
 <div class="code-block">on each bar:
   register new PE / CE primitives into State Store
   check active structure levels
-    → BoS / ChoCh lifecycle transition
+    → SB / ChoCh lifecycle transition
   check active S/D zones
     → entered / held / bounced / expired
   check liquidity pools
     → approached / taken / reclaimed / failed
   check configured orderflow source
-    → direction / live pressure / ChoCh monitor
+    → BoS / MSS / direction / live pressure
   check structure attempts
     → started / failed / confirmed
   check expirations
@@ -512,11 +512,11 @@ consistent snapshot projection</div>
     D: {
       num:   "05",
       tag:   "Channel",
-      title: "Structure Context (SC) — BoS · Range · P/D Lifecycle",
+      title: "Structure Context (SC) — SB · ChoCh · Range · P/D Lifecycle",
       meta:  "SC01–SC04 · wick-based range · anchor sequence · pullback confirmation",
       body:  `
-<p><strong>Event codes:</strong> SC01 = itrBosUp · SC02 = itrBosDown · SC03 = ltrBosUp · SC04 = ltrBosDown. Tier selected by config (<code>structure.tier: "itr"</code> or <code>"ltr"</code>).</p>
-<p><strong>BoS definition:</strong> Fires on CLOSE beyond the active structure level only. A wick-through is not a BoS — it is liquidity swept.</p>
+<p><strong>Runtime event names:</strong> SC01 = itrSbUp · SC02 = itrSbDown · SC03 = ltrSbUp · SC04 = ltrSbDown. Legacy aliases remain in <code>runtimeAlias</code>: <code>itrBosUp</code>, <code>itrBosDown</code>, <code>ltrBosUp</code>, and <code>ltrBosDown</code>. Tier selected by config (<code>structure.tier: "itr"</code> or <code>"ltr"</code>).</p>
+<p><strong>SB definition:</strong> Structure Broken fires on CLOSE beyond the active STR / ITR / LTR structural level in the current movement direction. A wick-through is not SB — it is liquidity swept.</p>
 <div class="code-block">Phase lifecycle:
   NEUTRAL (warmup)
     PE registry seeded. SC detection vs registry_high/registry_low.
@@ -527,7 +527,7 @@ consistent snapshot projection</div>
   PULLBACK_CONFIRMED
     phase = confirmed by itr (PE03/PE04) or sd_zone (CE02 in useful half).
     Persistent until next SC resets the leg.
-    SC01 continuation: PULLBACK_CONFIRMED + close > range_high
+    SC01 SB continuation: PULLBACK_CONFIRMED + close > range_high
     SC02 ChoCh:        close < range_low (bias flip, no neutral state)</div>
 <p><strong>Range rules (wick-based):</strong></p>
 <div class="code-block">Bullish:
@@ -539,11 +539,11 @@ Bearish:
 
 P/D midpoint = midpoint(range_low, range_high)
 pd_value_pct = bias-aware (0=discount, 100=premium)</div>
-<p><strong>Anchor sequence:</strong> Structure records confirmed swing anchors when structural points become semantic facts, and exposes a bounded <code>structure_anchor_sequence</code> plus a live <code>structure_anchor_probe</code>. This is structural fact memory, not an Orderflow verdict.</p>
+<p><strong>Structure sequence:</strong> Structure records confirmed structure points when structural P/D lifecycle points become semantic facts, and exposes a bounded <code>structure_sequence</code> plus a live <code>structure_probe</code>. This is structural fact memory, not an Orderflow verdict.</p>
 <div class="code-block">Structure snapshot exposes:
-  structure_anchor_sequence      last 8 confirmed anchors
-  recent_structure_anchor_points alias for readers
-  structure_anchor_probe         +1 live unconfirmed probe</div>
+  structure_sequence      last 8 confirmed structure points
+  recent_structure_sequence_points alias for readers
+  structure_probe         +1 live unconfirmed probe</div>
 <div class="rule-block">range_high and range_low NEVER decay on their own. Time alone is not a reset condition. Only SC01 / SC02 start a new leg.</div>
 <a class="panel-link" href="./302-structure-context.html">Open 302 Structure Context →</a>
       `,
@@ -641,18 +641,18 @@ Current-event identity:
     O: {
       num:   "08",
       tag:   "Channel",
-      title: "Orderflow Context (OF) — Anchor Sequence Pressure",
-      meta:  "Separate Layer 3 context channel over structure anchors / ITR source policy",
+      title: "Orderflow Context (OF) — BoS · MSS · Anchor Sequence Pressure",
+      meta:  "Separate Layer 3 context channel over structure sequence points / ITR source policy",
       body:  `
 <p>Orderflow Context is its own Layer 3 semantic detector, not a submodule of Structure Context. Structure owns structural facts. Orderflow reads those facts and interprets directional pressure.</p>
-<p>LTF Orderflow consumes <code>structure_anchor_sequence</code> plus <code>structure_anchor_probe</code> by default. HTF Orderflow consumes the regular ITR sequence by default unless config chooses another source. It should not rescan raw OHLC.</p>
+<p>LTF Orderflow consumes <code>structure_sequence</code> plus <code>structure_probe</code> by default. HTF Orderflow consumes the regular ITR sequence by default unless config chooses another source. It should not rescan raw OHLC.</p>
 <p>This is not a thesis decision. Orderflow is allowed to be a soft, messy read of anchor pressure. It can tilt Evidence Compiler candidates, but it must not select, invalidate, or phase-align a Layer 4 hypothesis by itself.</p>
 <div class="code-block">OrderflowSnapshot:
   confirmed_direction = bullish | bearish | mixed | unknown
-  regime = directional | choch_watch | compression | sweep_range | unknown
+  regime = directional | mss_watch | compression | sweep_range | unknown
   live_pressure = none | pullback_extending | anchor_threat | reclaiming | breakaway_watch
-  choch_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
-  source = structure_anchor_sequence | itr_sequence | ltr_sequence
+  mss_monitor_status = none | watching_resolution | resolved_inducement | confirmed_reversal | failed
+  source = structure_sequence | itr_sequence | ltr_sequence
   window_size = 6
   confirmed_sequence = HH, HL, HH, HL...
   sequence_with_probe = HH, HL, HH, HL, probe...
@@ -666,12 +666,12 @@ Current-event identity:
   probe_ref
   probe_breaks_protected_anchor = true | false
   probe_relation = above_active_high | below_active_low | upper_half | lower_half | inside_range | outside_range | unknown
-  choch_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
+  mss_trigger_source = probe_vs_protected_anchor | confirmed_counter_sequence | none
   liquidity_annotations = EH / EL cluster refs only, not direction labels
   timeframe
   evaluated_at
   blocked_reason = insufficient_points | stale_sequence | noisy_overlap | compression</div>
-<p><strong>Ownership:</strong> Structure emits anchor facts. State Store retains every active timeframe's bounded anchor sequence. Orderflow owns confirmed direction, regime, live pressure, ChoCh monitor, decision point, protected anchor, range reference, probe relation, and EH/EL annotations. Equal highs / equal lows do not become core direction labels; they may become Liquidity Context candidates.</p>
+<p><strong>Ownership:</strong> Structure emits STR / ITR / LTR anchor facts plus SB / ChoCh actions. State Store retains every active timeframe's bounded anchor sequence. Orderflow owns swing / pivot-sequence BoS, MSS monitor, confirmed direction, regime, live pressure, decision point, protected anchor, range reference, probe relation, and EH/EL annotations. Equal highs / equal lows do not become core direction labels; they may become Liquidity Context candidates.</p>
 <div class="code-block">EH / EL assignment rule:
   if current high == previous same-side high within tolerance:
     record EH annotation on nearest confirmed high anchor
@@ -815,7 +815,7 @@ liquidity_grab_at_htf_pd
 liquidity_grab_at_htf_itr
 liquidity_grab_at_ltf_anchor
 fresh pro-HTF attempt -> current liquidity reclaim -> post-reclaim counter LTF ChoCh -> HTF close resolution
-orderflow_choch_watch -> reclaim
+orderflow_mss_watch -> reclaim
 sd_zone_tap -> bounce
 sd_zone_reaction_after_sweep
 fvg_after_sweep_as_partial_fill_footprint</div>

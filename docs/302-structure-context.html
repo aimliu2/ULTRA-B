@@ -356,7 +356,7 @@
     <a href="#concept">Core Concept</a>
     <a href="#lifecycle">Lifecycle</a>
     <a href="#registry">Registry vs Range</a>
-    <a href="#bos">BoS Detection</a>
+    <a href="#sb">SB / ChoCh Detection</a>
     <a href="#pullback">Pullback Confirmation</a>
     <a href="#snapshot">Snapshot Contract</a>
     <a href="#algo">Algorithm</a>
@@ -374,15 +374,15 @@
   <main>
     <header>
       <div class="eyebrow">Layer 3 · Context · Structure</div>
-      <h1>Structure Context - BoS, P/D Range, Pullback, Attempt Memory</h1>
+      <h1>Structure Context - SB, ChoCh, P/D Range, Pullback Memory</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> - Structure Context is a Layer 3 lifecycle normalizer. Warmup uses the selected PE tier as a temporary registry. After the first SC event, structure switches to wick-defined range boundaries. BoS is close-only. PE and SD events confirm pullback timing but never replace the P/D price range. Structure also creates structure anchor points for State Store history; Orderflow consumes that history later. Fusion prints the current structure truth; Evidence Compiler qualifies useful transitions; Layer 4 decides thesis meaning.
+        <b>TL;DR</b> - Structure Context is a Layer 3 lifecycle normalizer over STR / ITR / LTR anchors. Its pro-direction close-through event is named <code>SB</code> / <code>structure_sb</code> (Structure Broken); its counter-direction close-through event remains <code>ChoCh</code>. Runtime event names use <code>itrSbUp</code>, <code>itrSbDown</code>, <code>ltrSbUp</code>, and <code>ltrSbDown</code>; old <code>*Bos*</code> names remain only in <code>runtimeAlias</code>. Structure creates anchor points for State Store history; Orderflow consumes those anchors later but names its own actions <code>BoS</code> and <code>MSS</code>.
       </div>
       <p class="backlink"><a href="./301-context.html">Back to 301 Layer 3 Context</a></p>
     </header>
 
     <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
-    <p>Structure Context detects Break of Structure and owns the market range state needed for Premium / Discount, pullback phase, and structural attempt facts.</p>
+    <p>Structure Context detects close-through actions against STR / ITR / LTR-derived structural anchors and owns the market range state needed for Premium / Discount and pullback phase facts.</p>
     <pre class="block">PE registry / wick range condition met
 -> structure lifecycle transition
 -> timestamped SC / phase / attempt event
@@ -395,7 +395,7 @@
       <figcaption>Structure Context turns remembered levels and wick ranges into semantic lifecycle state.</figcaption>
     </figure>
 
-    <p>SC events live in Layer 3 because BoS needs remembered levels. Layer 2 remains primitive and causal: CE for FVG, PE for pivots. SC is event-shaped, but its detection depends on context memory.</p>
+    <p>SC events live in Layer 3 because SB / ChoCh needs remembered levels. Layer 2 remains primitive and causal: CE for FVG, PE for pivots. SC is event-shaped, but its detection depends on context memory.</p>
 
     <details open>
       <summary>Step 1 · Layer 2 emits primitive PE / CE <span class="where">Layer 2</span></summary>
@@ -434,7 +434,7 @@ open
 pullback_confirmed
   ITR or SD zone confirms peak/trough timing
   wick range stays fixed
-  waits for continuation BoS or ChoCh</pre>
+  waits for continuation SB or ChoCh</pre>
 
     <p>A bias flip transitions directly to <code>open</code> with the opposite bias. Structure does not decide inducement versus real reversal; Layer 4 owns that interpretation.</p>
 
@@ -464,7 +464,7 @@ SC02 fires
 
 range_high / range_low
   post-warmup wick-defined price boundaries
-  drive BoS, ChoCh, P/D, and live range projection
+  drive SB, ChoCh, P/D, and live range projection
 
 pullback_confirmed_by
   timing confirmation only
@@ -498,22 +498,22 @@ structure.tier = "ltr"
       </div>
     </details>
 
-    <h2 id="bos"><span class="sec-num">03</span> BoS Detection</h2>
-    <p>BoS is close-only. Wick through a level is liquidity behavior, not a structural break.</p>
+    <h2 id="sb"><span class="sec-num">03</span> SB / ChoCh Detection</h2>
+    <p>Structure actions are close-only. <code>SB</code> / <code>structure_sb</code> means the probe continued through the active structural level in the current movement direction. <code>ChoCh</code> means the probe closed through the opposite structural boundary and flipped structural character. Wick through a level is liquidity behavior, not a structural action.</p>
 
     <figure class="figure">
-      <img src="../assets/311-BoS.webp" alt="Break of Structure illustration">
-      <figcaption>BoS requires a close beyond the active structure level.</figcaption>
+      <img src="../assets/311-BoS.webp" alt="Structure Broken illustration">
+      <figcaption>SB requires a close beyond the active structure level in the pro-structure direction.</figcaption>
     </figure>
 
     <h3>Warmup detection</h3>
     <pre class="block">structure.tier = itr:
-  SC01 itrBosUp   if close > registry_high.price
-  SC02 itrBosDown if close < registry_low.price
+  SC01 itrSbUp     if close > registry_high.price  (runtime alias: itrBosUp)
+  SC02 itrSbDown   if close < registry_low.price   (runtime alias: itrBosDown)
 
 structure.tier = ltr:
-  SC03 ltrBosUp   if close > registry_high.price
-  SC04 ltrBosDown if close < registry_low.price</pre>
+  SC03 ltrSbUp     if close > registry_high.price  (runtime alias: ltrBosUp)
+  SC04 ltrSbDown   if close < registry_low.price   (runtime alias: ltrBosDown)</pre>
 
     <h3>Post-warmup detection</h3>
     <pre class="block">bullish context:
@@ -547,7 +547,7 @@ bullish pullback_confirmed:
   -> confirm anchored high from extension extreme
   -> open anchor low candidate range
 
-bullish continuation BoS:
+bullish continuation SB:
   close > range_high
   -> ratchet reset
   -> confirm anchored low from tracked pullback low
@@ -569,7 +569,7 @@ bearish pullback_confirmed:
   -> confirm anchored low from extension extreme
   -> open anchor high candidate range
 
-bearish continuation BoS:
+bearish continuation SB:
   close < range_low
   -> ratchet reset
   -> confirm anchored high from tracked pullback high
@@ -613,7 +613,7 @@ bearish:
     <details>
       <summary>No resolving phase <span class="where">phase model</span></summary>
       <div class="body">
-        <p><code>pullback_confirmed</code> persists until the next continuation BoS or ChoCh. Later same-leg ITR/SD signals are ignored.</p>
+        <p><code>pullback_confirmed</code> persists until the next continuation SB or ChoCh. Later same-leg ITR/SD signals are ignored.</p>
       </div>
     </details>
 
@@ -642,16 +642,16 @@ bearish:
   latest_itr_low
   structure_attempt
   ltf_structure_attempt
-  structure_anchor_sequence
-  recent_structure_anchor_points
-  structure_anchor_probe
+  structure_sequence
+  recent_structure_sequence_points
+  structure_probe
   phase_start_ts
   range_high_ts
   range_low_ts</pre>
 
-    <h3>Structure anchor sequence</h3>
-    <p>Structure Context creates anchor-point records when swing points become semantically confirmed. The current State Store implementation is the bounded memory inside <code>StructureEngine</code>, exposed through the structure snapshot. Orderflow consumes this as <code>structure_anchor_sequence</code> plus <code>structure_anchor_probe</code>; the P/D snapshot alone is not enough to provide pivot alternation.</p>
-    <pre class="block">StructureAnchorPoint:
+    <h3>Structure sequence</h3>
+    <p>Structure Context creates structure-sequence records when P/D lifecycle points become semantically confirmed. The current State Store implementation is the bounded memory inside <code>StructureEngine</code>, exposed through the structure snapshot. Orderflow consumes this as <code>structure_sequence</code> plus <code>structure_probe</code>; the P/D snapshot alone is not enough to provide pivot alternation.</p>
+    <pre class="block">StructureSequencePoint:
   point_id
   timeframe
   side = high | low
@@ -663,9 +663,9 @@ bearish:
   source_event_id
 
 State Store:
-  structure_anchor_sequence = last 8 confirmed anchors
-  recent_structure_anchor_points = alias for snapshot readers
-  structure_anchor_probe = live +1 unconfirmed probe
+  structure_sequence = last 8 confirmed structure points
+  recent_structure_sequence_points = alias for snapshot readers
+  structure_probe = live +1 unconfirmed probe
 
 Orderflow read:
   8 confirmed anchor points
@@ -694,9 +694,12 @@ bearish pullback_confirmed:
   role = pullback_probe</pre>
 
     <h3>SC event payload</h3>
-    <pre class="block">{
+<pre class="block">{
   "eventCode": "SC01",
-  "eventName": "itrBosUp",
+  "eventName": "itrSbUp",
+  "targetEventName": "itrSbUp",
+  "runtimeAlias": "itrBosUp",
+  "eventAction": "structure_sb",
   "eventGroup": "SC",
   "eventTimestamp": "2024-08-28T00:00:00Z",
   "levelTier": "itr",
@@ -733,8 +736,8 @@ Evidence Compiler may qualify:
     <div class="tabs" data-tabs>
       <div class="tabbar">
         <button class="on" data-t="0">on_bar()</button>
-        <button data-t="1">warmup BoS</button>
-        <button data-t="2">range BoS</button>
+        <button data-t="1">warmup SB</button>
+        <button data-t="2">range SB</button>
         <button data-t="3">attempts</button>
       </div>
 <pre class="on"><span class="cm"># structureEngine.py - StructureEngine.on_bar()</span>
@@ -756,11 +759,11 @@ Evidence Compiler may qualify:
     if self._warmup_complete:
         self._maybe_open_pro_attempt_from_break(bar_high, bar_low, bar_ts)
 
-    <span class="cm"># 2. Warmup: registry-based BoS.</span>
+    <span class="cm"># 2. Warmup: registry-based SB.</span>
     if not self._warmup_complete:
         self._extend_range_high(bar_high, bar_ts)
         self._extend_range_low(bar_low, bar_ts)
-        return maybe_emit(self._bos_warmup(bar_close, bar_ts, bar_high, bar_low))
+        return maybe_emit(self._structure_break_warmup(bar_close, bar_ts, bar_high, bar_low))
 
     <span class="cm"># 3. Live: wick range + pullback lifecycle.</span>
     if self._phase == "open":
@@ -769,7 +772,7 @@ Evidence Compiler may qualify:
         self._track_pullback_extreme(bar_high, bar_low, bar_ts)
 
     self._update_structure_attempt(bar_high, bar_low, bar_close, bar_ts)
-    sc = self._bos_range(bar_close, bar_ts, bar_high, bar_low)
+    sc = self._structure_break_range(bar_close, bar_ts, bar_high, bar_low)
     if sc:
         return [sc]
 
@@ -777,7 +780,7 @@ Evidence Compiler may qualify:
         self._confirm_pullback_from_itr(pivot_events)
         self._confirm_pullback_from_sd(bar_result.created)
         if pullback_confirmed:
-            self._record_structure_anchor(extension_side, role="extension_extreme")
+            self._record_structure_point(extension_side, role="extension_extreme")
 
     return []</pre>
 <pre><span class="cm"># warmup: close against selected registry level</span>
@@ -853,15 +856,15 @@ pivot_events:
 structure:
   enabled: true
   tier: "itr"          <span class="cm"># "itr" default, or "ltr"</span>
-  anchor_sequence_limit: 8
+  structure_sequence_limit: 8
   dual_display: dual</pre>
 <pre><span class="cm"># structureEngine.py - StructureEngine.__init__()</span>
 raw_tier = str(config.get("tier", "itr")).lower()
 self._tier = "ltr" if raw_tier == "ltr" else "itr"
 self._recent_level_limit = max(1, int(config.get("recent_level_limit", 20)))
-self._structure_anchor_limit = max(
+self._structure_sequence_limit = max(
     1,
-    int(config.get("anchor_sequence_limit", config.get("structure_anchor_limit", 8))),
+    int(config.get("structure_sequence_limit", 8)),
 )
 
 if self._tier == "itr":
@@ -878,13 +881,17 @@ else:
 
     <h2 id="issues"><span class="sec-num">09</span> Open Issues · Edge Cases · Next Milestone</h2>
     <div class="issue-grid">
+      <div class="issue-card done">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Structural SB / ChoCh ≠ orderflow BoS / MSS.</b> Structure uses STR / ITR / LTR-derived anchors. Pro-direction close-through is named <code>structure_sb</code>; counter-direction close-through remains <code>structure_choch</code>. Orderflow uses swing / pivot-sequence anchors, so its continuation action is <code>orderflow_bos</code> and its counter shift is <code>orderflow_mss</code>. A close through an ITR boundary can be Structure SB while a later swing-sequence continuation can be Orderflow BoS; both may be true, but they are not duplicate facts. Old names such as <code>itrBosUp</code> remain only as structural <code>runtimeAlias</code> values until the final alias cleanup.</p>
+      </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>Cold start.</b> The first SC depends on replay warmup history. The decision is to replay enough recent bars and let the state self-correct chronologically.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Out of Scope</div>
-        <p><b>STR BoS and sweeps.</b> STR BoS is reserved but not implemented. Wick-through sweeps are liquidity context, not structure breaks.</p>
+        <p><b>STR SB and sweeps.</b> STR SB is reserved but not implemented. Wick-through sweeps are liquidity context, not structure breaks.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Fallback</div>
@@ -892,15 +899,19 @@ else:
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Moved</div>
-        <p><b>Legacy Structural Attempt Facts.</b> This is no longer an active Structure issue. The replacement language belongs to Orderflow / Snapshot Normalizer projection: pressure, disruption, ChoCh monitor, decision point, protected anchor, and reversal / inducement resolution.</p>
+        <p><b>Legacy Structural Attempt Facts.</b> This is no longer an active Structure issue. The replacement language belongs to Orderflow / Snapshot Normalizer projection: pressure, disruption, MSS monitor, decision point, protected anchor, and reversal / inducement resolution.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Moved</div>
         <p><b>Phase E Orderflow language.</b> This is no longer an active Structure issue. Phase E should be qualified by Evidence Compiler using compact Orderflow / Structure / Liquidity context, then interpreted by Layer 4.</p>
       </div>
       <div class="issue-card">
+        <div class="issue-label">Resolved</div>
+        <p><b>Orderflow MSS source confirmed: <code>structure_sequence</code> (intentional).</b> The live-probe break of the latest protected HL anchor swing point in bullish orderflow, or latest protected LH anchor swing point in bearish orderflow, IS the correct trigger for <code>E.stalling → E.pullback_developing</code>. <code>choch_watch</code> is retired; Orderflow emits <code>mss_watch</code> directly. <code>self.source</code> bug in <code>OrderflowContext.snapshot()</code> fixed — source wire now reads correctly from config. Additional debug field <code>mss_watch_confirmed</code> marks that a confirmed counter-pivot exists in the sequence. This is complementary context, not the gate.</p>
+      </div>
+      <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>Structure anchor sequence store.</b> Structure now records confirmed anchors in bounded State Store memory and exposes <code>structure_anchor_sequence</code>, <code>recent_structure_anchor_points</code>, and <code>structure_anchor_probe</code> for Orderflow integration.</p>
+        <p><b>Structure sequence store.</b> Structure now records confirmed structure points in bounded State Store memory and exposes <code>structure_sequence</code>, <code>recent_structure_sequence_points</code>, and <code>structure_probe</code> for Orderflow integration.</p>
       </div>
     </div>
     <details>

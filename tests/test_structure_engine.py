@@ -109,6 +109,19 @@ class StructureEngineRangeTests(unittest.TestCase):
         self.assertEqual(snapshot["pd_value_pct"], 81.8)
         self.assertEqual(snapshot["pd_pct"], 81.8)
 
+    def test_structure_event_uses_sb_name_and_keeps_legacy_alias(self):
+        engine = warm_bullish_engine()
+
+        last_sc = engine.get_snapshot(11)["last_sc"]
+
+        self.assertEqual(last_sc["eventName"], "itrSbUp")
+        self.assertEqual(last_sc["targetEventName"], "itrSbUp")
+        self.assertEqual(last_sc["runtimeAlias"], "itrBosUp")
+        self.assertEqual(last_sc["eventAction"], "structure_sb")
+        self.assertTrue(last_sc["structure_sb"])
+        self.assertFalse(last_sc["structure_choch"])
+        self.assertFalse(last_sc["choch"])
+
     def test_bearish_pd_value_is_bias_relative(self):
         engine = warm_bearish_engine()
 
@@ -184,46 +197,50 @@ class StructureEngineRangeTests(unittest.TestCase):
         self.assertTrue(snapshot["latest_itr_high"]["level_id"].startswith("PE03:"))
         self.assertTrue(snapshot["latest_itr_low"]["level_id"].startswith("PE04:"))
 
-    def test_structure_anchor_sequence_records_confirmed_anchors_and_probe(self):
+    def test_structure_sequence_records_confirmed_points_and_probe(self):
         engine = warm_bullish_engine()
 
         initial = engine.get_snapshot(11)
         self.assertEqual(
-            [(p["side"], p["role"], p["price"]) for p in initial["structure_anchor_sequence"]],
+            [(p["side"], p["role"], p["price"]) for p in initial["structure_sequence"]],
             [("low", "range_origin", 4)],
         )
-        self.assertEqual(initial["structure_anchor_probe"]["side"], "high")
-        self.assertEqual(initial["structure_anchor_probe"]["role"], "extension_probe")
-        self.assertEqual(initial["structure_anchor_probe"]["price"], 12)
+        self.assertEqual(initial["structure_probe"]["side"], "high")
+        self.assertEqual(initial["structure_probe"]["role"], "extension_probe")
+        self.assertEqual(initial["structure_probe"]["price"], 12)
+        self.assertEqual(initial["structure_anchor_sequence"], initial["structure_sequence"])
+        self.assertEqual(initial["recent_structure_anchor_points"], initial["structure_sequence"])
+        self.assertEqual(initial["structure_anchor_probe"], initial["structure_probe"])
 
         step(engine, 2, 11, 15, 10, 14)
         step(engine, 3, 14, 14.2, 12, 13, pivots=[pe("PE03", 3, 13)])
 
         pullback = engine.get_snapshot(13)
         self.assertEqual(
-            [(p["side"], p["role"], p["price"]) for p in pullback["structure_anchor_sequence"]],
+            [(p["side"], p["role"], p["price"]) for p in pullback["structure_sequence"]],
             [("low", "range_origin", 4), ("high", "extension_extreme", 15)],
         )
-        self.assertEqual(pullback["recent_structure_anchor_points"], pullback["structure_anchor_sequence"])
-        self.assertEqual(pullback["structure_anchor_probe"]["side"], "low")
-        self.assertEqual(pullback["structure_anchor_probe"]["role"], "pullback_probe")
-        self.assertEqual(pullback["structure_anchor_probe"]["price"], 12)
+        self.assertEqual(pullback["recent_structure_sequence_points"], pullback["structure_sequence"])
+        self.assertEqual(pullback["recent_structure_anchor_points"], pullback["structure_sequence"])
+        self.assertEqual(pullback["structure_probe"]["side"], "low")
+        self.assertEqual(pullback["structure_probe"]["role"], "pullback_probe")
+        self.assertEqual(pullback["structure_probe"]["price"], 12)
 
         step(engine, 4, 13, 17, 11, 16)
         continued = engine.get_snapshot(16)
         self.assertEqual(
-            [(p["side"], p["role"], p["price"]) for p in continued["structure_anchor_sequence"]],
+            [(p["side"], p["role"], p["price"]) for p in continued["structure_sequence"]],
             [
                 ("low", "range_origin", 4),
                 ("high", "extension_extreme", 15),
                 ("low", "range_origin", 11),
             ],
         )
-        self.assertEqual(continued["structure_anchor_probe"]["side"], "high")
-        self.assertEqual(continued["structure_anchor_probe"]["role"], "extension_probe")
-        self.assertEqual(continued["structure_anchor_probe"]["price"], 17)
+        self.assertEqual(continued["structure_probe"]["side"], "high")
+        self.assertEqual(continued["structure_probe"]["role"], "extension_probe")
+        self.assertEqual(continued["structure_probe"]["price"], 17)
 
-    def test_structure_anchor_choch_promotes_existing_anchor(self):
+    def test_structure_sequence_choch_promotes_existing_point(self):
         engine = warm_bullish_engine()
 
         step(engine, 2, 11, 15, 10, 14)
@@ -233,17 +250,23 @@ class StructureEngineRangeTests(unittest.TestCase):
         snapshot = engine.get_snapshot(3.5)
         self.assertEqual(snapshot["bias"], "bearish")
         self.assertTrue(snapshot["last_sc"]["choch"])
+        self.assertTrue(snapshot["last_sc"]["structure_choch"])
+        self.assertFalse(snapshot["last_sc"]["structure_sb"])
+        self.assertEqual(snapshot["last_sc"]["eventAction"], "structure_choch")
+        self.assertEqual(snapshot["last_sc"]["eventName"], "itrSbDown")
+        self.assertEqual(snapshot["last_sc"]["targetEventName"], "itrSbDown")
+        self.assertEqual(snapshot["last_sc"]["runtimeAlias"], "itrBosDown")
         self.assertNotIn("choach", snapshot["last_sc"])
         self.assertEqual(
-            [(p["side"], p["role"], p["price"]) for p in snapshot["structure_anchor_sequence"]],
+            [(p["side"], p["role"], p["price"]) for p in snapshot["structure_sequence"]],
             [("low", "range_origin", 4), ("high", "reversal_ceiling", 15)],
         )
-        self.assertEqual(snapshot["structure_anchor_probe"]["side"], "low")
-        self.assertEqual(snapshot["structure_anchor_probe"]["role"], "extension_probe")
-        self.assertEqual(snapshot["structure_anchor_probe"]["price"], 3)
+        self.assertEqual(snapshot["structure_probe"]["side"], "low")
+        self.assertEqual(snapshot["structure_probe"]["role"], "extension_probe")
+        self.assertEqual(snapshot["structure_probe"]["price"], 3)
 
-    def test_structure_anchor_sequence_limit_keeps_recent_points(self):
-        engine = StructureEngine({"tier": "itr", "anchor_sequence_limit": 2}, "1h")
+    def test_structure_sequence_limit_keeps_recent_points(self):
+        engine = StructureEngine({"tier": "itr", "structure_sequence_limit": 2}, "1h")
         step(engine, 0, 6, 9, 4, 8, pivots=[pe("PE03", 0, 10), pe("PE04", 0, 4.5)])
         step(engine, 1, 8, 12, 6, 11)
         step(engine, 2, 11, 15, 10, 14)
@@ -252,7 +275,7 @@ class StructureEngineRangeTests(unittest.TestCase):
 
         snapshot = engine.get_snapshot(16)
         self.assertEqual(
-            [(p["side"], p["role"], p["price"]) for p in snapshot["structure_anchor_sequence"]],
+            [(p["side"], p["role"], p["price"]) for p in snapshot["structure_sequence"]],
             [("high", "extension_extreme", 15), ("low", "range_origin", 11)],
         )
 

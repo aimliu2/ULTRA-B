@@ -589,7 +589,7 @@ Not enough for D, C, or B yet</div>
   <li>D.reaction_point — if HTF reaction-point evidence appears</li>
   <li>D.htf_pd_grab_reclaim — if HTF P/D boundary is tested</li>
   <li>D.htf_eq_grab_reclaim — if HTF EQ pool is tested</li>
-  <li>E.pullback_developing — if a counter ChoCh fires on the LTF</li>
+  <li>E.pullback_developing — if a counter orderflow MSS / P-D flip fires on the LTF</li>
   <li>C.hard_pullback — if tight P/D range pullback breaches midpoint with clean counter orderflow</li>
   <li>E.seeking — if continuation resumes (new extreme)</li>
 </ul>
@@ -600,21 +600,23 @@ Not enough for D, C, or B yet</div>
       num:   "e3",
       tag:   "Phase E",
       title: "E.pullback_developing",
-      meta:  "LTF counter ChoCh confirmed — pullback developing",
-      body:  `<p><strong>E.pullback_developing</strong> fires when the LTF confirms a counter-direction ChoCh while the HTF is stalling. The ChoCh is the formal structural evidence that the pullback is developing — not a price floor breach and not orderflow quality.</p>
+      meta:  "LTF counter orderflow MSS confirmed — pullback developing",
+      body:  `<p><strong>E.pullback_developing</strong> fires when the LTF confirms a counter-direction orderflow MSS / P-D flip while the HTF is stalling. This is the slower orderflow evidence that the pullback is developing; a single structural ChoCh is too fast and noisy for this shadow boundary.</p>
 <p><strong>Bullish HTF trigger:</strong></p>
 <div class="code-block">HTF: bullish, no new P/D high (stalling)
-LTF: last_sc.choch == true
-     last_sc.breakDirection == "down"   # bearish LTF ChoCh</div>
+LTF orderflow: confirmed_direction == "bearish"
+               quality == "clean"
+               regime == "directional"</div>
 <p><strong>Bearish HTF trigger:</strong></p>
 <div class="code-block">HTF: bearish, no new P/D low (stalling)
-LTF: last_sc.choch == true
-     last_sc.breakDirection == "up"     # bullish LTF ChoCh</div>
+LTF orderflow: confirmed_direction == "bullish"
+               quality == "clean"
+               regime == "directional"</div>
 <p><strong>Exits (no return to E.stalling):</strong></p>
 <ul>
   <li>D.reaction_point — if the D gate fires (failed pro-continuation from pullback)</li>
   <li>C.hard_pullback — if LTF counter structure is clean and P/D midpoint breached</li>
-  <li>C.slow_pullback — if LTF bias flips counter but structure is unclean</li>
+  <li>C.slow_pullback — if LTF orderflow BoS confirmed counter-HTF (<code>confirmed_direction</code> + <code>regime == directional</code>)</li>
   <li>E.seeking — new HTF extreme appears (pro-continuation absorbed the pullback)</li>
 </ul>
 <div class="rule-block">No return path to E.stalling. A failed pro-continuation attempt from E.pullback_developing belongs to Phase D, not back to stalling. The DAG should not walk E.pullback_developing → B.initiation_watch directly.</div>
@@ -787,21 +789,18 @@ Bearish HTF trigger:
       num:   "c3",
       tag:   "Phase C",
       title: "C.slow_pullback",
-      meta:  "Unclean LTF counter structure — overlapping, stop-start",
-      body:  `<p><strong>C.slow_pullback</strong> follows E.pullback_developing when the LTF context flips counter but the orderflow is unclean and overlapping. Same entry condition as C.hard_pullback but with degraded structure quality.</p>
-<div class="code-block">Unclean counter development (any of):
-  Overlapping ITR highs/lows
-  Failed counter pushes
-  Back-and-forth liquidity taps
-  Mixed supply/demand reactions
-  Slow grind without clean impulse
+      meta:  "LTF orderflow BoS confirmed counter-HTF after E.pullback_developing",
+      body:  `<p><strong>C.slow_pullback</strong> follows E.pullback_developing when LTF orderflow has confirmed a full counter-direction BoS. D never committed — if it had, the path would be D→C.htf_reaction_pullback instead.</p>
+<div class="code-block">Gate (all required):
+  previous_phase != "B"
+  phase_e_shadow_node == "E.pullback_developing"
+  ltf_counter_bos_confirmed == True
+    ← confirmed_direction == counter-HTF
+    ← regime == "directional"   (Case F level)
 
-Trigger:
-  LTF bias becomes counter-HTF, or
-  LTF last_sc.breakDirection = counter, or
-  LTF P/D range flips into counter structure
-  BUT orderflow is overlapping / unclean</div>
-<p><strong>Layer 5 stance:</strong> Watching — counter structure exists, no clean POI yet.</p>
+EC source: ltf_counter_story.debug_facts["ltf_counter_bos_confirmed"]</div>
+<p>The failed pro-attempt is implicit: if still in E.pullback_developing when BoS fires, Phase D never committed. Counter bias alone (ltf_bias_counter_htf) is not sufficient — the orderflow must have earned a directional verdict.</p>
+<p><strong>Layer 5 stance:</strong> Watching if no counter POI; Armed if counter POI exists.</p>
 <p><strong>Exits:</strong></p>
 <ul>
   <li>B.strict_reclaim or B.shallow_reclaim — when LTF flips pro-HTF with fresh POI</li>
