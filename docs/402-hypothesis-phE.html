@@ -443,13 +443,13 @@
     <ul class="plain">
       <li>Not a trade entry phase. <code>entry_policy = "skip"</code> always.</li>
       <li>Not a gating condition — the classifier enters Phase E simply because no D/C/B condition is met while the HTF phase is <code>open</code> or <code>pullback_confirmed</code> with a valid bias.</li>
-      <li>Not the EC's <code>phase_e_context</code> candidate. The EC also emits a <code>phase_e_context</code> candidate independently — the classifier's Phase E is derived from the flat snapshot, not from that candidate (yet).</li>
+      <li>Not an interpreter of LTF orderflow internals. EC owns the <code>phase_e_context</code> facts; Layer 4 only consumes the compiled flags needed by the DAG and shadow node machine.</li>
     </ul>
 
     <div class="rule-block">
       Phase E entry: HTF bias is directional, HTF phase is <code>open</code>, and no D/C/B gate fires.
-      The classifier refreshes the running extreme on every Phase E bar and hands the shadow node
-      facts to the emitted hypothesis's <code>phase_sub_status</code>.
+      EC refreshes the running extreme on every Phase E bar. The classifier reads those compiled
+      facts and hands the shadow node result to the emitted hypothesis's <code>phase_sub_status</code>.
     </div>
 
     <!-- ── §01 EC Watermark ── -->
@@ -596,7 +596,7 @@ direction == "short":
       <div class="state-node active">E.seeking</div>
       <div class="state-arrow"><span>→</span><small>stopped expanding</small></div>
       <div class="state-node">E.stalling</div>
-      <div class="state-arrow"><span>→</span><small>LTF counter ChoCh confirmed</small></div>
+      <div class="state-arrow"><span>→</span><small>LTF counter MSS confirmed</small></div>
       <div class="state-node">E.pullback_developing</div>
     </div>
     <div class="state-row" style="margin-top:4px;">
@@ -616,8 +616,9 @@ direction == "short":
     <h3>E.stalling</h3>
     <p>
       No new HTF extreme this bar. The expansion has paused. The machine waits here until
-      either a new extreme appears (→ <code>E.seeking</code>) or a counter orderflow MSS /
-      P-D flip fires on the LTF (→ <code>E.pullback_developing</code>).
+      either a new extreme appears (→ <code>E.seeking</code>) or EC confirms an LTF
+      counter MSS from a live probe break of the protected orderflow anchor
+      (→ <code>E.pullback_developing</code>).
     </p>
     <details open>
       <summary>E.stalling flow — pause before proven pullback <span class="where">EC → DAG → shadow</span></summary>
@@ -646,7 +647,7 @@ Phase E shadow memory:
   node = E.stalling
   previous_node = E.seeking
   bars_in_node starts / increments
-  no source attempt is consumed yet</pre>
+  no orderflow interpretation is performed by the shadow</pre>
         <p>
           The important boundary: LTF bearish/counter movement is precise EC evidence, but it
           should not be required for the first <code>E.seeking → E.stalling</code> transition.
@@ -656,15 +657,15 @@ Phase E shadow memory:
       </div>
     </details>
     <p>
-      A failed LTF pro attempt is not enough by itself. Without a confirmed counter
-      orderflow MSS / P-D flip on the LTF, the machine stays in <code>E.stalling</code>;
-      the failed attempt is only debug context.
+      A failed LTF pro attempt is not enough by itself. Without EC's confirmed LTF
+      counter MSS flag, the machine stays in <code>E.stalling</code>; the failed attempt
+      is only debug context.
     </p>
 
     <h3>E.pullback_developing</h3>
     <p>
-      A counter orderflow MSS fired on the LTF while the HTF was stalling — the slower
-      protected-anchor break that opens the LTF MSS monitor. This uses
+      EC confirmed an LTF counter MSS while the HTF was stalling: a live counter probe
+      broke the protected HL/LH while orderflow was still officially pro-HTF. This uses
       <code>phase_e_context_ltf_counter_orderflow_mss_watch</code>, not the standalone
       structural <code>ltf_counter_choch</code> stream, because structural ChoCh is too fast
       and noisy for this shadow boundary.
@@ -677,22 +678,22 @@ Phase E shadow memory:
       <summary>E.pullback_developing flow — LTF counter orderflow MSS before Phase C <span class="where">EC → DAG → shadow</span></summary>
       <div class="body">
         <p>
-          Discretionary read: price reached the Phase E peak and stopped extending. The LTF
-          then broke the protected LTF orderflow anchor and opened a counter MSS watch. That
-          is the evidence the pullback is developing; a full counter-directional orderflow
-          verdict belongs to later C.slow maturity. A single structural ChoCh remains useful
-          chronology for Phase D liquidity, but is no longer enough for this Phase E node.
+          Discretionary read: price reached the Phase E peak and stopped extending. EC then
+          sees a live counter probe break the protected LTF orderflow anchor while orderflow
+          is still officially pro-HTF. That compiled MSS flag is the only shadow trigger; a
+          full counter-directional orderflow verdict belongs to later C.slow maturity. A
+          single structural ChoCh remains useful chronology for Phase D liquidity, but is no
+          longer enough for this Phase E node.
         </p>
         <pre class="block">EC facts (phase_e_context candidate):
   htf_pd_stopped_expanding == true
   new_htf_extreme == false
   ltf_counter_orderflow_mss_watch == true  <span class="hl">← entry trigger</span>
+    orderflow.confirmed_direction == pro-HTF
     orderflow.mss_regime == "mss_watch"
     orderflow.mss_monitor_status == "watching_resolution"
     orderflow.mss_trigger_source == "probe_vs_protected_anchor"
     orderflow.probe_breaks_protected_anchor == true
-  ltf_counter_orderflow_leg_id = id | null
-  ltf_counter_orderflow_started_at = timestamp | null
   ltf_pullback_depth_pct = number | null   # supporting metric
   reaction_confirmed == false              # otherwise D can win
 
@@ -707,8 +708,7 @@ Phase E shadow memory:
   node = E.pullback_developing
   previous_node = E.stalling
   bars_in_node starts / increments
-  source_orderflow_leg_id = ltf_counter_orderflow_leg_id
-  source_orderflow_started_at = ltf_counter_orderflow_started_at
+  no orderflow internals are re-interpreted by the shadow
 
 Exits from E.pullback_developing:
   new HTF extreme (pd_expanding)  →  E.seeking  (expansion resumed)
@@ -802,7 +802,7 @@ Exits from E.pullback_developing:
         </p>
         <ol class="steps">
           <li><b>Not from B:</b> <code>previous_phase != "B"</code>.</li>
-          <li><b>Shadow node:</b> <code>phase_e_shadow_node == "E.pullback_developing"</code> — LTF counter orderflow MSS / P-D flip was confirmed while HTF was stalling.</li>
+          <li><b>Shadow node:</b> <code>phase_e_shadow_node == "E.pullback_developing"</code> — EC confirmed LTF counter MSS while HTF was stalling.</li>
           <li><b>LTF orderflow BoS:</b> <code>ltf_counter_bos_confirmed</code> — LTF orderflow <code>confirmed_direction == counter-HTF</code> and <code>regime == "directional"</code> (Case F level). Counter bias alone is not sufficient.</li>
         </ol>
         <p>
@@ -902,7 +902,7 @@ if phase in {"open", "pullback_confirmed"} and direction != "none":
     previous_node = self.state.phase_e_shadow_node
     pd_expanding  = bool(debug.get(<span class="hl">"phase_e_context_new_htf_extreme"</span>))
 
-    <span class="cm"># Phase E waits for slower LTF orderflow MSS watch.
+    <span class="cm"># Phase E waits for EC's LTF counter MSS flag.
     # Standalone structural ltf_counter_choch remains available for D/liquidity chronology.</span>
     ltf_counter_orderflow_mss_watch = bool(
         debug.get(<span class="hl">"phase_e_context_ltf_counter_orderflow_mss_watch"</span>)
@@ -981,23 +981,20 @@ hypothesis:
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
-        <p><b>Shadow node not reset on direction flip within same epoch.</b>
+        <p><b>Shadow node resets on direction flip within same epoch.</b>
         If HTF bias flips from bullish to bearish within the same epoch ID (rare but possible
         in range conditions), <code>active_phase_e_direction != direction</code> triggers
-        <code>selected_node = "E.seeking"</code> — which is correct — but the consumed attempt ID
-        is not cleared, so a prior attempt cannot re-trigger <code>E.pullback_developing</code>
-        on the new direction.</p>
+        <code>selected_node = "E.seeking"</code>. The shadow transition still depends only on
+        the node, new-extreme status, and EC's compiled LTF counter MSS flag.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>E.pullback_developing has no timeout decay.</b>
-        The node holds indefinitely once counter orderflow MSS is confirmed. There is no
-        bar-count timeout. The source orderflow leg is retained in
-        <code>phase_e_shadow_source_orderflow_leg_id</code>, but the shadow stays in
-        <code>E.pullback_developing</code> because the
-        transition table has no return path to <code>E.stalling</code>. Only a new HTF
-        extreme resets to <code>E.seeking</code>, or the D gate fires. A bar-count threshold
-        could be added if the node proves to over-persist.</p>
+        The node holds indefinitely once EC's LTF counter MSS flag moves the shadow into
+        <code>E.pullback_developing</code>. There is no bar-count timeout, and the transition
+        table has no return path to <code>E.stalling</code>. Only a new HTF extreme resets to
+        <code>E.seeking</code>, or the D gate fires. A bar-count threshold could be added if
+        the node proves to over-persist.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Out of Scope</div>
@@ -1026,14 +1023,14 @@ hypothesis:
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
         <p><b>Use LTF orderflow MSS for <code>E.pullback_developing</code>.</b>
-        Completed: <code>E.stalling → E.pullback_developing</code> now fires when
-        <code>phase_e_context_ltf_counter_orderflow_mss_watch</code> is true: the LTF orderflow
-        MSS monitor is watching resolution because the live probe broke the protected anchor.
-        Full <code>confirmed_direction == counter-HTF</code> + <code>regime == directional</code>
+        Completed: <code>E.stalling → E.pullback_developing</code> now fires when EC sets
+        <code>phase_e_context_ltf_counter_orderflow_mss_watch</code>: orderflow is still
+        officially pro-HTF, but the live counter probe broke the protected HL/LH and opened
+        the MSS monitor. Full <code>confirmed_direction == counter-HTF</code> + <code>regime == directional</code>
         remains the later C.slow maturity check. This restores the MSS boundary after
         structural ChoCh proved too fast and noisy. <code>E.pullback_developing → E.stalling</code> disruption path
-        removed; <code>pullback_disrupted</code> and <code>disrupted_orderflow_leg_id</code>
-        fields removed from <code>PhaseEShadow</code>. Failed pro-continuation from
+        removed; the legacy disruption debug keys were removed from runtime output.
+        Failed pro-continuation from
         <code>E.pullback_developing</code> now belongs to Phase D, not back to stalling.</p>
       </div>
       <div class="issue-card">
@@ -1072,9 +1069,8 @@ hypothesis:
         <div class="issue-label">Archived · Completed</div>
         <p><b>Phase E attempt debug keys are deprecated.</b>
         Completed: Phase E no longer reads <code>structure_attempt</code> or writes orderflow leg
-        ids into attempt fields. Clean counter pullback memory now uses
-        <code>phase_e_shadow_source_orderflow_leg_id</code> and
-        <code>phase_e_shadow_consumed_orderflow_leg_id</code>. Legacy
+        ids into attempt fields. Layer 4 uses EC's compiled LTF counter MSS flag for the
+        <code>E.stalling → E.pullback_developing</code> boundary. Legacy
         <code>phase_e_context_attempt_*</code> and <code>phase_e_shadow_source_attempt_id</code>
         keys remain empty as deprecated aliases for one migration pass.</p>
       </div>

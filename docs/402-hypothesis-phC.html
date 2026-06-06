@@ -672,8 +672,8 @@ entry_policy = "hybrid" if (
         <p><b>Watching C can exist without a selected POI.</b> This is probably correct, but it means a strong counter story is visible in Layer 4 while Layer 5 has no tradeable object. Replayer UI should make the difference between <code>watching</code> and <code>armed</code> visually clear.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Verify</div>
-        <p><b>Confirm <code>E.pullback_developing → E.stalling</code> disruption exit was intentionally removed.</b> CLAUDE.md "Done" lists the broken-orderflow exit as implemented, but <code>_phase_e_shadow_facts()</code> now holds at <code>E.pullback_developing</code> unconditionally. <code>disrupted_orderflow_leg_id</code> is deprecated. If dropped intentionally, remove the stale "Done" entry and confirm whether a second-pullback Phase D boundary can fire without an explicit disruption guard.</p>
+        <div class="issue-label">Archived · Resolved</div>
+        <p><b><code>E.pullback_developing → E.stalling</code> disruption exit is retired.</b> The current decision is intentional: after the first counter-orderflow MSS moves Phase E shadow into <code>E.pullback_developing</code>, broken/pro LTF orderflow does not send it back to <code>E.stalling</code>. The shadow holds until a new HTF extreme resets Phase E, or Layer 4 selects D/C. Legacy disruption debug keys have been removed from the runtime output.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Next Milestone</div>

@@ -656,6 +656,7 @@ Current-event identity:
   window_size = 6
   confirmed_sequence = HH, HL, HH, HL...
   sequence_with_probe = HH, HL, HH, HL, probe...
+  side_alternation_clean = true | false
   probe_label
   last_shift_at
   supporting_anchor_refs / supporting_itr_refs
@@ -671,7 +672,7 @@ Current-event identity:
   timeframe
   evaluated_at
   blocked_reason = insufficient_points | stale_sequence | noisy_overlap | compression</div>
-<p><strong>Ownership:</strong> Structure emits STR / ITR / LTR anchor facts plus SB / ChoCh actions. State Store retains every active timeframe's bounded anchor sequence. Orderflow owns swing / pivot-sequence BoS, MSS monitor, confirmed direction, regime, live pressure, decision point, protected anchor, range reference, probe relation, and EH/EL annotations. Equal highs / equal lows do not become core direction labels; they may become Liquidity Context candidates.</p>
+<p><strong>Ownership:</strong> Structure emits STR / ITR / LTR anchor facts plus SB / ChoCh actions, including each point's explicit <code>side</code>. State Store retains every active timeframe's bounded anchor sequence. Orderflow owns swing / pivot-sequence BoS, MSS monitor, confirmed direction, regime, live pressure, decision point, protected anchor, range reference, probe relation, and EH/EL annotations. Equal highs / equal lows do not become core direction labels; they may become Liquidity Context candidates. Alternation is only a sanity check over explicit high/low sides; it does not assign sides or HH/HL/LH/LL labels.</p>
 <div class="code-block">EH / EL assignment rule:
   if current high == previous same-side high within tolerance:
     record EH annotation on nearest confirmed high anchor

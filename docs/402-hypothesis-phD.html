@@ -319,7 +319,7 @@
       <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase D</div>
       <h1>Phase D — Reaction Boundary</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> - Phase D is the first global reaction phase after Phase E expansion stops being simple continuation. The settled paths are reaction-point and HTF liquidity grab/reclaim tests. The unsettled path is the second pullback after <code>E.pullback_developing</code> breaks and returns to <code>E.stalling</code>; that may deserve a D node, but its name and trigger are still open.
+        <b>TL;DR</b> - Phase D is the first global reaction phase after Phase E expansion stops being simple continuation. The settled paths are reaction-point and HTF liquidity grab/reclaim tests. The legacy <code>E.pullback_developing → E.stalling</code> disruption return is retired; failed pro-continuation after <code>E.pullback_developing</code> now belongs to future D/C interpretation, not a Phase E loop.
       </div>
       <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis Dataflow</a>
       <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
@@ -331,7 +331,7 @@
       Phase D is the boundary where the system stops treating a counter move as soft Phase E memory and starts treating it as a global reaction process. It is still pre-entry. Layer 5 should not trade D by itself; D exists to name the reaction and prepare the later C pullback path.
     </p>
     <p>
-      The important separation is that <code>E.pullback_developing</code> can be a first soft pullback inside Phase E, but repeated counter movement after a failed pro-continuation attempt should not loop forever inside E. That second pullback is the unresolved Phase D naming question.
+      The important separation is that <code>E.pullback_developing</code> can be a first soft pullback inside Phase E, but failed pro-continuation after that first counter-orderflow MSS should not create a hidden return loop inside E. Later interpretation belongs to D/C once the evidence is named.
     </p>
 
     <h2 id="current"><span class="sec-num">01</span> Current Phase D</h2>
@@ -413,7 +413,7 @@ ready = all([
   htf_close_inside_active_htf_pd,
 ])
 
-<span class="cm"># Separate top-level EC stream (pending)</span>
+<span class="cm"># Separate top-level EC stream</span>
 ltf_counter_choch candidate:          <span class="cm"># independent of liquidity sequence</span>
   pattern = ltf_counter_choch
   facts:
@@ -424,8 +424,8 @@ ltf_counter_choch candidate:          <span class="cm"># independent of liquidit
         <p>
           The choch gate is chronological: <code>last_sc.eventTimestamp</code> must be at or after
           <code>reclaimed_at</code>. A choch that predates the reclaim does not qualify. The separate
-          <code>ltf_counter_choch</code> EC candidate (not yet emitted) will expose the same choch
-          facts as a top-level stream that Layer 4 can read independently of the full liquidity sequence.
+          <code>ltf_counter_choch</code> EC candidate exposes the same choch facts as a top-level
+          stream that Layer 4 can read independently of the full liquidity sequence.
         </p>
       </div>
     </details>
@@ -436,23 +436,23 @@ ltf_counter_choch candidate:          <span class="cm"># independent of liquidit
 
     <h2 id="failed-pro"><span class="sec-num">02</span> Failed Pro-Attempt Boundary</h2>
     <p>
-      The unresolved case starts inside Phase E. A first clean LTF counter orderflow leg moves <code>E.stalling</code> into <code>E.pullback_developing</code>. If that counter leg is disrupted and a pro-continuation test appears without a new HTF extreme, the shadow memory may return to <code>E.stalling</code>. If price then pulls back again, that should probably graduate to Phase D instead of creating an endless E loop.
+      The legacy case started inside Phase E: a first LTF counter-orderflow MSS moved <code>E.stalling</code> into <code>E.pullback_developing</code>, then a broken/pro orderflow read returned the shadow to <code>E.stalling</code>. That return path is retired. Current behavior holds <code>E.pullback_developing</code> until a new HTF extreme, D, or C.
     </p>
 
     <details open>
       <summary>Discretionary read <span class="where">chart logic</span></summary>
       <div class="body">
         <p>
-          The first counter leg can still be treated as cooling inside Phase E. But after it breaks and the pro-side attempt fails to expand the HTF P/D range, the next counter leg is no longer just a first pullback. It is evidence that expansion is reacting.
+          The first counter-orderflow MSS can still be treated as cooling inside Phase E. If later pro-side behavior fails to expand the HTF P/D range, the classifier should not reopen the old Phase E loop. That later evidence belongs to D/C once its boundary is formalized.
         </p>
 <pre class="block">First pullback:
   E.seeking → E.stalling → E.pullback_developing
 
-Pullback disrupted:
-  E.pullback_developing → E.stalling
+Legacy disruption return:
+  E.pullback_developing → E.stalling   # retired
 
-Second pullback after failed pro-continuation:
-  E.stalling → D.?   # unresolved name</pre>
+Current hold:
+  E.pullback_developing holds until new HTF extreme, D, or C</pre>
       </div>
     </details>
 
@@ -467,20 +467,19 @@ Second pullback after failed pro-continuation:
   reaction facts if present
 
 Shadow Thesis / phase_e owns:
-  first_counter_leg_id
+  first_counter_orderflow_leg_id
   pro_continuation_leg_id
-  failure_counter_leg_id
   whether the same stale leg was already consumed
 
 DAG owns:
   first clean counter pullback stays E.pullback_developing
-  disrupted pullback can return to E.stalling
-  second clean counter pullback after disruption may select D.?</pre>
+  broken/pro LTF orderflow does not return to E.stalling
+  later failed-continuation evidence may select D/C when named</pre>
       </div>
     </details>
 
     <div class="rule">
-      Do not let Phase E absorb unlimited failed continuation attempts. One soft pullback can remain E memory; repeated pullback after disruption should be considered for a D boundary.
+      Do not let Phase E absorb unlimited failed continuation attempts. One soft pullback can remain E memory; later failed-continuation evidence should be considered for a D/C boundary without reintroducing the legacy return to stalling.
     </div>
 
     <h2 id="algorithm"><span class="sec-num">03</span> Algorithm</h2>
@@ -568,13 +567,12 @@ ready = all(required.values())
 }</pre>
 <pre><span class="cm"># not coded yet — tentative shape only</span>
 if (
-    phase_e_shadow.node == "E.stalling"
-    and shadow_thesis.phase_e.prior_pullback_disrupted
-    and ec.phase_e_context.ltf_counter_orderflow_clean
+    phase_e_shadow.node == "E.pullback_developing"
+    and ec.phase_e_context.pro_continuation_failed_to_expand  <span class="cm"># future fact</span>
     and not ec.phase_e_context.new_htf_extreme
 ):
-    selected_node = <span class="hl">"D.?"</span>
-    selection_reason = "second_counter_pullback_after_failed_pro_attempt"</pre>
+    selected_node = <span class="hl">"D.? or C"</span>
+    selection_reason = "failed_pro_continuation_after_e_pullback_developing"</pre>
     </div>
 
     <h2 id="config"><span class="sec-num">04</span> Config</h2>
@@ -611,18 +609,19 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
         Current proposed label: <code>D.continuation_failure_test</code>. Earlier alternatives
         included <code>D.pro_attempt_failed</code>, <code>D.failed_pro_attempt</code>, and
         <code>D.fail.proattempt</code>.
-        The unresolved meaning is: <code>E.pullback_developing</code> was disrupted, returned to
-        <code>E.stalling</code>, then a new clean counter pullback appeared without HTF expansion.
-        Confirm that this is a separate D subtype rather than a reaction-point variant before
+        The unresolved meaning is: <code>E.pullback_developing</code> is already active, then
+        pro-continuation fails to expand the HTF P/D range and later evidence needs a global
+        reaction name. Confirm whether this is a separate D subtype, a C origin, or a
+        reaction-point variant before
         coding it.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Open Issue</div>
         <p><b>Prevent the E pullback loop from hiding a D reaction.</b>
-        Once Phase E has already seen a clean counter pullback and that pullback was disrupted,
-        the next clean counter pullback should not simply repeat
-        <code>E.stalling → E.pullback_developing</code>. The DAG needs a memory-aware gate that can
-        graduate the second pullback into Phase D.</p>
+        Once Phase E has already seen a counter-orderflow MSS and entered
+        <code>E.pullback_developing</code>, broken/pro LTF orderflow must not reopen the
+        entry path. The DAG needs a memory-aware gate that can
+        graduate later failed-continuation evidence into D/C when the boundary is named.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>

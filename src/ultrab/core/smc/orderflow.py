@@ -25,6 +25,13 @@ def _side_at(index: int, starts_with: str) -> str:
     return "high" if (index % 2 == 0) == high_on_even else "low"
 
 
+def _point_side(point: dict[str, Any], index: int, starts_with: str) -> str:
+    side = str(point.get("side") or "").strip().lower()
+    if side in {"high", "low"}:
+        return side
+    return _side_at(index, starts_with)
+
+
 def _cmp(a: float, b: float) -> str:
     if abs(a - b) <= EPS:
         return "EQ"
@@ -69,7 +76,8 @@ class OrderflowContext:
 
         confirmed = anchors[-self.window_size :]
         labels = self._label_confirmed(confirmed)
-        score = self._score_direction(labels)
+        side_alternation_clean = self._side_alternation_clean(labels)
+        score = self._score_direction(labels, side_alternation_clean)
         latest_high = self._latest_by_side(labels, "high")
         latest_low = self._latest_by_side(labels, "low")
         prev_high = self._previous_by_side(labels, "high")
@@ -159,6 +167,7 @@ class OrderflowContext:
             "probe_price": _price(probe) if probe else None,
             "probe_breaks_protected_anchor": probe_breaks_protected_anchor,
             "probe_relation": probe_relation,
+            "side_alternation_clean": side_alternation_clean,
             "mss_trigger_source": mss_trigger_source,
             "liquidity_annotations": [
                 {"ref": _point_ref(point), "label": point["label"]}
@@ -195,6 +204,7 @@ class OrderflowContext:
             "probe_ref": None,
             "probe_breaks_protected_anchor": False,
             "probe_relation": "unknown",
+            "side_alternation_clean": False,
             "mss_trigger_source": "none",
             "liquidity_annotations": [],
             "pullback_status": "unknown",
@@ -208,7 +218,7 @@ class OrderflowContext:
         last_low: dict[str, Any] | None = None
         labels: list[dict[str, Any]] = []
         for index, point in enumerate(points):
-            side = _side_at(index, self.starts_with)
+            side = _point_side(point, index, self.starts_with)
             price = _price(point)
             previous = last_high if side == "high" else last_low
             label = "H0" if side == "high" else "L0"
@@ -231,17 +241,29 @@ class OrderflowContext:
                 last_low = enriched
         return labels
 
-    def _score_direction(self, labels: list[dict[str, Any]]) -> dict[str, Any]:
+    @staticmethod
+    def _side_alternation_clean(labels: list[dict[str, Any]]) -> bool:
+        if len(labels) < 2:
+            return False
+        sides = [point.get("side") for point in labels]
+        return all(current != previous for previous, current in zip(sides, sides[1:]))
+
+    def _score_direction(
+        self,
+        labels: list[dict[str, Any]],
+        side_alternation_clean: bool,
+    ) -> dict[str, Any]:
         scored = [point for point in labels if point["label"] not in {"H0", "L0"}]
         bull = sum(1 for point in scored if point["label"] in {"HH", "HL"})
         bear = sum(1 for point in scored if point["label"] in {"LH", "LL"})
         equal = sum(1 for point in scored if point["label"] in {"EH", "EL"})
+        clean_quality = "clean" if side_alternation_clean and not equal else "weak"
         if len(scored) < 4:
             return {"direction": "unknown", "quality": "weak", "bull": bull, "bear": bear, "equal": equal}
         if bull >= 4 and bear == 0:
-            return {"direction": "bullish", "quality": "weak" if equal else "clean", "bull": bull, "bear": bear, "equal": equal}
+            return {"direction": "bullish", "quality": clean_quality, "bull": bull, "bear": bear, "equal": equal}
         if bear >= 4 and bull == 0:
-            return {"direction": "bearish", "quality": "weak" if equal else "clean", "bull": bull, "bear": bear, "equal": equal}
+            return {"direction": "bearish", "quality": clean_quality, "bull": bull, "bear": bear, "equal": equal}
         if bull > bear:
             return {"direction": "bullish", "quality": "weak", "bull": bull, "bear": bear, "equal": equal}
         if bear > bull:

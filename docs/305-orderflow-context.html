@@ -542,7 +542,7 @@ Orderflow Context:
   maintains direction, live pressure, MSS monitor, protected refs
   writes OrderflowSnapshot back to State Store / Fusion surface</pre>
 
-    <p>The comparison rule is simple: a high point compares to the previous high; a low point compares to the previous low.</p>
+    <p>The comparison rule is simple: a high point compares to the previous high; a low point compares to the previous low. The point's <code>side</code> is assigned by the source structure point. Alternation is only a sanity guardrail over explicit sides (<code>high, low, high, low...</code> or the inverse); it never predicts the side and never assigns <code>HH</code>, <code>HL</code>, <code>LH</code>, or <code>LL</code>.</p>
     $$
       high_i > high_{i-1} \Rightarrow HH
       \qquad
@@ -744,6 +744,9 @@ Annotation labels:
         return "LL"
     return "EL"
 
+<span class="cm"># alternation only checks side sanity; it does not assign sides or labels</span>
+alternation_is_clean = sides_alternate([p.side for p in confirmed_points])
+
 <span class="cm"># scoring is intentionally soft; probe is excluded</span>
 bullish_score = count(["HH", "HL"] in recent_labels)
 bearish_score = count(["LL", "LH"] in recent_labels)
@@ -839,6 +842,11 @@ self.require_decision_point = bool(monitor_cfg.get("require_decision_point", Tru
       <div class="issue-card">
         <div class="issue-label">Open Issue</div>
         <p><b>confirmed_direction ≠ structural ChoCh.</b> <code>confirmed_direction</code> flipping to counter-HTF requires accumulating 4+ scored pivot points (LH/LL for bearish, HH/HL for bullish). It lags behind structural ChoCh (<code>last_sc.choch</code>) and the initial MSS disruption. A grinding pullback can hold LTF bearish bias structurally while orderflow never reaches the clean-directional threshold. EC consumers must choose the stream by boundary: structural ChoCh for fresh one-bar chronology, orderflow MSS / <code>confirmed_direction + regime == directional</code> for slower P/D flip confirmation.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Resolved · Fixed</div>
+        <p><b>Warm-state sequence side drift can create false MSS.</b> Prior runtime could label retained structure points by window position instead of each point's actual <code>side</code>. In the EURUSD 15m/4h replay from <code>2026-01-27T22:00Z</code>, the retained <code>structure_sequence</code> starts with a low while Orderflow assumed <code>starts_with = "H"</code>. That shifted labels and could tag an actual high as <code>HL</code>. At <code>2026-01-28T00:15Z</code>, the high <code>1.20818</code> was treated as the bullish protected HL, so a low probe at <code>1.20348</code> falsely opened <code>mss_watch</code>. The real latest low-side HL was <code>1.19583</code> confirmed at <code>2026-01-27T23:00Z</code>, which the probe did not break.</p>
+        <p>Runtime now classifies HH/HL/LH/LL from same-side comparisons using the source point's actual <code>side</code>. Alternation is only a sanity check that explicit sides still form a sensible sequence; it must not predict sides or assign <code>HH</code>, <code>HL</code>, <code>LH</code>, or <code>LL</code>. Warm-up truncation and sequence retention no longer change which side a point belongs to. Regression fixture: <code>test_orderflow_uses_explicit_side_when_retained_sequence_starts_low</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>

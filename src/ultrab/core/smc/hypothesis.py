@@ -1745,12 +1745,6 @@ class HypothesisClassifier:
         ltf_counter_orderflow_mss_watch = bool(
             debug.get("phase_e_context_ltf_counter_orderflow_mss_watch")
         )
-        ltf_counter_orderflow_leg_id = debug.get(
-            "phase_e_context_ltf_counter_orderflow_leg_id"
-        )
-        ltf_counter_orderflow_started_at = debug.get(
-            "phase_e_context_ltf_counter_orderflow_started_at"
-        )
 
         if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
             selected_node = "E.seeking"
@@ -1765,9 +1759,6 @@ class HypothesisClassifier:
             if ltf_counter_orderflow_mss_watch:
                 selected_node = "E.pullback_developing"
                 selection_reason = "ltf_counter_orderflow_mss_after_e_stalling"
-                s.source_orderflow_leg_id = ltf_counter_orderflow_leg_id
-                s.source_orderflow_started_at = ltf_counter_orderflow_started_at
-                s.consumed_orderflow_leg_id = ltf_counter_orderflow_leg_id
             else:
                 selected_node = "E.stalling"
         elif previous_node == "E.pullback_developing":
@@ -1790,11 +1781,6 @@ class HypothesisClassifier:
             "phase_e_shadow_selected_node": selected_node,
             "phase_e_shadow_selection_reason": selection_reason,
             "phase_e_shadow_bars_in_node": s.bars_in_node,
-            "phase_e_shadow_source_orderflow_leg_id": s.source_orderflow_leg_id,
-            "phase_e_shadow_source_orderflow_started_at": s.source_orderflow_started_at,
-            "phase_e_shadow_consumed_orderflow_leg_id": s.consumed_orderflow_leg_id,
-            "phase_e_shadow_pullback_disrupted": None,       # Deprecated: removed.
-            "phase_e_shadow_disrupted_orderflow_leg_id": None,  # Deprecated: removed.
             "phase_e_shadow_source_attempt_id": None,  # Deprecated.
             "phase_e_shadow_source_itr_level_id": None,  # Deprecated.
             "phase_e_context_attempt_id": None,  # Deprecated.

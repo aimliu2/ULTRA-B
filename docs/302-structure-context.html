@@ -583,7 +583,7 @@ bearish pullback_confirmed -> ChoCh:
 
     <div class="callout">
       <span class="ico">i</span>
-      <div>This recording method naturally enforces alternation: high anchors are confirmed when an up-leg exhausts or becomes a reversal ceiling; low anchors are confirmed when a down-leg exhausts or becomes a reversal floor.</div>
+      <div>This recording method naturally tends to emit alternating explicit sides: high anchors are confirmed when an up-leg exhausts or becomes a reversal ceiling; low anchors are confirmed when a down-leg exhausts or becomes a reversal floor. The side is still an owned source fact on each sequence point, not something Orderflow should infer from list position.</div>
     </div>
 
     <h2 id="pullback"><span class="sec-num">04</span> Pullback Confirmation</h2>
@@ -650,7 +650,7 @@ bearish:
   range_low_ts</pre>
 
     <h3>Structure sequence</h3>
-    <p>Structure Context creates structure-sequence records when P/D lifecycle points become semantically confirmed. The current State Store implementation is the bounded memory inside <code>StructureEngine</code>, exposed through the structure snapshot. Orderflow consumes this as <code>structure_sequence</code> plus <code>structure_probe</code>; the P/D snapshot alone is not enough to provide pivot alternation.</p>
+    <p>Structure Context creates structure-sequence records when P/D lifecycle points become semantically confirmed. The current State Store implementation is the bounded memory inside <code>StructureEngine</code>, exposed through the structure snapshot. Orderflow consumes this as <code>structure_sequence</code> plus <code>structure_probe</code>; the P/D snapshot alone is not enough to provide explicit high/low side identity or side-alternation sanity.</p>
     <pre class="block">StructureSequencePoint:
   point_id
   timeframe
@@ -907,7 +907,7 @@ else:
       </div>
       <div class="issue-card">
         <div class="issue-label">Resolved</div>
-        <p><b>Orderflow MSS source confirmed: <code>structure_sequence</code> (intentional).</b> The live-probe break of the latest protected HL anchor swing point in bullish orderflow, or latest protected LH anchor swing point in bearish orderflow, IS the correct trigger for <code>E.stalling → E.pullback_developing</code>. <code>choch_watch</code> is retired; Orderflow emits <code>mss_watch</code> directly. <code>self.source</code> bug in <code>OrderflowContext.snapshot()</code> fixed — source wire now reads correctly from config. Additional debug field <code>mss_watch_confirmed</code> marks that a confirmed counter-pivot exists in the sequence. This is complementary context, not the gate.</p>
+        <p><b>Orderflow MSS source confirmed: <code>structure_sequence</code> (intentional).</b> The live-probe break of the latest protected low-side HL anchor swing point in bullish orderflow, or latest protected high-side LH anchor swing point in bearish orderflow, IS the correct trigger for <code>E.stalling → E.pullback_developing</code>. <code>choch_watch</code> is retired; Orderflow emits <code>mss_watch</code> directly. <code>self.source</code> bug in <code>OrderflowContext.snapshot()</code> fixed — source wire now reads correctly from config. Additional debug field <code>mss_watch_confirmed</code> marks that a confirmed counter-pivot exists in the sequence. This is complementary context, not the gate.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>

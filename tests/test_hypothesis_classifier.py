@@ -549,10 +549,6 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertIsNone(developing.debug_facts["phase_e_shadow_source_attempt_id"])
         self.assertFalse(developing.debug_facts["phase_e_context_ltf_counter_orderflow_clean"])
         self.assertTrue(developing.debug_facts["phase_e_context_ltf_counter_orderflow_mss_watch"])
-        self.assertEqual(
-            developing.debug_facts["phase_e_shadow_source_orderflow_leg_id"],
-            "OF:e-pullback:1",
-        )
 
     def test_phase_e_failed_pro_attempt_without_clean_orderflow_stays_stalling(self):
         classifier = HypothesisClassifier()
@@ -641,8 +637,63 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(held.phase, "E")
         self.assertEqual(held.phase_sub_status, "pullback_developing")
         self.assertEqual(held.debug_facts["phase_e_shadow_selection_reason"], "phase_e_shadow_held")
-        self.assertIsNone(held.debug_facts["phase_e_shadow_pullback_disrupted"])
-        self.assertIsNone(held.debug_facts["phase_e_shadow_disrupted_orderflow_leg_id"])
+        self.assertNotIn("phase_e_shadow_pullback_disrupted", held.debug_facts)
+        self.assertNotIn("phase_e_shadow_disrupted_orderflow_leg_id", held.debug_facts)
+
+    def test_phase_e_pullback_developing_does_not_return_to_stalling_on_broken_orderflow(self):
+        classifier = HypothesisClassifier()
+        bars_1 = [
+            {"time": "2024-01-01T04:00:00+00:00", "open": 1.11, "high": 1.12, "low": 1.105, "close": 1.118},
+            {"time": "2024-01-01T08:00:00+00:00", "open": 1.118, "high": 1.123, "low": 1.111, "close": 1.121},
+        ]
+        classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_1))
+
+        bars_2 = [
+            bars_1[-1],
+            {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
+        ]
+        classify_with_auto_ec(classifier, dual_snapshot(structure("bullish", "open", high=1.123, low=1.10), bars_2))
+
+        bars_3 = [
+            bars_2[-1],
+            {"time": "2024-01-01T16:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.108, "close": 1.110},
+        ]
+        developing = classify_with_auto_ec(
+            classifier,
+            dual_snapshot(
+                structure("bullish", "open", high=1.123, low=1.10),
+                bars_3,
+                ltf=structure("bearish", "open", high=1.120, low=1.109),
+                lower_orderflow=mss_watch_orderflow("bullish", "OF:e-pullback:broken"),
+            ),
+        )
+        self.assertEqual(developing.phase_sub_status, "pullback_developing")
+
+        bars_4 = [
+            bars_3[-1],
+            {"time": "2024-01-01T20:00:00+00:00", "open": 1.110, "high": 1.120, "low": 1.109, "close": 1.118},
+        ]
+        held = classify_with_auto_ec(
+            classifier,
+            dual_snapshot(
+                structure("bullish", "open", high=1.123, low=1.10),
+                bars_4,
+                ltf=structure("bullish", "open", high=1.120, low=1.109),
+                lower_orderflow={
+                    "confirmed_direction": "bullish",
+                    "quality": "broken",
+                    "regime": "compression",
+                    "range_ref": "OF:e-pullback:broken-return",
+                    "last_shift_at": "2024-01-01T18:00:00+00:00",
+                },
+                current_price=1.115,
+            ),
+        )
+
+        self.assertEqual(held.phase, "E")
+        self.assertEqual(held.phase_sub_status, "pullback_developing")
+        self.assertTrue(held.debug_facts["phase_e_context_ltf_counter_orderflow_broken"])
+        self.assertEqual(held.debug_facts["phase_e_shadow_selection_reason"], "phase_e_shadow_held")
 
     def test_phase_e_pullback_developing_resets_to_seeking_on_new_htf_extreme(self):
         classifier = HypothesisClassifier()

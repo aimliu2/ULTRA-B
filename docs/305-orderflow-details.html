@@ -317,9 +317,9 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent);
-    margin-bottom: 6px;
+    margin-bottom: 8px;
   }
-  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .issue-card p { margin: 0; font-size: 13px; }
   .hl  { color: var(--accent); }
   .hl2 { color: var(--accent2); }
   .cm  { color: var(--text-dim); }
@@ -369,7 +369,7 @@ probe does not confirm a new trend by itself</pre>
     <details open>
       <summary>Step 1 · Read confirmed points <span class="where">direction source</span></summary>
       <div class="body">
-        <p>Use confirmed anchors or configured ITR/LTR points to classify HH, HL, LH, and LL. These points drive <code>confirmed_direction</code>, <code>quality</code>, and <code>regime</code>.</p>
+        <p>Use confirmed anchors or configured ITR/LTR points to classify HH, HL, LH, and LL. Each point's explicit <code>side</code> decides whether it compares against the previous high or previous low. Alternation only checks side sanity; it does not assign sides or labels. These labels drive <code>confirmed_direction</code>, <code>quality</code>, and <code>regime</code>.</p>
       </div>
     </details>
     <details>
@@ -401,6 +401,7 @@ probe does not confirm a new trend by itself</pre>
   window_size = 6
   confirmed_sequence = HH, HL, HH, HL...
   sequence_with_probe = HH, HL, HH, HL, probe...
+  side_alternation_clean = true | false
   probe_label
   last_shift_at
   supporting_itr_refs
@@ -644,7 +645,8 @@ probe_relation = inside_range</pre>
     )
     probe = state_store.orderflow_probe(source=source)
 
-    confirmed_labels = self._classify_confirmed_points(confirmed_points)
+    confirmed_labels = self._classify_confirmed_points(confirmed_points)  # same-side comparisons
+    side_alternation_clean = sides_alternate([p.side for p in confirmed_points])
     confirmed_direction, quality = self._score_direction(confirmed_labels)
     regime, range_ref, blocked_reason = self._score_regime(
         confirmed_points,
