@@ -389,8 +389,6 @@ flowchart LR
   subgraph SG_D["D · Reaction / Reclaim"]
     direction TB
     D_watch["d1 · D.watch"]
-    D_spec["d2 · D.speculation"]
-    D_watch --> D_spec
   end
 
   %% ── Phase C ────────────────────────────────────────────────
@@ -439,11 +437,10 @@ flowchart LR
   E_pull -.-> E_seek
 
   %% ── D → C ───────────────────────────────────────────────────
-  D_spec --> C_bounce
+  D_watch --> C_bounce
 
   %% ── D failure → E (dashed) ──────────────────────────────────
   D_watch -.-> E_seek
-  D_spec -.-> E_seek
 
   %% ── C → B ────────────────────────────────────────────────────
   C_bounce --> B_init
@@ -483,7 +480,6 @@ flowchart LR
   click E_stall nodeClick
   click E_pull nodeClick
   click D_watch nodeClick
-  click D_spec nodeClick
   click OVER nodeClick
   click NONE nodeClick
 
@@ -498,7 +494,7 @@ flowchart LR
   classDef noneNode fill:#F5F2EC,stroke:#D1CFC5,color:#87867F
 
   class E_seek,E_react,E_stall,E_pull phaseE
-  class D_watch,D_spec phaseD
+  class D_watch phaseD
   class C_bounce,C_hard,C_slow,C_ind,C_no tempClosed
   class B_init,B_strict,B_shallow tempClosed
   class A_cont,A_fin tempClosed
@@ -619,7 +615,7 @@ LTF orderflow: confirmed_direction == "bearish"
                probe_breaks_protected_anchor == true</div>
 <p><strong>Exits (no return to E.stalling):</strong></p>
 <ul>
-  <li>D.watch — post-E pro-attempt plus fresh counter structural event opens the reaction watch</li>
+  <li>D.watch — first LTF pro-HTF macro ChoCh (<code>last_sc</code>) after pullback_developing opens D.watch</li>
   <li>C.hard_pullback — if LTF counter structure is clean and P/D midpoint breached</li>
   <li>C.slow_pullback — if LTF orderflow BoS confirmed counter-HTF (<code>confirmed_direction</code> + <code>regime == directional</code>)</li>
   <li>E.seeking — new HTF extreme appears (pro-continuation absorbed the pullback)</li>
@@ -632,71 +628,72 @@ LTF orderflow: confirmed_direction == "bearish"
       num:   "d1",
       tag:   "Phase D",
       title: "D.watch",
-      meta:  "First LTF pro-HTF ChoCh after E.pullback_developing (bounce initiation)",
-      body:  `<p><strong>D.watch</strong> opens from <code>E.pullback_developing</code> on the first LTF <strong>pro-HTF</strong> ChoCh — the moment the LTF structural bias flips back in the HTF direction. This is the structural initiation of the bounce. For a long HTF bias: bullish LTF ChoCh (<code>itrSb*</code>, <code>choch=True</code>, <code>breakDirection=="up"</code>).</p>
-<div class="code-block">Gate:
+      meta:  "First pro-HTF macro ChoCh after E.pullback_developing — counter MSS → C.pullback",
+      body:  `<p><strong>D.watch</strong> opens from <code>E.pullback_developing</code> on the first LTF pro-HTF macro ChoCh (<code>last_sc</code>, SC01/SC02) — the structural initiation of the bounce. It holds until a counter orderflow MSS fires on a fresh leg, which advances directly to <code>C.pullback</code>. iChoCh (<code>last_isc</code>, SC06) and counter SB are <strong>Layer 5 entry confirmation signals</strong> — available in snapshot debug_facts but not DAG gates.</p>
+<div class="code-block">Gate (D.watch opens):
   phase_e_shadow_node == "E.pullback_developing"
   phase_e.pro_attempt_seen == true
-    ← LTF pro-HTF ChoCh fired (e.g. bullish for long)
+    ← last_sc.breakDirection == pro-HTF direction (SC01/SC02 macro ChoCh)
     ← pro_attempt_started_at > pullback_developing_entered_at
 
 Shadow:
   phase_d.node = "D.watch"
   phase_d.consumed_leg_id = phase_e.source_orderflow_leg_id
-  phase_d.pro_attempt = phase_e.pro_attempt
-  phase_d.choch_1 = { trigger_type: "choch", level: pro_choch_level, at: pro_attempt_started_at }</div>
-<p><strong>Exits:</strong></p>
-<ul>
-  <li><strong>D.speculation</strong> — first counter-HTF ChoCh (bounce failed) or counter SB after pullback_confirmed</li>
-  <li><strong>E.seeking</strong> (dashed) — HTF continuation resumes / invalidates the reaction</li>
-</ul>
-<div class="rule-block">D.watch = pro-HTF initiation. D.speculation = pro attempt failed. The old model (counter ChoCh after pro attempt opens D.watch) had the trigger direction inverted.</div>`,
-    },
+  phase_d.choch_1 = { trigger_type: "choch", level: pro_choch_level, at: pro_attempt_started_at }
+  phase_d.pro_attempt = { htf_reaction_status, ltf_story_status }  ← accumulated each bar
 
-    D_spec: {
-      num:   "d2",
-      tag:   "Phase D",
-      title: "D.speculation",
-      meta:  "Pro attempt failed; waits for fresh orderflow MSS to become C",
-      body:  `<p><strong>D.speculation</strong> means the D.watch bounce has failed structurally — the LTF has resumed its counter-HTF move. It is still pre-entry: it only promotes to C after a fresh LTF orderflow MSS leg appears.</p>
-<div class="code-block">Entry from D.watch:
-  Path A: ltf_counter_choch_seen == true   ← counter-HTF ChoCh (bounce failed, bias flips back)
-          → phase_d.choch_2.trigger_type = "choch"
-
-  Path B: ltf_counter_sb_seen == true      ← counter SB (quiet bounce, pullback_confirmed)
-          and LTF structure phase == "pullback_confirmed"
-          → phase_d.choch_2.trigger_type = "sb"
-
-C promotion:
+D.watch → C.pullback:
   ltf_counter_orderflow_mss_watch == true
-  ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id
-  → C.pullback</div>
+  ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id</div>
 <p><strong>Exits:</strong></p>
 <ul>
-  <li><strong>C.pullback</strong> — fresh MSS confirms the counter pullback leg</li>
+  <li><strong>C.pullback</strong> — counter MSS fires on fresh leg (anchor swing broken)</li>
   <li><strong>E.seeking</strong> (dashed) — HTF continuation resumes / invalidates the reaction</li>
 </ul>
-<div class="rule-block">The same MSS leg that opened E.pullback_developing is consumed and cannot also promote D.speculation to C.</div>`,
+<p><strong>Layer 5 reads from D.watch snapshot (not DAG gates):</strong></p>
+<ul>
+  <li><code>ltf_counter_choch_seen</code> — SC06 iChoCh bounce-failure signal (Path A entry)</li>
+  <li><code>ltf_counter_sb_seen</code> — macro counter SB after pullback_confirmed (Path B entry)</li>
+  <li><code>phase_d.choch_1.level</code> — SL reference for Layer 5</li>
+</ul>
+<div class="rule-block">D.watch holds through the pro-HTF re-test. The only hard DAG invalidation is HTF close above PD range → E.seeking. iChoCh and SB are Layer 5 territory — see docs/501-entry.html.</div>
+<a class="panel-link" href="./402-hypothesis-phD.html">→ 402 Phase D detail</a>
+<a class="panel-link" href="./501-entry.html">→ 501 Layer 5 entry confirmation</a>`,
     },
 
     C_bounce: {
       num:   "c1",
       tag:   "Phase C",
       title: "C.pullback",
-      meta:  "Fresh MSS confirms the counter pullback after D.speculation",
-      body:  `<p><strong>C.pullback</strong> is the regular C node after Phase D. D.watch and D.speculation named the reaction; a fresh LTF orderflow MSS leg confirms that the counter pullback is now active.</p>
-<div class="code-block">Entry paths:
-  D.speculation
+      meta:  "Counter MSS after D.watch confirms the pullback leg (2-state model)",
+      body:  `<p><strong>C.pullback</strong> opens when D.watch counter MSS fires on a fresh leg — the anchor swing is broken, the pullback is structurally confirmed. Two states: <code>C.pullback</code> (base) and <code>C.pullback_weaken</code> (pro-HTF SC broke a pullback lower-high). Recovery from weaken: counter MSS re-fires in pullback direction.</p>
+<div class="code-block">Entry from D.watch:
   ltf_counter_orderflow_mss_watch == true
   ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id
+  → C.pullback
 
-Promotion evidence (at least one required):
-  fresh orderflow MSS leg after D.watch pro-attempt</div>
+V1 fast path (no D.watch):
+  phase_e_shadow_node == "E.pullback_developing"
+  phase_d.node is None
+  ltf_pullback_depth_pct >= 51%
+  → C.pullback (origin_node = "E.pullback_developing_no_pro")
+
+C.pullback → C.pullback_weaken:
+  pro-HTF last_sc breaks pullback LH (LH broken upward in bullish HTF)
+
+C.pullback_weaken → C.pullback (recovery):
+  counter MSS re-fires in pullback direction
+
+C → E.seeking:
+  new HTF extreme (expansion resumed)</div>
 <p><strong>Exits:</strong></p>
 <ul>
   <li><strong>B.strict_reclaim</strong> — HTF pd_value_pct &lt; 50 with fresh reclaim POI</li>
   <li><strong>B.shallow_reclaim</strong> — 50 ≤ HTF pd_value_pct ≤ 70 with fresh reclaim POI</li>
-</ul>`,
+  <li><strong>E.seeking</strong> — new HTF extreme</li>
+</ul>
+<div class="rule-block">phase_c_origin_node carries the provenance: "D.watch_mss" (structural path) vs "E.pullback_developing_no_pro" (depth path). Layer 5 reads this for quality grading.</div>
+<a class="panel-link" href="./402-hypothesis-phC.html">→ 402 Phase C detail</a>`,
     },
 
     C_hard: {
@@ -1112,7 +1109,6 @@ epoch_reset
       out: ['E_stall', 'C_hard'],
       in:  [{ id:'OVER',      note:'cycle'   },
             { id:'D_watch',   dashed:true, note:'failure' },
-            { id:'D_spec',    dashed:true, note:'failure' },
             { id:'B_shallow', dashed:true, note:'failure' }],
     },
     E_stall: {
@@ -1125,16 +1121,12 @@ epoch_reset
       in:  ['E_stall'],
     },
     D_watch: {
-      out: ['D_spec', { id:'E_seek', dashed:true, note:'failure' }],
-      in:  ['E_pull'],
-    },
-    D_spec: {
       out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
-      in:  ['D_watch'],
+      in:  ['E_pull'],
     },
     C_bounce: {
       out: ['B_init', 'B_strict', 'B_shallow'],
-      in:  ['D_spec'],
+      in:  ['D_watch', 'E_pull'],
     },
     C_hard: {
       out: ['B_init', 'B_strict', 'B_shallow'],
