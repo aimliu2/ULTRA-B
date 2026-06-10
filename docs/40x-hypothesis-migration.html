@@ -238,8 +238,8 @@
     <a href="#boundary" class="active">00 Boundary</a>
     <a href="#none">01 none / warmup</a>
     <a href="#phase-e">02 Phase E · Closed</a>
-    <a href="#phase-d">03 Phase D</a>
-    <a href="#phase-c">04 Phase C</a>
+    <a href="#phase-d">03 Phase D · Closed</a>
+    <a href="#phase-c">04 Phase C · In Progress</a>
     <a href="#phase-b">05 Phase B</a>
     <a href="#phase-a">06 Phase A</a>
     <a href="#gating">07 Gating</a>
@@ -403,130 +403,77 @@ Phase E shadow thesis must not own:
     </section>
 
     <section>
-      <h2 id="phase-d"><span class="sec-num">03</span> Phase D</h2>
+      <h2 id="phase-d"><span class="sec-num">03</span> Phase D · Closed</h2>
       <p>
-        D should be reintroduced only after the E boundary is clean. The open work is defining the exact evidence that turns expansion monitoring into counter-reaction monitoring.
-      </p>
-      <p>
-        The proposed failed-continuation path is a sibling of the existing HTF reaction-point
-        and liquidity-test paths. Its provisional node is
-        <code>D.continuation_failure_test</code>: a first clean counter leg was disrupted by a
-        distinct pro-aligned continuation leg, then a fresh clean counter leg appeared before
-        any strict new HTF extreme. The second counter leg is the D origin event; the
-        intervening unresolved interval remains <code>E.stalling</code>.
+        Phase D implementation complete. Commit <code>113d4ca</code> (2026-06-10).
+        See <code>402-hypothesis-phD.html</code> for the final spec including the squeeze edge case.
       </p>
       <div class="rule-block">
-        <b>Current implementation note:</b> Phase D now uses the simplified
-        <code>D.watch</code> / <code>D.speculation</code> model documented in
-        <code>402-hypothesis-phD.html</code>. The legacy Phase D selector and old
-        reaction/liquidity sub-status tests are intentionally quarantined for now.
-        I will delete the legacy Phase D code/tests later after replay validation.
+        <b>Model:</b> <code>D.watch</code> opens on first pro-HTF MSS (<code>last_sc</code>).
+        <code>D.watch + counter MSS (LL break) → C.pullback</code>.
+        <code>D.watch + HTF extreme → E.seeking</code>.
+        <code>D.speculation</code> will migrate to Layer 5 in the next PR after Phase C ships.
       </div>
-
       <div class="issue-grid">
         <div class="issue-card">
-          <div class="issue-label">Next Milestone</div>
-          <p><b>Define the failed-continuation E-to-D contract.</b> Add a phase-neutral EC candidate such as <code>ltf_pro_continuation_failure</code> that records the first counter leg, distinct pro-aligned continuation leg, fresh failure counter leg, and whether a strict new HTF extreme occurred before failure. Layer 4 should select <code>D.continuation_failure_test</code> only when those EC facts match Phase E shadow lineage.</p>
+          <div class="issue-label">Closed · 2026-06-10</div>
+          <p><b>Phase D state machine implemented and replay-validated.</b> <code>D.watch</code> / <code>D.speculation</code> model live. iChoCh sensitivity (SC05/SC06), SC07/SC08 LTR disabled, squeeze edge case (EURUSD 15m/4h 2026-01-28T22:30Z). Test suite: 132 passed, 31 skipped.</p>
         </div>
         <div class="issue-card">
-          <div class="issue-label">Migration Issue</div>
-          <p><b>Do not treat every broken counter leg as a pro-continuation attempt.</b> Current <code>ltf_counter_orderflow_broken</code> also covers compression, sweep-range, and broken-quality regimes. EC needs an objective pro-aligned leg fact before Layer 4 can arm the continuation-failure path.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Migration Issue</div>
-          <p><b>Track explicit leg lineage in phase-owned shadow memory.</b> Replace an ambiguous pullback-cycle count with first-counter, pro-continuation, and failure-counter leg IDs plus consumed state. The shadow records Layer 4 history; EC remains unaware of <code>E.pullback_developing</code> and other DAG nodes.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Current Behavior Conflict</div>
-          <p><b>Revisit <code>new_htf_extreme_with_ltf_counter_bias</code> as a D trigger.</b> A strict new HTF extreme normally proves successful Phase E continuation and should return or hold <code>E.seeking</code>. It should open D only when a separate explicit liquidity or reaction footprint justifies that transition.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Current Behavior Conflict</div>
-          <p><b>Keep <code>reaction_failed</code> separate from continuation failure.</b> The current fact means an existing D/C reaction collapsed because price resumed through the Phase E extreme. It must not be reused to mean that a resumed pro-continuation attempt failed before creating a new extreme.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Edge Case</div>
-          <p><b>Handle probe versus close.</b> A wick/probe against the expansion level and a closed HTF counter-reaction should not both trigger the same D origin.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Fallback</div>
-          <p><b>Keep D disabled during E-only replay.</b> Until E stops falling to <code>none</code>, D should be unavailable or logged as blocked so its legacy branch cannot hide the E bug.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Deferred · Layer 4</div>
-          <p><b><code>D.speculation → E.stalling</code> on SL hit is unimplemented.</b>
-          This is a Layer 4 phase transition — not a Layer 5 trigger decision.
-          Layer 5 has no memory and must not own phase invalidation routing.
-          Two implementation options when D is coded:
-          (a) new EC candidate that detects price reclaim above <code>choch_2.level</code>
-          while HTF is not above PD range; or
-          (b) direct Shadow Thesis comparison in the DAG — <code>current_price</code>
-          vs the committed <code>choch_2["level"]</code> stored in
-          <code>phase_d_shadow</code> (allowed: price read for committed-level boundary
-          check, not raw structural reasoning).
-          Parked until D.watch / D.speculation are coded and passing in replay.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Fixed · 2026-06-09</div>
-          <p><b>EC candidate direction not validated at DAG read-time — fixed.</b>
-          <code>d_choch_candidate.get("direction") == direction</code> now gates both
-          the D.watch entry gate and the D.watch hold block before consuming
-          <code>choch_seen</code> / <code>sb_seen</code>.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Fixed · 2026-06-09</div>
-          <p><b><code>ltf_counter_sb_event_at</code> added to EC.</b>
-          <code>_compile_ltf_counter_choch()</code> now emits
-          <code>ltf_counter_sb_event_at</code> alongside <code>ltf_counter_sb_seen</code>
-          and <code>ltf_counter_sb_level</code>. Path B freshness check uses it.</p>
-        </div>
-        <div class="issue-card">
-          <div class="issue-label">Verified Root Cause · Replay 2026-06-09</div>
-          <p><b><code>D.watch</code> fired immediately after <code>E.pullback_developing</code>
-          because Orderflow MSS and Structure ChoCh shared the same structural lineage.</b>
-          In EURUSD 15m/4h at <code>2026-01-28T15:30Z</code>, orderflow MSS opened when
-          the live probe broke the protected low-side HL at <code>1.19583</code>. At
-          <code>2026-01-28T16:00Z</code>, the LTF structure engine closed below that same
-          <code>1.19583</code> floor and emitted <code>itrSbDown</code> /
-          <code>structure_choch</code>. The event was fresh, so timestamp freshness gates
-          passed, but semantically it was the close-confirmation of the same MSS disruption
-          that opened E — not a post-E D setup.</p>
-          <p><b>Agreed fix:</b> split Orderflow into a separate
-          <code>orderflow_anchor_sequence</code> / <code>orderflow_probe</code> store,
-          add EC provenance fields for both MSS and structural ChoCh, and make
-          <code>D.watch</code> require a distinct post-E pro-HTF attempt before consuming
-          a later fresh counter structural event.</p>
+          <div class="issue-label">Next · Separate PR</div>
+          <p><b>D.speculation → Layer 5 migration.</b> iChoCh entry timing moves to Layer 5 (consistent with C.speculation already being Layer 5). DAG keeps <code>D.watch</code> only. Drop <code>choch_2</code>, <code>speculation_entered_at</code> from <code>PhaseDShadow</code>. Change <code>pro_attempt_seen</code> trigger from <code>last_isc</code> → <code>last_sc</code>.</p>
         </div>
       </div>
     </section>
 
     <section>
-      <h2 id="phase-c"><span class="sec-num">04</span> Phase C</h2>
+      <h2 id="phase-c"><span class="sec-num">04</span> Phase C · In Progress</h2>
       <p>
-        C is the slow pullback and reaction-development phase. Its migration should make the path from <code>E.pullback_developing</code> or D explicit, without requiring B's shadow state to be alive.
+        2-state model: <code>C.pullback</code> / <code>C.pullback_weaken</code>. Origin tracked via <code>phase_c_origin_node</code> metadata. DAG uses MSS (macro ChoCh <code>last_sc</code>) for all structural transitions; iChoCh reserved for Layer 5.
       </p>
+
+      <pre class="block">C.pullback
+  + pro-HTF MSS breaks pullback LH (last_sc, pro-HTF direction)  → C.pullback_weaken
+  + ltf_pullback_depth_pct >= 50%                                 → B.xxx
+  + new HTF extreme                                               → E.seeking
+
+C.pullback_weaken
+  + counter-HTF MSS re-fires in pullback direction (LL break)     → C.pullback
+  + new HTF extreme                                               → E.seeking
+  → B.xxx  (deferred, decide during Phase B)</pre>
 
       <div class="issue-grid">
         <div class="issue-card">
-          <div class="issue-label">Next Milestone</div>
-          <p><b>Re-review the slow C origin.</b> Runtime gate is currently
-          <code>ltf_counter_bos_confirmed</code> — LTF orderflow
-          <code>confirmed_direction == counter-HTF</code> and
-          <code>regime == directional</code>. Because <code>E.pullback_developing</code>
-          now enters on MSS watch, slow C can remain the later confirmed-direction maturity
-          step.</p>
+          <div class="issue-label">Implement</div>
+          <p><b>Change <code>pro_attempt_seen</code> to use <code>last_sc</code> (MSS) instead of <code>last_isc</code>.</b> iChoCh is Layer 5 territory. D.watch opens on first pro-HTF macro ChoCh. Affects <code>_update_phase_e_pullback_progress()</code> (~line 1956).</p>
         </div>
         <div class="issue-card">
-          <div class="issue-label">Next Milestone</div>
-          <p><b>Block direct E-to-B walking.</b> <code>E.pullback_developing</code> should not move directly to <code>B.initiation_watch</code>. The pullback must first mature into C; only then can B evaluate a pro-side reclaim or initiation attempt.</p>
+          <div class="issue-label">Implement · V2</div>
+          <p><b>D.watch + counter MSS (LL break) → C.pullback.</b> Replaces the old <code>D.speculation → C.pullback</code> gate (~line 524–546). <code>phase_c_origin_node = "D.watch_mss"</code>.</p>
         </div>
         <div class="issue-card">
-          <div class="issue-label">Edge Case</div>
-          <p><b>Separate D-to-C from E-to-C.</b> A confirmed counter-reaction after D and a slow pullback directly from E may share evidence, but the DAG should log which origin created C.</p>
+          <div class="issue-label">Implement · V1</div>
+          <p><b>E.pullback_developing + no D + depth ≥ 51% → C.pullback.</b> Re-enable commented blocks at <code>hypothesis.py:594–638</code>. Consolidate old <code>C.hard_pullback</code> / <code>C.slow_pullback</code> into single depth gate. <code>phase_c_origin_node = "E.pullback_developing_no_pro"</code>.</p>
         </div>
         <div class="issue-card">
-          <div class="issue-label">Fallback</div>
-          <p><b>Do not depend on B shadow.</b> During the C pass, keep B disabled so C cannot appear correct only because B's current <code>ShadowThesis</code> absorbed ambiguous bars.</p>
+          <div class="issue-label">Implement</div>
+          <p><b>C.pullback_weaken sub-status.</b> Triggered when pro-HTF <code>last_sc</code> fires during <code>C.pullback</code> (LH broken by pro-HTF MSS). New method <code>_phase_c_weaken_check()</code>.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Implement</div>
+          <p><b>C.pullback_weaken → C.pullback recovery.</b> Counter-HTF MSS re-fires in pullback direction (pro-attempt within pullback collapses). NOT "LL confirmed" — recovery is a fresh counter MSS.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Implement</div>
+          <p><b>C → E.seeking on new HTF extreme.</b> Currently missing exit transition from both C.pullback and C.pullback_weaken. Add to both nodes.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Implement</div>
+          <p><b>Add <code>PhaseCshadow</code> dataclass.</b> Fields: <code>origin_node</code>, <code>weaken_at</code>, <code>recover_at</code>. Add <code>shadow_thesis.phase_c</code> field alongside existing <code>phase_d</code>.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Deferred · V4</div>
+          <p><b>C after B/A failure.</b> When B or A fails and price reverses with HTF MSS — should C be allowed? Design ambiguous. Guard remains: <code>previous_phase not in {"B", "A"}</code>. Decide during Phase B implementation.</p>
         </div>
       </div>
     </section>

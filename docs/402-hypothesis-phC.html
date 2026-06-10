@@ -313,8 +313,8 @@
     <div class="label">On this page</div>
     <a href="#concept">00 Core Concept</a>
     <a href="#inputs">01 EC Inputs</a>
-    <a href="#nodes">02 Current C Nodes</a>
-    <a href="#transitions">03 DAG Transitions</a>
+    <a href="#nodes">02 State Machine</a>
+    <a href="#transitions">03 Transitions</a>
     <a href="#algorithm">04 Algorithm</a>
     <a href="#config">05 Config</a>
     <a href="#issues">06 Open Issues</a>
@@ -333,7 +333,7 @@
       <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase C</div>
       <h1>Phase C — Counter Pullback</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> - Phase C is the counter-pullback phase after Phase E expansion has been interrupted by D, by a direct tight-range hard pullback, by E.pullback_developing, or by failed B initiation. As coded now, C mostly reads one EC package, <code>ltf_counter_story</code>, then Layer 4 assigns the origin and sub-status.
+        <b>TL;DR</b> — Phase C is the counter-pullback phase. Two DAG states: <code>C.pullback</code> and <code>C.pullback_weaken</code>. Entry origin tracked via <code>phase_c_origin_node</code> metadata (not new states). All structural transitions use MSS (<code>last_sc</code>); iChoCh (<code>last_isc</code>) is Layer 5 territory. V1: E.pullback_developing + no D + depth ≥ 51%. V2: D.watch + counter MSS (LL break). Weaken: pro-HTF MSS breaks pullback LH. Recovery: counter MSS re-fires.
       </div>
       <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis Dataflow</a>
       <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
@@ -416,117 +416,118 @@ otherwise:
       EC should report counter evidence. It should not decide whether the node is <code>C.hard_pullback</code>, <code>C.slow_pullback</code>, or <code>C.htf_reaction_pullback</code>. That naming belongs to Layer 4 because it depends on DAG origin.
     </div>
 
-    <h2 id="nodes"><span class="sec-num">02</span> Current C Nodes</h2>
+    <h2 id="nodes"><span class="sec-num">02</span> State Machine</h2>
     <p>
-      The DAG currently names five Phase C variants. Some are implemented directly in the classifier. Others are present in the DAG note as intended vocabulary and need cleanup as migration continues.
+      Phase C uses two DAG states. Entry origin is tracked via <code>phase_c_origin_node</code> metadata — it does not add new states. All structural transitions use MSS (<code>last_sc</code>, macro ChoCh). iChoCh (<code>last_isc</code>) is reserved for Layer 5 entry confirmation.
     </p>
 
     <details open>
-      <summary>C.htf_reaction_pullback <span class="where">D → C</span></summary>
+      <summary>C.pullback <span class="where">active state</span></summary>
+      <div class="body">
+<pre class="block">C.pullback
+  + pro-HTF MSS breaks pullback LH
+    (bullish HTF: last_sc fires pro-HTF direction = LH broken upward)
+  → C.pullback_weaken
+
+C.pullback
+  + ltf_pullback_depth_pct >= 50%
+  → B.xxx
+
+C.pullback
+  + new HTF extreme fires
+  → E.seeking  (rare — extreme FVG expansion; C.pullback_weaken usually catches
+                the pro-attempt first before HTF extreme is confirmed)</pre>
+        <p>Debug fields: <code>phase_c_origin_node</code>, <code>phase_sub_status = "pullback"</code></p>
+      </div>
+    </details>
+
+    <details open>
+      <summary>C.pullback_weaken <span class="where">active sub-state</span></summary>
       <div class="body">
         <p>
-          This is the regular C node after a Phase D reaction. The classifier uses <code>_phase_c_sub_status_from_current_d()</code> and currently maps reaction-point, HTF zone reclaim, HTF P/D reclaim, and HTF EQ reclaim variants into <code>htf_reaction_pullback</code>.
+          Enters when the counter pullback shows a pro-HTF MSS (LH break). The <em>recovery</em> condition is: the pro-attempt within the pullback itself fails — counter MSS re-fires in the pullback direction (LL break). Not "LL confirmed"; not "floor tested." The same MSS mechanic that opened <code>C.pullback</code> fires again.
         </p>
-<pre class="block">Entry family:
-  D.HTF_reaction_point
-  D.LTF_reaction_point
-  D.htf_pd_grab_reclaim_test
-  D.htf_eq_grab_reclaim_test
+<pre class="block">C.pullback_weaken
+  + counter-HTF MSS re-fires in pullback direction (LL break)
+  → C.pullback
 
-Required:
-  phase_c_story_ready
-  phase_d_reaction_confirmed</pre>
+C.pullback_weaken
+  + new HTF extreme fires
+  → E.seeking
+
+C.pullback_weaken
+  → B.xxx  (deferred — decide during Phase B)</pre>
+        <p>Debug fields: <code>phase_sub_status = "pullback_weaken"</code>, <code>phase_c_weaken_at</code></p>
       </div>
     </details>
 
     <details>
-      <summary>C.hard_pullback <span class="where">E fast path</span></summary>
+      <summary>Archive — old 5-variant model <span class="where">superseded 2026-06-10</span></summary>
       <div class="body">
+        <p>The old model named five Phase C variants. Retired in favour of the 2-state model above.</p>
+<pre class="block">C.htf_reaction_pullback   — D reaction → C (D.HTF_reaction_point etc.)
+C.hard_pullback           — E fast path, depth >= 50%, tight P/D range
+C.slow_pullback           — E.pullback_developing + ltf_counter_bos_confirmed (Case F)
+C.pullback.no_followthrough  — B.initiation_watch failure
+C.pullback.after_inducement  — B.initiation_watch rejection</pre>
         <p>
-          The implemented hard path is the tight P/D shortcut from Phase E. It fires when Phase E context is ready, the HTF P/D range stopped expanding, the LTF counter orderflow is clean and unbroken, and the pullback depth reaches the midpoint.
-        </p>
-<pre class="block">phase_c_origin_node = E.fast_hard_pullback
-phase_c_sub_status = hard_pullback
-phase_c_selection_reason = fast_midpoint_pullback_after_phase_e_expansion
-phase_c_quality = choppy_tight_range_fast_pullback
-threshold = ltf_pullback_depth_pct >= 50</pre>
-      </div>
-    </details>
-
-    <details>
-      <summary>C.slow_pullback <span class="where">E.pullback_developing → C</span></summary>
-      <div class="body">
-        <p>
-          The slow path currently fires when the Phase E shadow is already <code>E.pullback_developing</code> and LTF orderflow has confirmed a full counter-direction BoS/MSS — Case F level: <code>confirmed_direction == counter-HTF</code> and <code>regime == "directional"</code>. Because <code>E.pullback_developing</code> has been corrected back to an orderflow-MSS trigger, this path needs another review to avoid using the same orderflow verdict twice as both shadow entry and C maturity.
-        </p>
-<pre class="block">Gate:
-  previous_phase != "B"
-  phase_e_shadow_node == "E.pullback_developing"
-  ltf_counter_bos_confirmed == True            ← Case F: confirmed_direction + regime directional
-
-EC fact (ltf_counter_story.debug_facts):
-  ltf_counter_bos_confirmed =
-    orderflow.confirmed_direction == counter-HTF
-    and orderflow.regime == "directional"
-
-phase_c_origin_node = E.pullback_developing
-phase_c_sub_status = slow_pullback
-phase_c_selection_reason =
-  ltf_pd_flipped_counter_after_failed_e_continuation_attempt</pre>
-        <p>
-          The failed pro-attempt is implicit: if we are still in <code>E.pullback_developing</code> when the BoS fires, Phase D never committed. If D had committed, the DAG would have left Phase E and the shadow would have reset.
+          In the new model: D-to-C and E-to-C paths are entry origins stored in
+          <code>phase_c_origin_node</code>, not separate states. B failure → C is deferred (V4).
+          <code>_phase_c_sub_status_from_current_d()</code> is eliminated.
         </p>
       </div>
     </details>
 
-    <details>
-      <summary>C.after_inducement / C.no_followthrough <span class="where">B failure → C</span></summary>
-      <div class="body">
-        <p>
-          When <code>B.initiation_watch</code> fails, the classifier can resolve back into Phase C. The current code emits <code>pullback.no_followthrough</code> when the B source anchor is run or when the B decision fails with LTF counter confirmation. It emits <code>pullback.after_inducement</code> when B initiation is rejected by HTF reaction plus LTF counter flow.
-        </p>
-<pre class="block">B.initiation_watch → C.pullback.no_followthrough
-B.initiation_watch → C.pullback.after_inducement</pre>
-      </div>
-    </details>
-
-    <h2 id="transitions"><span class="sec-num">03</span> DAG Transitions</h2>
+    <h2 id="transitions"><span class="sec-num">03</span> Transitions</h2>
     <p>
-      Current DAG intent says Phase C can arrive from D, from fast Phase E pullback, from mature Phase E pullback, or from failed B initiation. Once C exists, the usual next step is B reclaim permission, while failed reaction can collapse back to E.
+      Two entry paths. Origin is recorded in <code>phase_c_origin_node</code> and does not create new states.
     </p>
 
     <details open>
-      <summary>Entry families <span class="where">DAG</span></summary>
+      <summary>V1 — E.pullback_developing, no D, depth ≥ 51% <span class="where">E → C</span></summary>
       <div class="body">
-<pre class="block">D.HTF_reaction_point          → C.htf_reaction_pullback
-D.LTF_reaction_point          → C.htf_reaction_pullback
-D.htf_pd_grab_reclaim_test    → C.htf_reaction_pullback
-D.htf_eq_grab_reclaim_test    → C.htf_reaction_pullback
+<pre class="block">Condition:
+  E.pullback_developing is active
+  phase_d_shadow.node == None  (D.watch never opened)
+  ltf_pullback_depth_pct >= 51%
+  previous_phase not in {"B", "A"}  ← V4 guard
 
-E.seeking                     → C.hard_pullback
-E.stalling                    → C.hard_pullback
-E.pullback_developing         → C.hard_pullback
-E.pullback_developing         → C.slow_pullback
+Result:
+  → C.pullback
+  phase_c_origin_node = "E.pullback_developing_no_pro"</pre>
+        <p>Price grinds counter without ever attempting a pro-HTF MSS. D was never entered. Replaces old <code>C.hard_pullback</code> / <code>C.slow_pullback</code> in a single depth gate.</p>
+      </div>
+    </details>
 
-B.initiation_watch failure    → C.pullback.no_followthrough
-B.initiation_watch rejection  → C.pullback.after_inducement</pre>
+    <details open>
+      <summary>V2 — D.watch + counter MSS breaks LL <span class="where">D → C</span></summary>
+      <div class="body">
+<pre class="block">Condition:
+  phase_d_shadow.node == "D.watch"
+  ltf_counter_orderflow_mss_watch == True  (fresh counter leg, LL break)
+
+Result:
+  → C.pullback
+  phase_c_origin_node = "D.watch_mss"</pre>
+        <p>Pro-attempt (first pro-HTF MSS) opened D.watch, then the counter MSS breaks LL — pro-attempt definitively failed. Replaces old <code>D.speculation → C.pullback</code> gate.</p>
       </div>
     </details>
 
     <details>
-      <summary>Exit families <span class="where">C → B / D / E</span></summary>
+      <summary>Exit families <span class="where">C → B / E</span></summary>
       <div class="body">
-<pre class="block">C → B.initiation_watch
-C → B.strict_reclaim
-C → B.shallow_reclaim
+<pre class="block">C.pullback        + depth >= 50%          → B.xxx
+C.pullback        + new HTF extreme       → E.seeking
+C.pullback        + pro-HTF MSS (LH)      → C.pullback_weaken
 
-C → D.* if a new reaction/liquidity boundary appears from current C
-C → E.seeking if the prior Phase E direction resumes and reaction fails</pre>
+C.pullback_weaken + counter MSS (LL)      → C.pullback
+C.pullback_weaken + new HTF extreme       → E.seeking
+C.pullback_weaken                         → B.xxx  (deferred)</pre>
       </div>
     </details>
 
     <div class="rule">
-      The DAG must preserve origin. A hard pullback from a tight Phase E range is not the same historical object as a C node produced after D, even if both use the same <code>ltf_counter_story</code> facts.
+      The DAG preserves origin via <code>phase_c_origin_node</code>. An E-direct pullback and a D-failed-pro-attempt pullback are not the same historical object, even though they share the same 2-state machine.
     </div>
 
     <h2 id="algorithm"><span class="sec-num">04</span> Algorithm</h2>
@@ -644,51 +645,49 @@ entry_policy = "hybrid" if (
 
     <h2 id="issues"><span class="sec-num">06</span> Open Issues</h2>
     <p>
-      This page only lists Phase C issues. Completed Phase E migration items stay on the Phase E note.
+      Issues for the 2-state model. Old 5-variant issues retired — see Archive block in section 02.
     </p>
 
     <div class="issue-grid">
       <div class="issue-card">
-        <div class="issue-label">Archived · Completed</div>
-        <p><b>Slow C maturity after Phase E MSS watch.</b>
-        Resolved boundary: <code>E.pullback_developing</code> enters on
-        <code>ltf_counter_orderflow_mss_watch</code> when the protected LTF orderflow anchor
-        breaks and the MSS monitor opens. <code>C.slow_pullback</code> remains the later maturity
-        step: <code>E.pullback_developing</code> + <code>ltf_counter_bos_confirmed</code>
-        (Case F: <code>confirmed_direction</code> + <code>regime == directional</code>).</p>
+        <div class="issue-label">Implement</div>
+        <p><b>Change D.watch trigger to MSS (<code>last_sc</code>).</b> <code>pro_attempt_seen</code> currently reads <code>last_isc</code>. Change to <code>last_sc</code> so iChoCh stays Layer 5 territory. Affects <code>_update_phase_e_pullback_progress()</code> (~line 1956).</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Phase C Boundary</div>
-        <p><b>Choose the stream by job.</b> Structural ChoCh is the fresh one-bar chronology signal for D/liquidity evidence. Orderflow BoS / <code>confirmed_direction</code> is the later swing-sequence maturity signal for <code>C.slow_pullback</code>. Do not substitute structural ChoCh for the slow-C maturity gate.</p>
+        <div class="issue-label">Implement · V2</div>
+        <p><b>D.watch + LL break → C.pullback.</b> Replace old <code>D.speculation → C.pullback</code> gate (~line 524–546) with: <code>D.watch + ltf_counter_orderflow_mss_watch == True → C.pullback</code>. <code>phase_c_origin_node = "D.watch_mss"</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Open Issue</div>
-        <p><b>Phase C quality language is incomplete.</b> <code>phase_c_quality</code> is set on the fast hard path (<code>choppy_tight_range_fast_pullback</code>), but the D-to-C and slow E-to-C paths carry no equivalent quality field. Debug comparison between C variants is uneven until all paths emit a quality tag.</p>
+        <div class="issue-label">Implement · V1</div>
+        <p><b>E.pullback_developing + no D + depth ≥ 51% → C.pullback.</b> Re-enable commented blocks at <code>hypothesis.py:594–638</code>. Single depth gate replaces old hard/slow split. <code>phase_c_origin_node = "E.pullback_developing_no_pro"</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Edge Case</div>
-        <p><b>Cold-start C.hard_pullback does not set <code>active_phase_e_direction</code>.</b> When the fast path fires without a prior E classification, <code>_phase_e()</code> is never called and <code>active_phase_e_direction</code> stays <code>"none"</code>. The C carry block guards on <code>active_phase_e_direction == direction</code>; it fails on the next bar and falls through to a fresh E classification. The test at line 717 is single-snapshot and does not cover this. Known: cold-start beyond <code>none → E</code> is in-flight in CLAUDE.md.</p>
+        <div class="issue-label">Implement</div>
+        <p><b>C.pullback_weaken sub-status.</b> Triggered when pro-HTF <code>last_sc</code> fires during <code>C.pullback</code> (LH broken by pro-HTF MSS). New method <code>_phase_c_weaken_check()</code> in <code>hypothesis.py</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Edge Case</div>
-        <p><b>Watching C can exist without a selected POI.</b> This is probably correct, but it means a strong counter story is visible in Layer 4 while Layer 5 has no tradeable object. Replayer UI should make the difference between <code>watching</code> and <code>armed</code> visually clear.</p>
+        <div class="issue-label">Implement</div>
+        <p><b>C.pullback_weaken → C.pullback recovery.</b> Counter-HTF MSS re-fires in pullback direction (pro-attempt collapses). Recovery condition is a fresh counter MSS — NOT "LL confirmed" or "floor tested."</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Implement</div>
+        <p><b>C → E.seeking on new HTF extreme.</b> Add missing exit to both <code>C.pullback</code> and <code>C.pullback_weaken</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Implement</div>
+        <p><b>Add <code>PhaseCshadow</code> dataclass.</b> Fields: <code>origin_node</code>, <code>weaken_at</code>, <code>recover_at</code>. Wire as <code>shadow_thesis.phase_c</code> alongside existing <code>phase_d</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Deferred · V4</div>
+        <p><b>C after B/A failure.</b> Design ambiguous. Guard in place: <code>previous_phase not in {"B", "A"}</code>. Decide during Phase B work.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Deferred · Next PR</div>
+        <p><b>D.speculation → Layer 5 migration.</b> After Phase C ships: drop <code>D.speculation</code> from DAG; move iChoCh entry timing to Layer 5. Remove <code>choch_2</code>, <code>speculation_entered_at</code> from <code>PhaseDShadow</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Resolved</div>
-        <p><b><code>E.pullback_developing → E.stalling</code> disruption exit is retired.</b> The current decision is intentional: after the first counter-orderflow MSS moves Phase E shadow into <code>E.pullback_developing</code>, broken/pro LTF orderflow does not send it back to <code>E.stalling</code>. The shadow holds until a new HTF extreme resets Phase E, or Layer 4 selects D/C. Legacy disruption debug keys have been removed from the runtime output.</p>
-      </div>
-      <div class="issue-card">
-        <div class="issue-label">Next Milestone</div>
-        <p><b>Reconcile Phase C with the Phase E shadow migration.</b> C should consume cleanly named origin memory from Phase E/D/B rather than inferring from a single generic <code>ltf_counter_story</code> gate. Run the full suite to confirm Q3: no stale EC fact-shape assertions in D→C and C-hold tests.</p>
-      </div>
-      <div class="issue-card">
-        <div class="issue-label">Open · Missing exit path</div>
-        <p><b>C states have no explicit exit on new HTF extreme.</b>
-        If the HTF makes a new extreme while in <code>C.pullback</code> or
-        <code>C.pullback_weaken</code>, there is no stated path back to
-        <code>E.seeking</code>. Needs to be added: any C node →
-        <code>E.seeking</code> when <code>new_htf_extreme</code> fires or HTF closes
-        above PD range.</p>
+        <p><b><code>E.pullback_developing → E.stalling</code> disruption exit is retired.</b> After the first counter-orderflow MSS, shadow holds in <code>E.pullback_developing</code> until new HTF extreme or Layer 4 selects D/C. Legacy disruption debug keys removed.</p>
       </div>
     </div>
   </main>

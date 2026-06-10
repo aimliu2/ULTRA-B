@@ -115,6 +115,7 @@ pro_attempt_level
 
 **In-flight / not started**
 - Phase C: `C.pullback` / `C.pullback_weaken` implementation — **START HERE**
+- D.speculation → Layer 5 migration — **NEXT after Phase C** (separate PR; keep D.watch in DAG, move iChoCh entry timing to Layer 5; drop `choch_2` / `speculation_entered_at` from PhaseDShadow)
 - Phase B/A gates: re-enable after Phase C ships
 - Cold-start self-location: post-warmup bar self-locates into best DAG node
 - `_phase_a_setup()` disabled — Phase A EC candidate not written
