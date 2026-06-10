@@ -345,7 +345,7 @@
 
 <header>
   <h1>401 · Hypothesis DAG — Layer 4</h1>
-  <p>Click any node to read the phase contract. Solid edges = forward path · dashed = failure / cycle.</p>
+  <p>Click active nodes to read the phase contract. C/B/A are temporarily closed during migration, so their detail links are intentionally blank. Solid edges = forward path · dashed = failure / cycle.</p>
 </header>
 
 <div class="epigraph">
@@ -375,19 +375,22 @@ flowchart LR
   subgraph SG_E["E · HTF Continuation"]
     direction TB
     E_seek["e1 · E.seeking"]
-    E_stall["e2 · E.stalling"]
-    E_pull["e3 · E.pullback_developing"]
+    E_react["e2 · E.HTF_reaction"]
+    E_stall["e3 · E.stalling"]
+    E_pull["e4 · E.pullback_developing"]
+    E_seek --> E_react
     E_seek --> E_stall
+    E_react --> E_stall
+    E_react --> E_pull
     E_stall --> E_pull
   end
 
   %% ── Phase D ────────────────────────────────────────────────
   subgraph SG_D["D · Reaction / Reclaim"]
     direction TB
-    D_react["d1 · D.reaction_point"]
-    D_pd["d2 · D.htf_pd_grab_reclaim"]
-    D_eq["d3 · D.htf_eq_grab_reclaim"]
-    D_zone["d4 · D.htf_zone_reclaim"]
+    D_watch["d1 · D.watch"]
+    D_spec["d2 · D.speculation"]
+    D_watch --> D_spec
   end
 
   %% ── Phase C ────────────────────────────────────────────────
@@ -423,12 +426,8 @@ flowchart LR
   NONE["2 · none"]
 
   %% ── E → D ───────────────────────────────────────────────────
-  E_seek --> D_pd
-  E_seek --> D_eq
-  E_stall --> D_react
-  E_stall --> D_pd
-  E_stall --> D_eq
-  E_pull --> D_react
+  E_react -.-> E_seek
+  E_pull --> D_watch
 
   %% ── Fast E → C hard pullback (tight P/D midpoint breach) ────
   E_seek --> C_hard
@@ -440,16 +439,11 @@ flowchart LR
   E_pull -.-> E_seek
 
   %% ── D → C ───────────────────────────────────────────────────
-  D_react --> C_bounce
-  D_pd --> C_bounce
-  D_eq --> C_bounce
-  D_zone --> C_bounce
+  D_spec --> C_bounce
 
   %% ── D failure → E (dashed) ──────────────────────────────────
-  D_react -.-> E_seek
-  D_pd -.-> E_seek
-  D_eq -.-> E_seek
-  D_zone -.-> E_seek
+  D_watch -.-> E_seek
+  D_spec -.-> E_seek
 
   %% ── C → B ────────────────────────────────────────────────────
   C_bounce --> B_init
@@ -465,9 +459,6 @@ flowchart LR
   %% ── B → C fallback (dashed) ──────────────────────────────────
   B_init -.-> C_ind
   B_init -.-> C_no
-
-  %% ── B.shallow weakening → D ──────────────────────────────────
-  B_shallow --> D_zone
 
   %% ── B failure → E (dashed) ───────────────────────────────────
   B_shallow -.-> E_seek
@@ -488,22 +479,11 @@ flowchart LR
 
   %% ── click callbacks ──────────────────────────────────────────
   click E_seek nodeClick
+  click E_react nodeClick
   click E_stall nodeClick
   click E_pull nodeClick
-  click D_react nodeClick
-  click D_pd nodeClick
-  click D_eq nodeClick
-  click D_zone nodeClick
-  click C_bounce nodeClick
-  click C_hard nodeClick
-  click C_slow nodeClick
-  click C_ind nodeClick
-  click C_no nodeClick
-  click B_init nodeClick
-  click B_strict nodeClick
-  click B_shallow nodeClick
-  click A_cont nodeClick
-  click A_fin nodeClick
+  click D_watch nodeClick
+  click D_spec nodeClick
   click OVER nodeClick
   click NONE nodeClick
 
@@ -513,14 +493,15 @@ flowchart LR
   classDef phaseC fill:#E8EAE0,stroke:#B8B4AA,color:#141413
   classDef phaseB fill:#DFE8E4,stroke:#B8B4AA,color:#141413
   classDef phaseA fill:#DFE2EC,stroke:#B8B4AA,color:#141413
+  classDef tempClosed fill:#F5F2EC,stroke:#D1CFC5,color:#87867F,stroke-dasharray:4 3
   classDef terminal fill:#D97757,stroke:#B86040,color:#ffffff
   classDef noneNode fill:#F5F2EC,stroke:#D1CFC5,color:#87867F
 
-  class E_seek,E_stall,E_pull phaseE
-  class D_react,D_pd,D_eq,D_zone phaseD
-  class C_bounce,C_hard,C_slow,C_ind,C_no phaseC
-  class B_init,B_strict,B_shallow phaseB
-  class A_cont,A_fin phaseA
+  class E_seek,E_react,E_stall,E_pull phaseE
+  class D_watch,D_spec phaseD
+  class C_bounce,C_hard,C_slow,C_ind,C_no tempClosed
+  class B_init,B_strict,B_shallow tempClosed
+  class A_cont,A_fin tempClosed
   class OVER terminal
   class NONE noneNode
 
@@ -562,9 +543,8 @@ Phase E extreme: still being made or defended
 Counter-LTF:   no meaningful pressure yet</div>
 <p><strong>Expected next:</strong></p>
 <ul>
-  <li>E.stalling — if extremes stop being made</li>
-  <li>D.htf_pd_grab_reclaim — if HTF P/D is breached and reclaimed</li>
-  <li>D.htf_eq_grab_reclaim — if HTF EQ pool is grabbed and reclaimed</li>
+  <li>E.HTF_reaction — if expansion is active AND price enters an opposing HTF S/D zone (journal footprint recorded)</li>
+  <li>E.stalling — if extremes stop being made without a zone contact</li>
   <li>C.hard_pullback — if tight P/D range pullback breaches midpoint with clean counter orderflow</li>
   <li>New E.seeking — if objective expands and continuation resumes</li>
 </ul>
@@ -572,8 +552,34 @@ Counter-LTF:   no meaningful pressure yet</div>
 <a class="panel-link" href="./101-trader-thinking.html">→ Layer architecture overview</a>`,
     },
 
-    E_stall: {
+    E_react: {
       num:   "e2",
+      tag:   "Phase E",
+      title: "E.HTF_reaction",
+      meta:  "Expansion active — LTF probe inside HTF opposing zone",
+      body:  `<p><strong>E.HTF_reaction</strong> fires while the HTF expansion is still active (<code>new_htf_extreme = true</code>) and the LTF price enters an opposing HTF S/D zone. This is a watchful pause: price is testing resistance/support during the expansion leg, before any stall or MSS is confirmed.</p>
+<div class="code-block">Entry gate (from E.seeking only):
+  new_htf_extreme == true         ← expansion still active
+  ltf_probe_at_htf_opposing_zone  ← price inside HTF supply (bullish) or demand (bearish)
+
+EC source:
+  phase_e_context candidate
+  ltf_probe_at_htf_opposing_zone (new fact — zone.in_zone check on HTF opposing zones)
+  ltf_probe_htf_opposing_zone_id</div>
+<p><strong>Journal footprint:</strong> Entering this node sets <code>phase_e_shadow_htf_reaction_seen = true</code> on the <code>PhaseEShadow</code> ledger. This flag is sticky for the full epoch — it does not reset on new extremes. Re-entry from <code>E.seeking</code> after a zone is run updates <code>htf_reaction_zone_id</code> and clears <code>htf_reaction_exit_reason</code> for the new visit.</p>
+<p><strong>Exits:</strong></p>
+<ul>
+  <li><strong>E.seeking</strong> (dashed) — <code>new_htf_extreme</code>: zone was run, expansion continued. <code>exit_reason = "ran_zone"</code>. Footprint stays.</li>
+  <li><strong>E.pullback_developing</strong> — <code>ltf_counter_orderflow_mss_watch</code> fires while still inside zone. <code>exit_reason = "mss_fired"</code>.</li>
+  <li><strong>E.stalling</strong> — price left the zone without a new extreme or MSS. <code>exit_reason = "stalled"</code>.</li>
+  <li>Hold — still inside the zone, no extreme, no MSS.</li>
+</ul>
+<div class="rule-block">No path from E.stalling → E.HTF_reaction. If the expansion paused before a zone was entered, the zone-test window is closed for that leg.</div>
+<div class="rule-block">HTF stacking (zone 1 ran → E.seeking → zone 2 entered → E.HTF_reaction again): <code>htf_reaction_seen</code> stays true. <code>htf_reaction_zone_id</code> updates to the current zone. The footprint accumulates across the episode.</div>`,
+    },
+
+    E_stall: {
+      num:   "e3",
       tag:   "Phase E",
       title: "E.stalling",
       meta:  "HTF extremes stopped — counter-LTF evidence beginning",
@@ -586,9 +592,6 @@ Counter-LTF evidence starting to appear
 Not enough for D, C, or B yet</div>
 <p><strong>Expected next:</strong></p>
 <ul>
-  <li>D.reaction_point — if HTF reaction-point evidence appears</li>
-  <li>D.htf_pd_grab_reclaim — if HTF P/D boundary is tested</li>
-  <li>D.htf_eq_grab_reclaim — if HTF EQ pool is tested</li>
   <li>E.pullback_developing — if a counter orderflow MSS / P-D flip fires on the LTF</li>
   <li>C.hard_pullback — if tight P/D range pullback breaches midpoint with clean counter orderflow</li>
   <li>E.seeking — if continuation resumes (new extreme)</li>
@@ -597,24 +600,26 @@ Not enough for D, C, or B yet</div>
     },
 
     E_pull: {
-      num:   "e3",
+      num:   "e4",
       tag:   "Phase E",
       title: "E.pullback_developing",
       meta:  "LTF counter orderflow MSS confirmed — pullback developing",
-      body:  `<p><strong>E.pullback_developing</strong> fires when the LTF confirms a counter-direction orderflow MSS / P-D flip while the HTF is stalling. This is the slower orderflow evidence that the pullback is developing; a single structural ChoCh is too fast and noisy for this shadow boundary.</p>
+      body:  `<p><strong>E.pullback_developing</strong> fires when LTF orderflow opens an MSS monitor while the HTF is stalling. Orderflow may still be officially pro-HTF; the trigger is the live probe breaking the protected orderflow anchor. A later structural ChoCh close-through of that same anchor remains Phase E confirmation evidence, not D.</p>
 <p><strong>Bullish HTF trigger:</strong></p>
 <div class="code-block">HTF: bullish, no new P/D high (stalling)
-LTF orderflow: confirmed_direction == "bearish"
-               quality == "clean"
-               regime == "directional"</div>
+LTF orderflow: confirmed_direction == "bullish"
+               mss_regime == "mss_watch"
+               mss_monitor_status == "watching_resolution"
+               probe_breaks_protected_anchor == true</div>
 <p><strong>Bearish HTF trigger:</strong></p>
 <div class="code-block">HTF: bearish, no new P/D low (stalling)
-LTF orderflow: confirmed_direction == "bullish"
-               quality == "clean"
-               regime == "directional"</div>
+LTF orderflow: confirmed_direction == "bearish"
+               mss_regime == "mss_watch"
+               mss_monitor_status == "watching_resolution"
+               probe_breaks_protected_anchor == true</div>
 <p><strong>Exits (no return to E.stalling):</strong></p>
 <ul>
-  <li>D.reaction_point — if the D gate fires (failed pro-continuation from pullback)</li>
+  <li>D.watch — post-E pro-attempt plus fresh counter structural event opens the reaction watch</li>
   <li>C.hard_pullback — if LTF counter structure is clean and P/D midpoint breached</li>
   <li>C.slow_pullback — if LTF orderflow BoS confirmed counter-HTF (<code>confirmed_direction</code> + <code>regime == directional</code>)</li>
   <li>E.seeking — new HTF extreme appears (pro-continuation absorbed the pullback)</li>
@@ -623,123 +628,70 @@ LTF orderflow: confirmed_direction == "bullish"
 <div class="rule-block">Layer 5 stance: skip until B or C permission exists. Do not treat as clean E.</div>`,
     },
 
-    D_react: {
+    D_watch: {
       num:   "d1",
       tag:   "Phase D",
-      title: "D.reaction_point",
-      meta:  "First HTF zone contact after E — no prior B/C required",
-      body:  `<p><strong>D.reaction_point</strong> is the regular strict D path. HTF Phase E has stopped clean expansion and price is making first meaningful contact with a reaction point — usually an opposing HTF SD zone. No prior B/C reclaim thesis is required.</p>
-<div class="code-block">Entry path:
-  E.seeking | E.stalling -> D.reaction_point
+      title: "D.watch",
+      meta:  "First LTF pro-HTF ChoCh after E.pullback_developing (bounce initiation)",
+      body:  `<p><strong>D.watch</strong> opens from <code>E.pullback_developing</code> on the first LTF <strong>pro-HTF</strong> ChoCh — the moment the LTF structural bias flips back in the HTF direction. This is the structural initiation of the bounce. For a long HTF bias: bullish LTF ChoCh (<code>itrSb*</code>, <code>choch=True</code>, <code>breakDirection=="up"</code>).</p>
+<div class="code-block">Gate:
+  phase_e_shadow_node == "E.pullback_developing"
+  phase_e.pro_attempt_seen == true
+    ← LTF pro-HTF ChoCh fired (e.g. bullish for long)
+    ← pro_attempt_started_at > pullback_developing_entered_at
 
-Condition:
-  HTF opposing SD zone is tapped
-  LTF has not yet flipped counter
-  No prior reclaim thesis active</div>
+Shadow:
+  phase_d.node = "D.watch"
+  phase_d.consumed_leg_id = phase_e.source_orderflow_leg_id
+  phase_d.pro_attempt = phase_e.pro_attempt
+  phase_d.choch_1 = { trigger_type: "choch", level: pro_choch_level, at: pro_attempt_started_at }</div>
 <p><strong>Exits:</strong></p>
 <ul>
-  <li><strong>C.htf_reaction_pullback</strong> — LTF P/D flips counter after zone test, price bounces</li>
-  <li><strong>E.seeking</strong> (dashed) — zone is run through; trend continuation resumes</li>
+  <li><strong>D.speculation</strong> — first counter-HTF ChoCh (bounce failed) or counter SB after pullback_confirmed</li>
+  <li><strong>E.seeking</strong> (dashed) — HTF continuation resumes / invalidates the reaction</li>
 </ul>
-<div class="rule-block">D keeps the meaning of reaction-point evidence. Do not conflate with D.htf_pd_grab_reclaim or D.htf_zone_reclaim which require prior context.</div>`,
+<div class="rule-block">D.watch = pro-HTF initiation. D.speculation = pro attempt failed. The old model (counter ChoCh after pro attempt opens D.watch) had the trigger direction inverted.</div>`,
     },
 
-    D_pd: {
+    D_spec: {
       num:   "d2",
       tag:   "Phase D",
-      title: "D.htf_pd_grab_reclaim",
-      meta:  "HTF P/D boundary breached, rejected, and reclaimed on LTF",
-      body:  `<p><strong>D.htf_pd_grab_reclaim_test</strong> is the liquidity-grab D path at the HTF P/D boundary. It can appear directly from E because HTF owns the remembered P/D level while LTF confirms the grab/reclaim before the HTF candle closes.</p>
-<div class="code-block">Lifecycle (Layer 3 Liquidity must confirm):
-  1. Price moves beyond the HTF P/D level
-  2. Rejection footprint appears
-     (wick / hammer / counter FVG)
-  3. Price reclaims back inside range on LTF
+      title: "D.speculation",
+      meta:  "Pro attempt failed; waits for fresh orderflow MSS to become C",
+      body:  `<p><strong>D.speculation</strong> means the D.watch bounce has failed structurally — the LTF has resumed its counter-HTF move. It is still pre-entry: it only promotes to C after a fresh LTF orderflow MSS leg appears.</p>
+<div class="code-block">Entry from D.watch:
+  Path A: ltf_counter_choch_seen == true   ← counter-HTF ChoCh (bounce failed, bias flips back)
+          → phase_d.choch_2.trigger_type = "choch"
 
-Trigger:
-  previous/current E.seeking | E.stalling
-  AND htf_pd_grab_reclaim_ready == true
-  AND grab_direction counter to HTF trend</div>
-<p>The grab/reclaim is a major boundary footprint, not proof that D has produced a pullback. It opens a <em>pending decision test</em>.</p>
+  Path B: ltf_counter_sb_seen == true      ← counter SB (quiet bounce, pullback_confirmed)
+          and LTF structure phase == "pullback_confirmed"
+          → phase_d.choch_2.trigger_type = "sb"
+
+C promotion:
+  ltf_counter_orderflow_mss_watch == true
+  ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id
+  → C.pullback</div>
 <p><strong>Exits:</strong></p>
 <ul>
-  <li><strong>C.htf_reaction_pullback</strong> — independent reaction evidence confirms (LTF P/D flips, counter SD forms, FVG follow-through)</li>
-  <li><strong>E.seeking</strong> (dashed) — test fails, trend continuation resumes</li>
+  <li><strong>C.pullback</strong> — fresh MSS confirms the counter pullback leg</li>
+  <li><strong>E.seeking</strong> (dashed) — HTF continuation resumes / invalidates the reaction</li>
 </ul>
-<div class="rule-block">Do not promote to C from the grab footprint alone. Wait for independent reaction evidence first.</div>`,
-    },
-
-    D_eq: {
-      num:   "d3",
-      tag:   "Phase D",
-      title: "D.htf_eq_grab_reclaim",
-      meta:  "HTF EQH/EQL pool grabbed, rejected, and reclaimed",
-      body:  `<p><strong>D.htf_eq_grab_reclaim_test</strong> applies the same grab/reclaim lifecycle to an HTF Equal Highs or Equal Lows (EQH/EQL) liquidity pool instead of a P/D boundary.</p>
-<div class="code-block">EQ pool definition (Layer 3 Liquidity):
-  abs(pivot_a - pivot_b) &lt; HTF_ATR(14) * eq_threshold
-  eq_threshold = 0.1  (configurable in config.yaml)
-
-Lifecycle: same as D.htf_pd_grab_reclaim
-  1. Grab beyond EQ band
-  2. Rejection footprint
-  3. Reclaim through EQ level/band on LTF
-
-Trigger:
-  previous/current E.seeking | E.stalling
-  AND htf_eq_grab_reclaim_ready == true
-  AND grab_direction counter to HTF trend</div>
-<p><strong>Exits:</strong></p>
-<ul>
-  <li><strong>C.htf_reaction_pullback</strong> — independent confirmation after grab/reclaim</li>
-  <li><strong>E.seeking</strong> (dashed) — test fails</li>
-</ul>
-<div class="rule-block">Same ownership as D.htf_pd_grab_reclaim — footprint is the evidence, pending outcome is the D node, confirmed reaction is C.</div>`,
-    },
-
-    D_zone: {
-      num:   "d4",
-      tag:   "Phase D",
-      title: "D.htf_zone_reclaim",
-      meta:  "Reclaim test after a B or C thesis has already weakened",
-      body:  `<p><strong>D.htf_zone_reclaim_test</strong> is fundamentally different from the first-contact D nodes. It appears after the market has already made a B or C attempt that is now weakening. The path already carries directional pressure.</p>
-<div class="code-block">Entry paths:
-  B.shallow_reclaim.weakened -> D.htf_zone_reclaim_test
-  C.* -> D.htf_zone_reclaim_test
-
-Condition:
-  HTF opposing SD zone is present
-  Price enters / taps / mitigates it
-  LTF may provide timing but is not sufficient alone
-
-Stacked zone path:
-  D.htf_zone_reclaim_test -> D.htf_zone_reclaim_test
-  (each stacked zone gets its own test)
-  -> E.seeking if all tests fail and price accepts through</div>
-<p><strong>Exits:</strong></p>
-<ul>
-  <li><strong>C.htf_reaction_pullback</strong> — HTF pullback thesis becomes real</li>
-  <li><strong>E.seeking</strong> (dashed) — all reclaim tests fail; trend continuation</li>
-</ul>
-<div class="rule-block">Do not create D.ltf_reclaim_test. LTF SD touch after shallow B is evidence stored in debug facts — it does not promote the thesis to D. D is HTF-scoped only.</div>`,
+<div class="rule-block">The same MSS leg that opened E.pullback_developing is consumed and cannot also promote D.speculation to C.</div>`,
     },
 
     C_bounce: {
       num:   "c1",
       tag:   "Phase C",
-      title: "C.htf_reaction_pullback",
-      meta:  "LTF flipped counter after a direct HTF zone reaction",
-      body:  `<p><strong>C.htf_reaction_pullback</strong> is the regular C node that follows strict D or liquidity-grab D. Price tested the HTF reaction point, bounced, and LTF P/D flipped counter to the prior E direction. This is neither C.slow_pullback nor C.hard_pullback — it comes from a direct HTF zone reaction.</p>
+      title: "C.pullback",
+      meta:  "Fresh MSS confirms the counter pullback after D.speculation",
+      body:  `<p><strong>C.pullback</strong> is the regular C node after Phase D. D.watch and D.speculation named the reaction; a fresh LTF orderflow MSS leg confirms that the counter pullback is now active.</p>
 <div class="code-block">Entry paths:
-  D.reaction_point         -> C.htf_reaction_pullback
-  D.htf_pd_grab_reclaim    -> C.htf_reaction_pullback
-  D.htf_eq_grab_reclaim    -> C.htf_reaction_pullback
-  D.htf_zone_reclaim       -> C.htf_reaction_pullback
+  D.speculation
+  ltf_counter_orderflow_mss_watch == true
+  ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id
 
 Promotion evidence (at least one required):
-  LTF P/D flips counter
-  Counter SD zone forms / mitigates
-  FVG / rejection follow-through confirms
-  HTF later confirms reaction</div>
+  fresh orderflow MSS leg after D.watch pro-attempt</div>
 <p><strong>Exits:</strong></p>
 <ul>
   <li><strong>B.strict_reclaim</strong> — HTF pd_value_pct &lt; 50 with fresh reclaim POI</li>
@@ -932,13 +884,11 @@ Step 3 — decision_zone_ids
 <ul>
   <li>LTF counter mitigation/rejection appears → contested</li>
   <li>Price returns to same decision area → weakened</li>
-  <li>HTF opposing SD appears/taps → D.htf_zone_reclaim_test</li>
+  <li>Future D/C recovery handling is deferred while B/C/A gates are paused</li>
 </ul>
 <p><strong>Exits:</strong></p>
 <ul>
   <li><strong>A.continuation</strong> — if LTF aligned and expanding</li>
-  <li><strong>D.htf_zone_reclaim</strong> — when HTF opposing SD zone appears or taps</li>
-  <li><strong>D.htf_pd_grab_reclaim / D.htf_eq_grab_reclaim</strong> — without a clean HTF zone</li>
   <li><strong>E.seeking</strong> (dashed) — if HTF genuinely expands the leg</li>
 </ul>
 <div class="rule-block">B.shallow does not unlock another A budget. It reclaimed from a weak-value location. Treat genuine HTF expansion as E.seeking, not as a second B→A cycle.</div>`,
@@ -1012,8 +962,7 @@ Failed by:
 <p><strong>Rules after thesis.over:</strong></p>
 <ul>
   <li>Do not replenish A/B budget inside the same thesis</li>
-  <li>Do not create D.htf_pd_grab_reclaim_test from A</li>
-  <li>Do not create D.htf_eq_grab_reclaim_test from A</li>
+  <li>Do not create archived Phase D liquidity-test nodes from A</li>
   <li>Wait for fresh E.seeking or a new structural epoch</li>
 </ul>
 <div class="rule-block">thesis.over → E.seeking on the next bar. The cycle restarts. sideway / range should never be a hypothesis node — use thesis.over instead.</div>`,
@@ -1160,42 +1109,32 @@ epoch_reset
   // without dashed). Dashed / fallback edge = { id, dashed: true, note: '...' }.
   const ROUTES = {
     E_seek: {
-      out: ['E_stall', 'D_pd', 'D_eq', 'C_hard'],
+      out: ['E_stall', 'C_hard'],
       in:  [{ id:'OVER',      note:'cycle'   },
-            { id:'D_react',   dashed:true, note:'failure' },
-            { id:'D_pd',      dashed:true, note:'failure' },
-            { id:'D_eq',      dashed:true, note:'failure' },
-            { id:'D_zone',    dashed:true, note:'failure' },
+            { id:'D_watch',   dashed:true, note:'failure' },
+            { id:'D_spec',    dashed:true, note:'failure' },
             { id:'B_shallow', dashed:true, note:'failure' }],
     },
     E_stall: {
-      out: ['E_pull', 'D_react', 'D_pd', 'D_eq', 'C_hard'],
+      out: ['E_pull', 'C_hard'],
       in:  ['E_seek'],
     },
     E_pull: {
-      out: ['D_react', 'C_hard', 'C_slow',
+      out: ['D_watch', 'C_hard', 'C_slow',
             { id:'E_seek', dashed:true, note:'new HTF extreme' }],
       in:  ['E_stall'],
     },
-    D_react: {
-      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
-      in:  ['E_stall', 'E_pull'],
+    D_watch: {
+      out: ['D_spec', { id:'E_seek', dashed:true, note:'failure' }],
+      in:  ['E_pull'],
     },
-    D_pd: {
+    D_spec: {
       out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
-      in:  ['E_seek', 'E_stall'],
-    },
-    D_eq: {
-      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
-      in:  ['E_seek', 'E_stall'],
-    },
-    D_zone: {
-      out: ['C_bounce', { id:'E_seek', dashed:true, note:'failure' }],
-      in:  ['B_shallow'],
+      in:  ['D_watch'],
     },
     C_bounce: {
       out: ['B_init', 'B_strict', 'B_shallow'],
-      in:  ['D_react', 'D_pd', 'D_eq', 'D_zone'],
+      in:  ['D_spec'],
     },
     C_hard: {
       out: ['B_init', 'B_strict', 'B_shallow'],
@@ -1224,7 +1163,7 @@ epoch_reset
       in:  ['C_bounce', 'C_hard', 'C_slow', 'B_init'],
     },
     B_shallow: {
-      out: ['D_zone', 'A_cont', { id:'E_seek', dashed:true, note:'failure' }],
+      out: ['A_cont', { id:'E_seek', dashed:true, note:'failure' }],
       in:  ['C_bounce', 'C_hard', 'C_slow', 'B_init'],
     },
     A_cont: {

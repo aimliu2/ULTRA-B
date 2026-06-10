@@ -386,8 +386,10 @@
     <a href="#reaction">Two-Bar Reaction Signal</a>
     <a href="#shadow">Shadow Node Machine</a>
     <a href="#shadow" class="l2">E.seeking</a>
+    <a href="#shadow" class="l2">E.HTF_reaction</a>
     <a href="#shadow" class="l2">E.stalling</a>
     <a href="#shadow" class="l2">E.pullback_developing</a>
+    <a href="#shadow" class="l2">Journal / footprint</a>
     <a href="#exits">Exits from Phase E</a>
     <a href="#exits" class="l2">→ Phase D</a>
     <a href="#exits" class="l2">→ Phase C (slow pullback)</a>
@@ -410,7 +412,7 @@
         <b>TL;DR</b> — Phase E is the classifier's waiting state while the HTF P/D leg is actively
         expanding. The classifier tracks a running extreme, watches for the two-bar reaction signal
         that opens Phase D, and runs an internal shadow node machine
-        (<code>E.seeking → E.stalling → E.pullback_developing</code>) to detect slow pullbacks
+        (<code>E.seeking → E.HTF_reaction | E.stalling → E.pullback_developing</code>) to detect slow pullbacks
         without waiting for a full Phase D confirmation. It emits a <code>watching / skip</code>
         hypothesis — no entry, just monitoring.
       </div>
@@ -436,7 +438,7 @@
     <ul class="plain">
       <li>A <strong>tracking state</strong> — consumes EC's running high (long) or running low (short) watermark for the current HTF P/D leg.</li>
       <li>A <strong>signal consumer</strong> — reads EC two-bar reaction and reaction-failed facts used by <code>_phase_d_setup()</code> and the D/C collapse paths.</li>
-      <li>A <strong>shadow state machine</strong> — internally advances <code>E.seeking → E.stalling → E.pullback_developing</code> to detect slow counter-moves before they fully appear on the HTF.</li>
+      <li>A <strong>shadow state machine</strong> — internally advances <code>E.seeking → E.HTF_reaction | E.stalling → E.pullback_developing</code> to detect slow counter-moves before they fully appear on the HTF. A <strong>journal footprint</strong> (<code>htf_reaction_seen</code>) records whether an opposing HTF zone was tested during the expansion.</li>
     </ul>
 
     <h3>What it is not</h3>
@@ -594,10 +596,30 @@ direction == "short":
 
     <div class="state-row">
       <div class="state-node active">E.seeking</div>
-      <div class="state-arrow"><span>→</span><small>stopped expanding</small></div>
+      <div class="state-arrow"><span>→</span><small>expanding + at opposing zone</small></div>
+      <div class="state-node">E.HTF_reaction</div>
+    </div>
+    <div class="state-row" style="margin-top:4px;">
+      <div class="state-node active">E.seeking</div>
+      <div class="state-arrow"><span>→</span><small>stopped expanding (no zone)</small></div>
       <div class="state-node">E.stalling</div>
-      <div class="state-arrow"><span>→</span><small>LTF counter MSS confirmed</small></div>
+      <div class="state-arrow"><span>→</span><small>LTF counter MSS</small></div>
       <div class="state-node">E.pullback_developing</div>
+    </div>
+    <div class="state-row" style="margin-top:4px;">
+      <div class="state-node">E.HTF_reaction</div>
+      <div class="state-arrow"><span>→</span><small>left zone, no MSS</small></div>
+      <div class="state-node">E.stalling</div>
+    </div>
+    <div class="state-row" style="margin-top:4px;">
+      <div class="state-node">E.HTF_reaction</div>
+      <div class="state-arrow"><span>→</span><small>MSS while in zone</small></div>
+      <div class="state-node">E.pullback_developing</div>
+    </div>
+    <div class="state-row" style="margin-top:4px;">
+      <div class="state-node">E.HTF_reaction</div>
+      <div class="state-arrow"><span>⤎</span><small>new extreme (zone ran)</small></div>
+      <div class="state-node active">E.seeking</div>
     </div>
     <div class="state-row" style="margin-top:4px;">
       <div class="state-node">any node</div>
@@ -612,6 +634,49 @@ direction == "short":
       extreme arrives — the pullback attempt was absorbed.
       Also the initial node when Phase E is entered fresh (previous phase was not E, or direction changed).
     </p>
+
+    <h3>E.HTF_reaction</h3>
+    <p>
+      Fires from <code>E.seeking</code> when expansion is still active (<code>new_htf_extreme = true</code>)
+      and the LTF price enters an opposing HTF S/D zone (<code>ltf_probe_at_htf_opposing_zone</code>).
+      This is a watchful pause: price is testing resistance (bullish) or support (bearish) during
+      the expansion leg, before any stall or MSS is confirmed.
+    </p>
+    <details open>
+      <summary>E.HTF_reaction flow — zone contact during expansion <span class="where">EC → DAG → shadow</span></summary>
+      <div class="body">
+        <p>
+          Discretionary read: the HTF expansion is still making new highs but price has entered
+          a supply zone. The expansion may run through it (continuation) or react from it (pullback).
+          The shadow waits to see which.
+        </p>
+        <pre class="block">EC facts (new in phase_e_context candidate):
+  new_htf_extreme == true                       <span class="hl">← expansion still active (entry gate)</span>
+  ltf_probe_at_htf_opposing_zone == true        <span class="hl">← price inside HTF opposing zone (in_zone)</span>
+  ltf_probe_htf_opposing_zone_id = zone_id
+
+DAG gate (from E.seeking only):
+  previous_node == "E.seeking"
+  pd_expanding == true
+  ltf_probe_at_htf_opposing_zone == true
+  => selected_node = "E.HTF_reaction"
+  => journal: htf_reaction_seen = True (sticky)
+              htf_reaction_zone_id = zone_id
+              htf_reaction_exit_reason = None (fresh)
+
+Hold condition:
+  still inside zone, no new extreme, no MSS
+
+Exits:
+  new_extreme → E.seeking         (zone ran; exit_reason = "ran_zone")
+  mss_watch   → E.pullback_developing  (exit_reason = "mss_fired")
+  left zone   → E.stalling        (exit_reason = "stalled")</pre>
+        <p>
+          There is no path from <code>E.stalling → E.HTF_reaction</code>. If the expansion
+          paused without a zone contact, the zone-test window is closed for that leg.
+        </p>
+      </div>
+    </details>
 
     <h3>E.stalling</h3>
     <p>
@@ -730,6 +795,31 @@ Exits from E.pullback_developing:
       This is the "slow pullback from E" path.
     </p>
 
+    <h3 id="journal">Journal / footprint</h3>
+    <p>
+      The <code>PhaseEShadow</code> ledger survives for one HTF structural epoch — it is created
+      when the epoch ID changes in <code>classify()</code> and cleared by
+      <code>_reset_phase_e_shadow()</code> on the next epoch boundary. Within that window it acts
+      as a hiker's journal: current position (<code>node</code>), last step (<code>previous_node</code>),
+      and a set of sticky waypoint flags.
+    </p>
+    <p>
+      <code>htf_reaction_seen</code> is set <code>True</code> the first time the shadow enters
+      <code>E.HTF_reaction</code> and never cleared mid-epoch — not even when a new extreme resets
+      the node back to <code>E.seeking</code>. Re-entry on HTF stacking (zone ran → new extreme →
+      another zone entered) updates <code>htf_reaction_zone_id</code> to the current zone and
+      resets <code>htf_reaction_exit_reason</code> for the new visit, while <code>htf_reaction_seen</code>
+      remains <code>True</code>.
+    </p>
+    <div class="rule-block">
+      Journal fields on <code>PhaseEShadow</code>: <code>htf_reaction_seen</code>,
+      <code>htf_reaction_zone_id</code>, <code>htf_reaction_entered_at</code>,
+      <code>htf_reaction_exit_reason</code> (<code>"ran_zone" | "stalled" | "mss_fired"</code>).
+      All cleared only on epoch reset via <code>reset()</code>.
+      Downstream (D/C evaluation) reads <code>phase_e_shadow_htf_reaction_seen</code> to signal
+      "this expansion episode tested an opposing HTF zone — deeper pullback is probable."
+    </div>
+
     <div class="rule-block">
       The shadow node is reset to <code>E.seeking</code> on every epoch boundary
       (via <code>_reset_phase_e_shadow()</code>).
@@ -763,8 +853,8 @@ Exits from E.pullback_developing:
         </ol>
         <p>
           When all three hold, the classifier emits Phase D with a sub_status derived from the
-          trigger type (<code>reaction_point</code>, <code>htf_pd_grab_reclaim_test</code>,
-          <code>htf_eq_grab_reclaim_test</code>).
+          trigger type (<code>HTF_reaction_point</code>, <code>LTF_reaction_point</code>,
+          <code>htf_pd_grab_reclaim_test</code>, <code>htf_eq_grab_reclaim_test</code>).
         </p>
       </div>
     </details>
@@ -899,33 +989,64 @@ if phase in {"open", "pullback_confirmed"} and direction != "none":
         return self._commit(hyp)</pre>
 <pre><span class="cm"># Shadow node state machine — runs inside every Phase E bar</span>
 <span class="hl">def</span> _phase_e_shadow_facts(self, ltf, direction, debug):
-    previous_node = self.state.phase_e_shadow_node
+    s = self.state.shadow_thesis.phase_e
+    previous_node = s.node
     pd_expanding  = bool(debug.get(<span class="hl">"phase_e_context_new_htf_extreme"</span>))
 
-    <span class="cm"># Phase E waits for EC's LTF counter MSS flag.
-    # Standalone structural ltf_counter_choch remains available for D/liquidity chronology.</span>
     ltf_counter_orderflow_mss_watch = bool(
         debug.get(<span class="hl">"phase_e_context_ltf_counter_orderflow_mss_watch"</span>)
+    )
+    ltf_probe_at_htf_opposing_zone = bool(
+        debug.get(<span class="hl">"phase_e_context_ltf_probe_at_htf_opposing_zone"</span>)
     )
 
     <span class="cm"># Transition table</span>
     if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
-        selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># fresh entry</span>
+        selected_node = <span class="hl">"E.seeking"</span>                     <span class="cm"># fresh entry</span>
     elif pd_expanding:
-        selected_node = <span class="hl">"E.seeking"</span>          <span class="cm"># new extreme → reset</span>
+        if previous_node == "E.HTF_reaction":
+            s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or <span class="hl">"ran_zone"</span>
+        selected_node = <span class="hl">"E.seeking"</span>                     <span class="cm"># new extreme → reset node</span>
     elif previous_node == "E.seeking":
-        selected_node = <span class="hl">"E.stalling"</span>         <span class="cm"># no new extreme</span>
+        if ltf_probe_at_htf_opposing_zone:
+            selected_node = <span class="hl">"E.HTF_reaction"</span>             <span class="cm"># expanding + inside opposing zone</span>
+        else:
+            selected_node = <span class="hl">"E.stalling"</span>                 <span class="cm"># stopped, no zone contact</span>
+    elif previous_node == "E.HTF_reaction":
+        if ltf_counter_orderflow_mss_watch:
+            selected_node = <span class="hl">"E.pullback_developing"</span>      <span class="cm"># MSS while at zone</span>
+            s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or <span class="hl">"mss_fired"</span>
+        elif ltf_probe_at_htf_opposing_zone:
+            selected_node = "E.HTF_reaction"               <span class="cm"># hold; still inside zone</span>
+        else:
+            selected_node = <span class="hl">"E.stalling"</span>                 <span class="cm"># left zone without MSS</span>
+            s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or <span class="hl">"stalled"</span>
     elif previous_node == "E.stalling":
         if ltf_counter_orderflow_mss_watch:
-            selected_node = <span class="hl">"E.pullback_developing"</span>  <span class="cm"># counter orderflow MSS watch opened</span>
+            selected_node = <span class="hl">"E.pullback_developing"</span>
         else:
             selected_node = "E.stalling"
     elif previous_node == "E.pullback_developing":
-        selected_node = "E.pullback_developing"   <span class="cm"># hold; D gate fires independently</span>
+        selected_node = "E.pullback_developing"            <span class="cm"># hold; D gate fires independently</span>
 
-    self.state.phase_e_shadow_node = selected_node
-    phase_sub_status = selected_node.split(".", 1)[1] if "." in selected_node else None
-    return {"phase_sub_status": phase_sub_status, "phase_e_shadow_node": selected_node, ...}</pre>
+    <span class="cm"># Journal write — on every entry (first or re-entry) into E.HTF_reaction</span>
+    if selected_node == "E.HTF_reaction" and previous_node != "E.HTF_reaction":
+        s.htf_reaction_seen = True                         <span class="cm"># sticky for epoch</span>
+        s.htf_reaction_zone_id = debug.get(<span class="hl">"phase_e_context_ltf_probe_htf_opposing_zone_id"</span>)
+        s.htf_reaction_entered_at = debug.get("current_htf_bar_time")
+        s.htf_reaction_exit_reason = None                  <span class="cm"># fresh for this visit</span>
+
+    s.node = selected_node
+    ...
+    return {
+        "phase_sub_status": ...,
+        "phase_e_shadow_node": selected_node,
+        <span class="hl">"phase_e_shadow_htf_reaction_seen"</span>: s.htf_reaction_seen,
+        <span class="hl">"phase_e_shadow_htf_reaction_zone_id"</span>: s.htf_reaction_zone_id,
+        <span class="hl">"phase_e_shadow_htf_reaction_entered_at"</span>: s.htf_reaction_entered_at,
+        <span class="hl">"phase_e_shadow_htf_reaction_exit_reason"</span>: s.htf_reaction_exit_reason,
+        ...
+    }</pre>
 <pre><span class="cm"># _phase_e_reaction() now copies EC phase_e_context facts into Layer 4 debug.</span>
 phase_e, facts = _ec_candidate(snapshot, <span class="hl">"phase_e_context"</span>)
 if phase_e.get("status") == "ready":
@@ -937,7 +1058,20 @@ if phase_e.get("status") == "ready":
         "reaction_failed": bool(facts.get("reaction_failed")),
         "reaction_failed_rule": facts.get("reaction_failed_rule"),
         "new_htf_extreme": bool(facts.get("new_htf_extreme")),
+        <span class="cm"># New — E.HTF_reaction zone probe facts</span>
+        <span class="hl">"phase_e_context_ltf_probe_at_htf_opposing_zone"</span>: bool(
+            facts.get("ltf_probe_at_htf_opposing_zone")
+        ),
+        <span class="hl">"phase_e_context_ltf_probe_htf_opposing_zone_id"</span>: facts.get(
+            "ltf_probe_htf_opposing_zone_id"
+        ),
     })
+
+<span class="cm"># EC source for new facts (evidence_compiler._compile_htf_expansion_context):
+# Scans HTF zones for opposing direction on htf_label; uses zone.in_zone (same
+# mechanism as htf_opposing_sd_tapped in _compile_htf_counter_reaction).
+# Guard: ltf_probe_at_htf_opposing_zone is only true when new_htf_extreme is true
+# — the E.HTF_reaction node is only reachable during active expansion.</span>
 
 <span class="cm"># B branches consume EC new_htf_extreme directly.</span>
 if debug.get("new_htf_extreme"):
@@ -971,6 +1105,20 @@ hypothesis:
     <h2 id="issues"><span class="sec-num">07</span> Open Issues · Edge Cases · Next Milestone</h2>
 
     <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">In-Flight</div>
+        <p><b>E.HTF_reaction node — implementation pending.</b>
+        Design is settled. Three changes required:
+        (1) <code>evidence_compiler._compile_htf_expansion_context</code>: add
+        <code>ltf_probe_at_htf_opposing_zone</code> and <code>ltf_probe_htf_opposing_zone_id</code>
+        by scanning HTF opposing zones for <code>in_zone == true</code> when <code>new_htf_extreme</code>;
+        (2) <code>PhaseEShadow</code>: add journal fields (<code>htf_reaction_seen</code>,
+        <code>htf_reaction_zone_id</code>, <code>htf_reaction_entered_at</code>,
+        <code>htf_reaction_exit_reason</code>) + clear in <code>reset()</code>;
+        (3) <code>_phase_e_shadow_facts()</code>: insert E.HTF_reaction transitions and journal
+        write logic. Seven new tests to cover all node transitions and journal footprint
+        persistence.</p>
+      </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>No previous HTF bar on first tick.</b>

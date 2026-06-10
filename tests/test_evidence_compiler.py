@@ -27,6 +27,7 @@ def _fused(
     ltf_phase: str | None = None,
     ltf_last_sc_dir: str | None = None,
     ltf_last_sc: dict | None = None,
+    ltf_last_isc: dict | None = None,
     ltf_orderflow: dict | None = None,
     htf_zones: list[dict] | None = None,
     ltf_zones: list[dict] | None = None,
@@ -69,6 +70,7 @@ def _fused(
                         ltf_last_sc
                         or ({"breakDirection": ltf_last_sc_dir} if ltf_last_sc_dir else None)
                     ),
+                    "last_isc": ltf_last_isc,
                 }
                 if ltf_bias
                 else None
@@ -277,6 +279,9 @@ class TestPhaseEContext:
                     "probe_breaks_protected_anchor": True,
                     "mss_trigger_source": "probe_vs_protected_anchor",
                     "range_ref": "OF:mss-watch:1",
+                    "protected_anchor_ref": "OFANCH:L3",
+                    "disruption_point_ref": "OFPROBE:low",
+                    "source_store": "orderflow_anchor_sequence",
                     "last_shift_at": "2025-01-01T11:00:00",
                 },
             ),
@@ -289,6 +294,9 @@ class TestPhaseEContext:
         assert e_ctx.debug_facts["ltf_counter_orderflow_clean"] is False
         assert e_ctx.debug_facts["ltf_counter_orderflow_direction"] == "bullish"
         assert e_ctx.debug_facts["ltf_counter_orderflow_mss_trigger_source"] == "probe_vs_protected_anchor"
+        assert e_ctx.debug_facts["ltf_counter_orderflow_anchor_id"] == "OFANCH:L3"
+        assert e_ctx.debug_facts["ltf_counter_orderflow_disruption_id"] == "OFPROBE:low"
+        assert e_ctx.debug_facts["ltf_counter_orderflow_source_store"] == "orderflow_anchor_sequence"
 
     def test_phase_e_equal_high_enriches_stalling_not_new_extreme(self):
         ec = EvidenceCompiler()
@@ -451,16 +459,20 @@ class TestHtfCounterReaction:
         assert event["status"] == "ready"
         assert event["ltf_counter_choch_after_reclaim"] is True
 
-    def test_ltf_counter_choch_stream_reads_target_structure_choch_alias(self):
+    def test_ltf_counter_choch_stream_reads_target_structure_ichoch(self):
+        # iChoCh (SC06) in last_isc is the new primary trigger — status ready
         ec = EvidenceCompiler()
         candidates = ec.update(
             _fused(
                 ltf_bias="bearish",
-                ltf_last_sc={
-                    "structure_choch": True,
-                    "eventAction": "structure_choch",
+                ltf_last_isc={
+                    "structure_ichoch": True,
+                    "eventAction": "structure_ichoch",
+                    "eventCode": "SC06",
                     "breakDirection": "down",
                     "eventTimestamp": "2025-01-01T11:00:00",
+                    "levelTimestamp": "2025-01-01T10:30:00",
+                    "levelSide": "low",
                     "levelPrice": 50750.0,
                 },
             ),
@@ -472,6 +484,78 @@ class TestHtfCounterReaction:
         assert choch.status == "ready"
         assert choch.debug_facts["ltf_counter_choch_seen"] is True
         assert choch.debug_facts["ltf_counter_structure_choch_seen"] is True
+        assert choch.debug_facts["ltf_counter_choch_event_id"] == (
+            "SC06:2025-01-01T11:00:00:down:50750.0"
+        )
+        assert choch.debug_facts["ltf_counter_choch_source_level_id"] == (
+            "structure_level:low:2025-01-01T10:30:00:50750.0"
+        )
+        assert choch.debug_facts["ltf_counter_choch_source_store"] == "structure_isc"
+        assert not any(key.startswith("phase_d_") for key in choch.debug_facts)
+
+    def test_ltf_counter_ichoch_fires_before_macro_choch(self):
+        # iChoCh in last_isc triggers ready even when last_sc is absent
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                ltf_bias="bearish",
+                ltf_last_isc={
+                    "structure_ichoch": True,
+                    "eventAction": "structure_ichoch",
+                    "eventCode": "SC06",
+                    "breakDirection": "down",
+                    "eventTimestamp": "2025-01-01T10:30:00",
+                    "levelTimestamp": "2025-01-01T10:00:00",
+                    "levelSide": "low",
+                    "levelPrice": 50600.0,
+                },
+                ltf_last_sc=None,
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.status == "ready"
+        assert choch.debug_facts["ltf_counter_choch_seen"] is True
+        assert choch.debug_facts["ltf_counter_choch_source_store"] == "structure_isc"
+        assert choch.debug_facts["ltf_counter_sb_seen"] is False
+
+    def test_ltf_counter_choch_stream_reads_counter_structure_sb(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                ltf_bias="bearish",
+                ltf_last_sc={
+                    "structure_sb": True,
+                    "eventAction": "structure_sb",
+                    "eventCode": "SC02",
+                    "breakDirection": "down",
+                    "eventTimestamp": "2025-01-01T11:00:00",
+                    "levelTimestamp": "2025-01-01T10:45:00",
+                    "levelSide": "low",
+                    "levelPrice": 50725.0,
+                    "choch": False,
+                },
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.status == "collecting"
+        assert choch.debug_facts["ltf_counter_choch_seen"] is False
+        assert choch.debug_facts["ltf_counter_structure_choch_seen"] is False
+        assert choch.debug_facts["ltf_counter_sb_seen"] is True
+        assert choch.debug_facts["ltf_counter_sb_level"] == 50725.0
+        assert choch.debug_facts["ltf_counter_sb_event_id"] == (
+            "SC02:2025-01-01T11:00:00:down:50725.0"
+        )
+        assert choch.debug_facts["ltf_counter_sb_source_level_id"] == (
+            "structure_level:low:2025-01-01T10:45:00:50725.0"
+        )
+        assert choch.debug_facts["ltf_counter_sb_source_store"] == "structure_sequence"
+        assert not any(key.startswith("phase_d_") for key in choch.debug_facts)
 
     def test_pd_and_eq_candidates_are_preserved_without_layer4_selection(self):
         ec = EvidenceCompiler()

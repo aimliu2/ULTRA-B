@@ -357,10 +357,12 @@
     <a href="#lifecycle">Lifecycle</a>
     <a href="#registry">Registry vs Range</a>
     <a href="#sb">SB / ChoCh Detection</a>
+    <a href="#internal-sc" class="l2">Internal iSb / iChoCh (SC05–08)</a>
     <a href="#pullback">Pullback Confirmation</a>
     <a href="#snapshot">Snapshot Contract</a>
     <a href="#algo">Algorithm</a>
     <a href="#config">Config</a>
+    <a href="#ui">Replayer UI</a>
     <a href="#issues">Open Issues</a>
     <div class="files">
       <div class="label">Sources</div>
@@ -376,7 +378,7 @@
       <div class="eyebrow">Layer 3 · Context · Structure</div>
       <h1>Structure Context - SB, ChoCh, P/D Range, Pullback Memory</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> - Structure Context is a Layer 3 lifecycle normalizer over STR / ITR / LTR anchors. Its pro-direction close-through event is named <code>SB</code> / <code>structure_sb</code> (Structure Broken); its counter-direction close-through event remains <code>ChoCh</code>. Runtime event names use <code>itrSbUp</code>, <code>itrSbDown</code>, <code>ltrSbUp</code>, and <code>ltrSbDown</code>; old <code>*Bos*</code> names remain only in <code>runtimeAlias</code>. Structure creates anchor points for State Store history; Orderflow consumes those anchors later but names its own actions <code>BoS</code> and <code>MSS</code>.
+        <b>TL;DR</b> - Structure Context is a Layer 3 lifecycle normalizer over STR / ITR / LTR anchors. Its pro-direction close-through event is named <code>SB</code> / <code>structure_sb</code> (Structure Broken); its counter-direction close-through event is <code>ChoCh</code> / <code>structure_choch</code>. Runtime event names are <code>itrSbUp</code>, <code>itrSbDown</code>, <code>ltrSbUp</code>, and <code>ltrSbDown</code>; <code>runtimeAlias</code> echoes the same canonical name. Structure creates anchor points for State Store history; Orderflow consumes those anchors later under its own distinct <code>orderflow_anchor_sequence</code> lineage. <b>SC05–SC08</b> are a finer internal layer — <code>iSb</code> and <code>iChoCh</code> events that fire against confirmed ITR/LTR pivot levels rather than the wick-defined range boundaries, adding pivot-level resolution inside the current structural bias.
       </div>
       <p class="backlink"><a href="./301-context.html">Back to 301 Layer 3 Context</a></p>
     </header>
@@ -508,12 +510,12 @@ structure.tier = "ltr"
 
     <h3>Warmup detection</h3>
     <pre class="block">structure.tier = itr:
-  SC01 itrSbUp     if close > registry_high.price  (runtime alias: itrBosUp)
-  SC02 itrSbDown   if close < registry_low.price   (runtime alias: itrBosDown)
+  SC01 itrSbUp     if close > registry_high.price
+  SC02 itrSbDown   if close < registry_low.price
 
 structure.tier = ltr:
-  SC03 ltrSbUp     if close > registry_high.price  (runtime alias: ltrBosUp)
-  SC04 ltrSbDown   if close < registry_low.price   (runtime alias: ltrBosDown)</pre>
+  SC03 ltrSbUp     if close > registry_high.price
+  SC04 ltrSbDown   if close < registry_low.price</pre>
 
     <h3>Post-warmup detection</h3>
     <pre class="block">bullish context:
@@ -534,6 +536,50 @@ bearish context:
     <div class="rule-block">
       Wicks do not fire SC. Time does not decay range boundaries. Only SC01 / SC02 / SC03 / SC04 starts a new leg.
     </div>
+
+    <div class="callout">
+      <span class="ico">i</span>
+      <div><b>Terminology note — SB/ChoCh vs BoS/MSS.</b> Post-warmup SC01–SC04 are conceptually equivalent to what classic SMC literature calls <em>Break of Structure</em> (BoS) and <em>Market Structure Shift</em> (MSS). SB is a pro-bias continuation close-through (= BoS); ChoCh with <code>biasFlip=true</code> is a counter-bias reversal close-through (= MSS). The rename is intentional — "BoS" and "MSS" leaked into Orderflow naming and created ambiguity. Structure now owns only its own confirmed close-through events under canonical names; Orderflow owns its own MSS disruption lineage separately.</div>
+    </div>
+
+    <h3 id="internal-sc">Internal iSb / iChoCh — SC05–SC08</h3>
+    <p>SC01–SC04 fire against the wick-defined range boundary. SC05–SC08 fire against individual confirmed ITR/LTR pivot prices (PE03/PE04 for ITR, PE05/PE06 for LTR). They add a finer layer of micro-swing observation <em>inside</em> the current structural bias without replacing or duplicating the macro range events.</p>
+    <pre class="block">ITR tier (structure.tier = "itr"):
+  SC05  itrISb     close > confirmed ITR high (HH progression, pro-bias)
+  SC06  itrIChoCh  close < confirmed ITR low  (breaks HL, counter-bias)
+
+LTR tier (structure.tier = "ltr"):
+  SC07  ltrISb     close < confirmed LTR low  (LL progression, pro-bias bearish)
+                   close > confirmed LTR high (HH progression, pro-bias bullish)
+  SC08  ltrIChoCh  counter-bias close through LTR pivot</pre>
+    <p>Key differences from SC01–SC04:</p>
+    <pre class="block">SC01–SC04  fires against wick range_high / range_low
+           owns bias and phase transitions
+           only fires in pullback_confirmed (continuation) or anytime (ChoCh)
+
+SC05–SC08  fires against PE03/PE04 pivot price (confirmed level)
+           pure observation — does NOT change bias, phase, range_high, range_low
+           fires post-warmup only
+           iSb requires HH/LL progression (no re-firing on same level; not a LH/HL)
+           co-emit allowed — same bar can return both a SC01–SC04 and a SC05–SC08</pre>
+    <div class="callout">
+      <span class="ico">i</span>
+      <div><b>Why SC05–SC08 exist.</b> SC01–SC04 already act as the structural BoS/MSS equivalent at the range boundary. But within a bullish leg there can be multiple ITR highs and lows that price reacts to before the range is broken. SC05–SC08 capture those pivot-level reactions — HH progression that confirms the leg is still running (<code>iSb</code>) or a HL break that suggests weakening momentum (<code>iChoCh</code>) — without conflating them with the macro range event. Evidence Compiler and Layer 4 can use these for finer phase qualification.</div>
+    </div>
+    <pre class="block"><span class="cm"># SC05 payload example (pure observation — no bias flip)</span>
+{
+  "eventCode": "SC05",
+  "eventName": "itrISb",
+  "eventAction": "structure_isb",
+  "eventGroup": "SC",
+  "levelTier": "itr",
+  "levelPrice": 1.1050,
+  "levelSide": "high",
+  "breakDirection": "up",
+  "biasFlip": false,
+  "choch": false,
+  "is_internal": true
+}</pre>
 
     <h3>P/D ratchet reset and anchor recording</h3>
     <p>P/D range is dynamic current truth. It ratchets on the extension side during <code>open</code> phase, then resets only when an SC lifecycle transition fires. The anchor sequence is historical memory and should record swing points at confirmation / reset moments, not every wick ratchet.</p>
@@ -599,14 +645,15 @@ bearish:
     <details open>
       <summary>ITR confirmation <span class="where">_confirm_pullback_from_itr</span></summary>
       <div class="body">
-        <p>In bullish bias, the selected high PE event confirms pullback. In bearish bias, the selected low PE event confirms pullback. This is timing context only.</p>
+        <p>In bullish bias, the selected high PE event (PE03) confirms pullback. In bearish bias, the selected low PE event (PE04) confirms pullback. This is timing context only — the range boundaries do not move.</p>
+        <p>ITR pivot confirmation can lag 2–3 bars behind the visible price swing peak because PE events fire when the pivot is fully formed (right-hand confirmation bars). The engine confirms pullback at the PE event timestamp, not at the wick extreme bar.</p>
       </div>
     </details>
 
     <details>
       <summary>SD zone confirmation <span class="where">_confirm_pullback_from_sd</span></summary>
       <div class="body">
-        <p>A bullish pullback can be confirmed by a supply zone above the P/D midpoint. A bearish pullback can be confirmed by a demand zone below the midpoint.</p>
+        <p>A bullish pullback can be confirmed by a supply zone whose high is above the P/D midpoint. A bearish pullback can be confirmed by a demand zone whose low is below the midpoint. Confirmation fires on the bar the zone is created.</p>
       </div>
     </details>
 
@@ -614,6 +661,22 @@ bearish:
       <summary>No resolving phase <span class="where">phase model</span></summary>
       <div class="body">
         <p><code>pullback_confirmed</code> persists until the next continuation SB or ChoCh. Later same-leg ITR/SD signals are ignored.</p>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Pullback extreme tracking starts at confirmation, not at swing peak <span class="where">_track_pullback_extreme</span></summary>
+      <div class="body">
+        <p><code>_pullback_high</code> and <code>_pullback_low</code> are reset to <code>None</code> inside <code>_set_pullback_confirmed</code>. Tracking begins on the <em>confirmation bar</em> and accumulates forward from there.</p>
+        <p>Consequence: if price peaked at bar T and the ITR pivot confirms at bar T+2, the tracked pullback extreme covers bars T+2 onward — it will miss the T wick if no later bar exceeds it. When a continuation SB fires, the new range ceiling/floor is anchored to the highest/lowest bar seen <b>since confirmation</b>, not since the swing peak.</p>
+        <pre>bearish example:
+  bar T     price peaks → visible high ITR
+  bar T+2   PE04 fires  → pullback_confirmed, _pullback_high reset to None
+  bar T+3   _pullback_high = bar T+3 high   ← tracking starts here
+  bar T+5   SB fires → new range_high = _pullback_high (T+3..T+5 max)
+            if bar T had the true peak and no bar after T+2 exceeded it,
+            new range_high will be lower than the visible swing high</pre>
+        <p>This is intentional: the ratchet anchors the new ceiling to the confirmed pullback window, not to a pre-confirmation wick that may not have been validated by structure.</p>
       </div>
     </details>
 
@@ -637,6 +700,7 @@ bearish:
   confirmed_zone_id
   pullback_confirmed_ts
   last_sc
+  last_isc          <span class="cm"># last SC05–SC08 internal pivot event (or null)</span>
   recent_itr_levels
   latest_itr_high
   latest_itr_low
@@ -650,7 +714,7 @@ bearish:
   range_low_ts</pre>
 
     <h3>Structure sequence</h3>
-    <p>Structure Context creates structure-sequence records when P/D lifecycle points become semantically confirmed. The current State Store implementation is the bounded memory inside <code>StructureEngine</code>, exposed through the structure snapshot. Orderflow consumes this as <code>structure_sequence</code> plus <code>structure_probe</code>; the P/D snapshot alone is not enough to provide explicit high/low side identity or side-alternation sanity.</p>
+    <p>Structure Context creates structure-sequence records when P/D lifecycle points become semantically confirmed. The current State Store implementation is the bounded memory inside <code>StructureEngine</code>, exposed through the structure snapshot. This store is the structural SB / ChoCh lineage only. It must not be the long-term source of Orderflow MSS anchors, because a live MSS probe and the later structural ChoCh close-through can otherwise point at the same structural level and look like two independent events to Layer 4.</p>
     <pre class="block">StructureSequencePoint:
   point_id
   timeframe
@@ -667,10 +731,18 @@ State Store:
   recent_structure_sequence_points = alias for snapshot readers
   structure_probe = live +1 unconfirmed probe
 
-Orderflow read:
-  8 confirmed anchor points
-  + 1 current live probe
-  = 9-point structure orderflow input</pre>
+Target separation:
+  structure_sequence          → structure channel only (SB / ChoCh chronology)
+  orderflow_anchor_sequence   → orderflow channel only (orderflow anchor / MSS chronology)
+  orderflow_probe             → live probe against protected orderflow anchor</pre>
+
+    <div class="rule-block">
+      <b>Migration rule:</b> Orderflow may derive its initial anchor-swing store from
+      filtered structure pivots, but once emitted it needs separate IDs, provenance,
+      and lifecycle fields. Layer 4 must be able to tell whether a structural ChoCh is
+      merely the close-confirmation of the same orderflow MSS disruption that opened
+      <code>E.pullback_developing</code>.
+    </div>
 
     <h3>Anchor probe</h3>
     <pre class="block">bullish open:
@@ -698,7 +770,7 @@ bearish pullback_confirmed:
   "eventCode": "SC01",
   "eventName": "itrSbUp",
   "targetEventName": "itrSbUp",
-  "runtimeAlias": "itrBosUp",
+  "runtimeAlias": "itrSbUp",
   "eventAction": "structure_sb",
   "eventGroup": "SC",
   "eventTimestamp": "2024-08-28T00:00:00Z",
@@ -738,7 +810,8 @@ Evidence Compiler may qualify:
         <button class="on" data-t="0">on_bar()</button>
         <button data-t="1">warmup SB</button>
         <button data-t="2">range SB</button>
-        <button data-t="3">attempts</button>
+        <button data-t="3">internal SC</button>
+        <button data-t="4">attempts</button>
       </div>
 <pre class="on"><span class="cm"># structureEngine.py - StructureEngine.on_bar()</span>
 <span class="hl">def</span> on_bar(self, row, pivot_events, ce02_events, bar_result):
@@ -815,6 +888,38 @@ if bias == "bearish":
         record_anchor(high, role="range_origin")
         start_bearish(range_high=pullback_high, bar_low=bar_low)
         emit SC02 or SC04</pre>
+<pre><span class="cm"># _sb_internal() — fires against PE03/PE04 pivot price, not range boundary
+# Called BEFORE _sb_range() so it sees pre-transition structural state.
+# Returns at most one internal SC per bar. Does NOT change bias, phase, or range.</span>
+def _sb_internal(close, ts):
+    if not warmup_complete or bias == "neutral":
+        return None
+
+    if bias == "bullish":
+        <span class="cm"># iSb: close above ITR high, AND it is a HH (higher than prev same-side level)</span>
+        if lh and close > lh.price and last_isb_level_id != lh.level_id:
+            if is_hh_or_seed(lh):
+                last_isb_level_id = lh.level_id
+                emit SC05 itrISb (choch=False, biasFlip=False)
+        <span class="cm"># iChoCh: close below ITR low (breaks HL)</span>
+        if ll and close < ll.price and last_ichoch_level_id != ll.level_id:
+            last_ichoch_level_id = ll.level_id
+            emit SC06 itrIChoCh (choch=True, biasFlip=False)
+
+    elif bias == "bearish":
+        <span class="cm"># iSb: close below ITR low, AND it is a LL</span>
+        if ll and close < ll.price and last_isb_level_id != ll.level_id:
+            if is_ll_or_seed(ll):
+                last_isb_level_id = ll.level_id
+                emit SC07 ltrISb / SC05 itrISb (choch=False, biasFlip=False)
+        <span class="cm"># iChoCh: close above ITR high (breaks LH)</span>
+        if lh and close > lh.price and last_ichoch_level_id != lh.level_id:
+            last_ichoch_level_id = lh.level_id
+            emit SC06 itrIChoCh / SC08 ltrIChoCh (choch=True, biasFlip=False)
+
+<span class="cm"># Dedup state resets when a new structural leg starts (_start_bullish/_start_bearish).
+# Warmup pivot is consumed into last_isb_level_id after warmup SC fires,
+# preventing the warmup PE from double-firing as an iSb on the first post-warmup bar.</span></pre>
 <pre><span class="cm"># pro-direction attempt facts</span>
 if bias == "bullish":
     trigger = latest_itr_high
@@ -879,11 +984,80 @@ else:
     self._sc_dn_code = "SC04"</pre>
     </div>
 
+    <h2 id="ui"><span class="sec-num">08</span> Replayer UI</h2>
+    <p>The replayer renders structure state in two places: chart overlays (P/D range lines) and the right-side Structure panel.</p>
+
+    <h3>Chart overlays — P/D range lines</h3>
+    <p>Two horizontal lines and an optional midpoint are drawn from the timestamp of the active boundary to the current cursor bar.</p>
+    <pre class="block">range_high line
+  starts at: range_high_ts (or phase_start_ts as fallback)
+  value: range_high
+  color: bearish red (#ef5350) when bias=bearish, teal (#26a69a) when bullish
+  style: solid (line_style: 0)
+
+range_low line
+  starts at: range_low_ts (or phase_start_ts as fallback)
+  value: range_low
+  color: same as range_high (bias-driven)
+  style: solid (line_style: 0)
+
+P/D midpoint line (optional, show_midpoint: true)
+  starts at: phase_start_ts
+  value: pd_midpoint
+  color: slate (#546e7a)
+  style: dashed (line_style: 2)</pre>
+
+    <div class="callout">
+      <span class="ico">i</span>
+      <div><b>Why range_high can appear to "start late":</b> the line starts at <code>range_high_ts</code>, which is the timestamp of the <em>last bar that extended the high</em>, not the phase start. After <code>pullback_confirmed</code> the range freezes; the line does not extend further right until a SB ratchets it to a new ceiling. A high the eye sees on a pullback bar will not move the line because the engine only extends <code>range_high</code> during <code>open</code> phase.</div>
+    </div>
+
+    <h3>Dual mode — projected HTF lines on LTF pane</h3>
+    <pre class="block">config: structure.dual_display: dual
+
+top pane (LTF):
+  native role  — LTF P/D range lines (dashed, forced line_style)
+  projected role — HTF P/D range lines overlaid on same pane
+
+bottom pane (HTF):
+  native HTF P/D range lines
+
+Both use the same flat-line rendering from range_high_ts / range_low_ts to cursor.</pre>
+
+    <h3>Structure sidebar panel</h3>
+    <p>The <b>Structure</b> tab in the right sidebar shows one block per active timeframe.</p>
+    <pre class="block">bias         bullish (green) | bearish (red) | neutral (gray)
+phase        open (blue) | pullback confirmed (amber) | neutral (gray)
+P/D position xx.x% · premium / mid / discount   (pd_value_pct)
+range high   numeric price
+range low    numeric price
+P/D midpoint numeric price
+confirmed by itr | sd_zone | tracing (null)
+last SC      SC01 / SC02 / SC03 / SC04 with optional ChoCh tag (amber)</pre>
+
+    <div class="callout">
+      <span class="ico">i</span>
+      <div><b>Why the ITR high is invisible in the UI:</b> the Structure panel shows only the wick-defined <code>range_high</code> and the <code>last_sc</code> event. Individual ITR/LTR pivot levels that confirmed pullback phase are not separately labelled on the chart. If the ratchet reset the ceiling to a pullback high at an earlier timestamp, that new <code>range_high_ts</code> will appear to jump back in time — the line starts earlier than the most recent bar, which can look like the structure "skipped" the visible candle high.</div>
+    </div>
+
+    <h3>Snapshot tab (summary row)</h3>
+    <p>The <b>Snapshot</b> tab shows abbreviated structure rows alongside zone counts.</p>
+    <pre class="block">HTF bias    bullish / bearish / neutral badge
+HTF tier    itr / ltr badge
+HTF phase   open / pullback confirmed / neutral badge
+HTF P/D     pd_value_pct% · premium/mid/discount
+
+(same rows repeated for LTF in dual mode)</pre>
+
     <h2 id="issues"><span class="sec-num">09</span> Open Issues · Edge Cases · Next Milestone</h2>
     <div class="issue-grid">
       <div class="issue-card done">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>Structural SB / ChoCh ≠ orderflow BoS / MSS.</b> Structure uses STR / ITR / LTR-derived anchors. Pro-direction close-through is named <code>structure_sb</code>; counter-direction close-through remains <code>structure_choch</code>. Orderflow uses swing / pivot-sequence anchors, so its continuation action is <code>orderflow_bos</code> and its counter shift is <code>orderflow_mss</code>. A close through an ITR boundary can be Structure SB while a later swing-sequence continuation can be Orderflow BoS; both may be true, but they are not duplicate facts. Old names such as <code>itrBosUp</code> remain only as structural <code>runtimeAlias</code> values until the final alias cleanup.</p>
+        <p><b>Internal pivot events SC05–SC08 (iSb / iChoCh).</b> SC01–SC04 are conceptually equivalent to BoS/MSS but fire at wick-defined range boundaries. To add pivot-level granularity without conflating with the macro range events, SC05–SC08 were introduced: they fire against confirmed ITR/LTR PE pivot prices, are pure observation (no bias or range change), require HH/LL progression for iSb, and can co-emit alongside a SC01–SC04 on the same bar.</p>
+      </div>
+      <div class="issue-card done">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Structural SB / ChoCh ≠ orderflow anchor / MSS.</b> Structure uses STR / ITR / LTR-derived anchors; pro-direction close-through is <code>structure_sb</code>, counter-direction is <code>structure_choch</code>. Orderflow uses its own <code>orderflow_anchor_sequence</code> with distinct provenance and its own MSS disruption events. A close through an ITR boundary can be a structural SB while a later swing-sequence continuation is an independent orderflow anchor event; both may be true but they are not duplicate facts. Structural <code>runtimeAlias</code> now echoes the canonical <code>itrSbUp</code> / <code>itrSbDown</code> names; old <code>itrBosUp</code>-style aliases have been retired.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
@@ -906,8 +1080,15 @@ else:
         <p><b>Phase E Orderflow language.</b> This is no longer an active Structure issue. Phase E should be qualified by Evidence Compiler using compact Orderflow / Structure / Liquidity context, then interpreted by Layer 4.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Resolved</div>
-        <p><b>Orderflow MSS source confirmed: <code>structure_sequence</code> (intentional).</b> The live-probe break of the latest protected low-side HL anchor swing point in bullish orderflow, or latest protected high-side LH anchor swing point in bearish orderflow, IS the correct trigger for <code>E.stalling → E.pullback_developing</code>. <code>choch_watch</code> is retired; Orderflow emits <code>mss_watch</code> directly. <code>self.source</code> bug in <code>OrderflowContext.snapshot()</code> fixed — source wire now reads correctly from config. Additional debug field <code>mss_watch_confirmed</code> marks that a confirmed counter-pivot exists in the sequence. This is complementary context, not the gate.</p>
+        <div class="issue-label">Reopened · Design Migration</div>
+        <p><b>Orderflow MSS must move off shared <code>structure_sequence</code>.</b>
+        The live-probe break of the latest protected low-side HL anchor swing point in
+        bullish orderflow, or latest protected high-side LH anchor swing point in bearish
+        orderflow, remains the correct trigger for
+        <code>E.stalling → E.pullback_developing</code>. The source store is changing:
+        Orderflow needs its own <code>orderflow_anchor_sequence</code> and
+        <code>orderflow_probe</code> lineage so the later structural ChoCh close-through
+        of the same price level cannot be mistaken for a fresh Phase D event.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>

@@ -21,8 +21,8 @@ _INF = float("inf")
 
 @dataclass
 class ScEvent:
-    event_code: str                         # SC01 / SC02 / SC03 / SC04
-    event_name: str                         # target: itrSbUp / itrSbDown / ltrSbUp / ltrSbDown
+    event_code: str                         # SC01–SC08
+    event_name: str                         # itrSbUp / itrISb / itrIChoCh / etc.
     event_group: str                        # "SC"
     event_timestamp: pd.Timestamp
     level_tier: str                         # "itr" or "ltr"
@@ -32,12 +32,16 @@ class ScEvent:
     break_direction: str                    # "up" or "down"
     bias_flip: bool = False
     choch: bool = False
+    is_internal: bool = False              # True for SC05–SC08 (ITR/LTR pivot-level iSb/iChoCh)
     prior_anchor_high: float | None = None  # backward-compatible ChoCh field
     prior_anchor_low: float | None = None   # backward-compatible ChoCh field
 
     def to_dict(self) -> dict[str, Any]:
-        event_action = "structure_choch" if self.choch else "structure_sb"
-        runtime_alias = self.event_name.replace("Sb", "Bos")
+        if self.is_internal:
+            event_action = "structure_ichoch" if self.choch else "structure_isb"
+        else:
+            event_action = "structure_choch" if self.choch else "structure_sb"
+        runtime_alias = self.event_name
         d: dict[str, Any] = {
             "eventCode": self.event_code,
             "eventName": self.event_name,
@@ -54,7 +58,10 @@ class ScEvent:
             "biasFlip": self.bias_flip,
             "structure_sb": event_action == "structure_sb",
             "structure_choch": event_action == "structure_choch",
+            "structure_isb": event_action == "structure_isb",
+            "structure_ichoch": event_action == "structure_ichoch",
             "choch": self.choch,
+            "is_internal": self.is_internal,
         }
         if self.prior_anchor_high is not None:
             d["priorAnchorHigh"] = self.prior_anchor_high
@@ -188,7 +195,7 @@ class StructureEngine:
             ),
         )
 
-        # tier-specific PE codes
+        # tier-specific PE codes and SC range codes (SC01–SC04)
         if self._tier == "itr":
             self._pe_high_code = "PE03"   # itrHighConfirmed
             self._pe_low_code  = "PE04"   # itrLowConfirmed
@@ -196,6 +203,11 @@ class StructureEngine:
             self._sc_up_name   = "itrSbUp"
             self._sc_dn_code   = "SC02"
             self._sc_dn_name   = "itrSbDown"
+            # Internal SC codes — fire against confirmed ITR pivot levels (SC05–SC06)
+            self._sc_isb_code    = "SC05"
+            self._sc_isb_name    = "itrISb"
+            self._sc_ichoch_code = "SC06"
+            self._sc_ichoch_name = "itrIChoCh"
         else:
             self._pe_high_code = "PE05"   # ltrHighConfirmed
             self._pe_low_code  = "PE06"   # ltrLowConfirmed
@@ -203,6 +215,11 @@ class StructureEngine:
             self._sc_up_name   = "ltrSbUp"
             self._sc_dn_code   = "SC04"
             self._sc_dn_name   = "ltrSbDown"
+            # Internal SC codes — fire against confirmed LTR pivot levels (SC07–SC08)
+            self._sc_isb_code    = "SC07"
+            self._sc_isb_name    = "ltrISb"
+            self._sc_ichoch_code = "SC08"
+            self._sc_ichoch_name = "ltrIChoCh"
 
         # state
         self._bias: StructureBias = "neutral"
@@ -231,6 +248,11 @@ class StructureEngine:
 
         # SC event log for snapshot
         self._last_sc: ScEvent | None = None
+        self._last_isc: ScEvent | None = None   # last internal iSb/iChoCh (SC05–SC08)
+
+        # Internal iSb/iChoCh dedup — prevent same confirmed pivot from re-firing
+        self._last_isb_level_id: str | None = None
+        self._last_ichoch_level_id: str | None = None
 
         # Bounded structural memory for downstream hypothesis/audit consumers.
         self._recent_levels: list[StructureLevel] = []
@@ -288,7 +310,7 @@ class StructureEngine:
         if not self._warmup_complete:
             self._extend_range_high(bar_high, bar_ts)
             self._extend_range_low(bar_low, bar_ts)
-            sc = self._bos_warmup(bar_close, bar_ts, bar_high, bar_low)
+            sc = self._sb_warmup(bar_close, bar_ts, bar_high, bar_low)
             if sc:
                 emitted.append(sc)
             return emitted
@@ -305,12 +327,18 @@ class StructureEngine:
 
         self._update_structure_attempt(bar_high, bar_low, bar_close, bar_ts)
 
-        # 4. SC detection — close only. Continuation requires confirmed pullback;
-        # ChoCh can fire from either OPEN or PULLBACK_CONFIRMED.
-        sc = self._bos_range(bar_close, bar_ts, bar_high, bar_low)
+        # 4a. Internal iSb/iChoCh — checked against confirmed ITR/LTR pivot levels
+        # BEFORE the range check so they see the pre-transition structural state.
+        isc = self._sb_internal(bar_close, bar_ts)
+        if isc:
+            emitted.append(isc)
+
+        # 4b. Range SC01–SC04 detection — close against wick-defined boundaries.
+        # Continuation requires confirmed pullback; ChoCh fires from any phase.
+        sc = self._sb_range(bar_close, bar_ts, bar_high, bar_low)
         if sc:
             emitted.append(sc)
-            return emitted
+            return emitted  # skip pullback confirmation when a range SC transitions state
 
         # 5. Pullback confirmation sources. ITR and SD confirm timing only; the
         # P/D range remains wick-defined.
@@ -336,6 +364,17 @@ class StructureEngine:
                     pd_value_pct = range_position_pct
                 elif self._bias == "bearish":
                     pd_value_pct = round(100.0 - range_position_pct, 1)
+
+        structure_probe = self._structure_probe(current_price)
+        structure_sequence = [
+            point.to_dict()
+            for point in self._structure_sequence
+        ]
+        orderflow_anchor_sequence = [
+            self._orderflow_anchor_point(point)
+            for point in self._structure_sequence
+        ]
+        orderflow_probe = self._orderflow_probe(structure_probe)
 
         return {
             "tier": self._tier,
@@ -366,27 +405,19 @@ class StructureEngine:
                 if self._latest_level_low and self._latest_level_low.tier == "itr"
                 else None
             ),
+            "last_isc":      self._last_isc.to_dict() if self._last_isc else None,
             "structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
             "ltf_structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
-            "structure_sequence": [
-                point.to_dict()
-                for point in self._structure_sequence
-            ],
-            "structure_probe": self._structure_probe(current_price),
-            "recent_structure_sequence_points": [
-                point.to_dict()
-                for point in self._structure_sequence
-            ],
+            "structure_sequence": structure_sequence,
+            "structure_probe": structure_probe,
+            "recent_structure_sequence_points": structure_sequence,
+            "orderflow_anchor_sequence": orderflow_anchor_sequence,
+            "orderflow_probe": orderflow_probe,
+            "recent_orderflow_anchor_points": orderflow_anchor_sequence,
             # Compatibility aliases for the current Orderflow/docs migration.
-            "structure_anchor_sequence": [
-                point.to_dict()
-                for point in self._structure_sequence
-            ],
-            "recent_structure_anchor_points": [
-                point.to_dict()
-                for point in self._structure_sequence
-            ],
-            "structure_anchor_probe": self._structure_probe(current_price),
+            "structure_anchor_sequence": structure_sequence,
+            "recent_structure_anchor_points": structure_sequence,
+            "structure_anchor_probe": structure_probe,
             # timestamps for P/D line drawing on the chart
             "phase_start_ts": self._phase_start_ts.isoformat() if self._phase_start_ts is not None else None,
             "range_high_ts": self._range_high_ts.isoformat() if self._range_high_ts is not None else None,
@@ -395,7 +426,7 @@ class StructureEngine:
 
     # ── internal ──────────────────────────────────────────────────────
 
-    def _bos_warmup(
+    def _sb_warmup(
         self, close: float, ts: pd.Timestamp, bar_high: float, bar_low: float
     ) -> ScEvent | None:
         """Warmup (NEUTRAL): SC fires against registry — most recently confirmed PE pivot."""
@@ -411,6 +442,9 @@ class StructureEngine:
                 bar_high,
                 range_low_ts=anchor_ts,
             )
+            # Consume the warmup pivot so it cannot also fire an iSb on this bar or later.
+            if self._latest_level_high is not None:
+                self._last_isb_level_id = self._latest_level_high.level_id
             self._record_structure_point(
                 "low",
                 "range_origin",
@@ -447,6 +481,9 @@ class StructureEngine:
                 bar_low,
                 range_high_ts=anchor_ts,
             )
+            # Consume the warmup pivot so it cannot also fire an iSb on this bar or later.
+            if self._latest_level_low is not None:
+                self._last_isb_level_id = self._latest_level_low.level_id
             self._record_structure_point(
                 "high",
                 "range_origin",
@@ -473,7 +510,7 @@ class StructureEngine:
 
         return None
 
-    def _bos_range(
+    def _sb_range(
         self, close: float, ts: pd.Timestamp, bar_high: float, bar_low: float
     ) -> ScEvent | None:
         """Post-warmup: SC fires against wick-defined range boundaries."""
@@ -749,6 +786,30 @@ class StructureEngine:
             "source": "structure_live_probe",
         }
 
+    def _orderflow_anchor_point(self, point: StructureSequencePoint) -> dict[str, Any]:
+        source = point.to_dict()
+        return {
+            **source,
+            "point_id": f"OFANCH:{source['point_id']}",
+            "anchor_id": f"OFANCH:{source['point_id']}",
+            "source_store": "structure_sequence",
+            "source_structure_point_id": source["point_id"],
+            "source": "orderflow_anchor_sequence",
+        }
+
+    def _orderflow_probe(self, structure_probe: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not structure_probe:
+            return None
+        point_id = str(structure_probe.get("point_id") or "unknown")
+        return {
+            **structure_probe,
+            "point_id": f"OFPROBE:{point_id}",
+            "probe_id": f"OFPROBE:{point_id}",
+            "source_store": "structure_probe",
+            "source_structure_probe_id": point_id,
+            "source": "orderflow_probe",
+        }
+
     def _maybe_open_pro_attempt_from_break(
         self,
         bar_high: float,
@@ -868,6 +929,8 @@ class StructureEngine:
         self._bias = "bullish"
         self._phase = "open"
         self._clear_pullback_confirmation()
+        self._last_isb_level_id = None
+        self._last_ichoch_level_id = None
 
     def _start_bearish(
         self,
@@ -886,6 +949,8 @@ class StructureEngine:
         self._bias = "bearish"
         self._phase = "open"
         self._clear_pullback_confirmation()
+        self._last_isb_level_id = None
+        self._last_ichoch_level_id = None
 
     def _extend_range_high(self, price: float, ts: pd.Timestamp) -> None:
         if self._range_high is None or price > self._range_high:
@@ -984,3 +1049,101 @@ class StructureEngine:
         if self._range_low is None or self._range_high is None or self._range_high <= self._range_low:
             return None
         return (self._range_low + self._range_high) / 2
+
+    # ── Internal iSb / iChoCh (SC05–SC08) ────────────────────────────
+
+    def _sb_internal(self, close: float, ts: pd.Timestamp) -> ScEvent | None:
+        """Post-warmup: fire iSb or iChoCh against confirmed ITR/LTR pivot levels.
+
+        iSb   — pro-bias close through a confirmed pivot (HH for bullish, LL for bearish).
+        iChoCh — counter-bias close through the opposite confirmed pivot (breaks HL/LH).
+
+        Pure observation: does not change bias, phase, or P/D range.
+        At most one internal SC per bar; iSb is checked before iChoCh.
+        """
+        if not self._warmup_complete or self._bias == "neutral":
+            return None
+        if self._tier == "ltr":  # SC07/SC08 disabled; ITR-only
+            return None
+
+        lh = self._latest_level_high
+        ll = self._latest_level_low
+
+        if self._bias == "bullish":
+            # iSb: close above latest confirmed ITR high AND it is a HH
+            if lh and close > lh.price and self._last_isb_level_id != lh.level_id:
+                if self._is_hh_or_seed(lh):
+                    self._last_isb_level_id = lh.level_id
+                    sc = self._make_isc(ts, lh, "high", "up", choch=False)
+                    self._last_isc = sc
+                    return sc
+            # iChoCh: close below latest confirmed ITR low (breaks HL)
+            if ll and close < ll.price and self._last_ichoch_level_id != ll.level_id:
+                self._last_ichoch_level_id = ll.level_id
+                sc = self._make_isc(ts, ll, "low", "down", choch=True)
+                self._last_isc = sc
+                return sc
+
+        elif self._bias == "bearish":
+            # iSb: close below latest confirmed ITR low AND it is a LL
+            if ll and close < ll.price and self._last_isb_level_id != ll.level_id:
+                if self._is_ll_or_seed(ll):
+                    self._last_isb_level_id = ll.level_id
+                    sc = self._make_isc(ts, ll, "low", "down", choch=False)
+                    self._last_isc = sc
+                    return sc
+            # iChoCh: close above latest confirmed ITR high (breaks LH)
+            if lh and close > lh.price and self._last_ichoch_level_id != lh.level_id:
+                self._last_ichoch_level_id = lh.level_id
+                sc = self._make_isc(ts, lh, "high", "up", choch=True)
+                self._last_isc = sc
+                return sc
+
+        return None
+
+    def _is_hh_or_seed(self, level: StructureLevel) -> bool:
+        """True if the given ITR high is higher than the previous same-side ITR level,
+        or if there is no previous (seed case — first iSb is always valid)."""
+        prev = next(
+            (lvl for lvl in reversed(self._recent_levels)
+             if lvl.side == "high" and lvl.level_id != level.level_id),
+            None,
+        )
+        return prev is None or level.price > prev.price
+
+    def _is_ll_or_seed(self, level: StructureLevel) -> bool:
+        """True if the given ITR low is lower than the previous same-side ITR level,
+        or if there is no previous (seed case)."""
+        prev = next(
+            (lvl for lvl in reversed(self._recent_levels)
+             if lvl.side == "low" and lvl.level_id != level.level_id),
+            None,
+        )
+        return prev is None or level.price < prev.price
+
+    def _make_isc(
+        self,
+        ts: pd.Timestamp,
+        level: StructureLevel,
+        level_side: str,
+        break_direction: str,
+        *,
+        choch: bool,
+    ) -> ScEvent:
+        """Build a SC05–SC08 internal ScEvent against a confirmed ITR/LTR pivot level."""
+        code = self._sc_ichoch_code if choch else self._sc_isb_code
+        name = self._sc_ichoch_name if choch else self._sc_isb_name
+        return ScEvent(
+            event_code=code,
+            event_name=name,
+            event_group="SC",
+            event_timestamp=ts,
+            level_tier=self._tier,
+            level_timestamp=level.pivot_time,
+            level_price=level.price,
+            level_side=level_side,
+            break_direction=break_direction,
+            bias_flip=False,
+            choch=choch,
+            is_internal=True,
+        )

@@ -415,6 +415,13 @@ Phase E shadow thesis must not own:
         any strict new HTF extreme. The second counter leg is the D origin event; the
         intervening unresolved interval remains <code>E.stalling</code>.
       </p>
+      <div class="rule-block">
+        <b>Current implementation note:</b> Phase D now uses the simplified
+        <code>D.watch</code> / <code>D.speculation</code> model documented in
+        <code>402-hypothesis-phD.html</code>. The legacy Phase D selector and old
+        reaction/liquidity sub-status tests are intentionally quarantined for now.
+        I will delete the legacy Phase D code/tests later after replay validation.
+      </div>
 
       <div class="issue-grid">
         <div class="issue-card">
@@ -444,6 +451,51 @@ Phase E shadow thesis must not own:
         <div class="issue-card">
           <div class="issue-label">Fallback</div>
           <p><b>Keep D disabled during E-only replay.</b> Until E stops falling to <code>none</code>, D should be unavailable or logged as blocked so its legacy branch cannot hide the E bug.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Deferred · Layer 4</div>
+          <p><b><code>D.speculation → E.stalling</code> on SL hit is unimplemented.</b>
+          This is a Layer 4 phase transition — not a Layer 5 trigger decision.
+          Layer 5 has no memory and must not own phase invalidation routing.
+          Two implementation options when D is coded:
+          (a) new EC candidate that detects price reclaim above <code>choch_2.level</code>
+          while HTF is not above PD range; or
+          (b) direct Shadow Thesis comparison in the DAG — <code>current_price</code>
+          vs the committed <code>choch_2["level"]</code> stored in
+          <code>phase_d_shadow</code> (allowed: price read for committed-level boundary
+          check, not raw structural reasoning).
+          Parked until D.watch / D.speculation are coded and passing in replay.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fixed · 2026-06-09</div>
+          <p><b>EC candidate direction not validated at DAG read-time — fixed.</b>
+          <code>d_choch_candidate.get("direction") == direction</code> now gates both
+          the D.watch entry gate and the D.watch hold block before consuming
+          <code>choch_seen</code> / <code>sb_seen</code>.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Fixed · 2026-06-09</div>
+          <p><b><code>ltf_counter_sb_event_at</code> added to EC.</b>
+          <code>_compile_ltf_counter_choch()</code> now emits
+          <code>ltf_counter_sb_event_at</code> alongside <code>ltf_counter_sb_seen</code>
+          and <code>ltf_counter_sb_level</code>. Path B freshness check uses it.</p>
+        </div>
+        <div class="issue-card">
+          <div class="issue-label">Verified Root Cause · Replay 2026-06-09</div>
+          <p><b><code>D.watch</code> fired immediately after <code>E.pullback_developing</code>
+          because Orderflow MSS and Structure ChoCh shared the same structural lineage.</b>
+          In EURUSD 15m/4h at <code>2026-01-28T15:30Z</code>, orderflow MSS opened when
+          the live probe broke the protected low-side HL at <code>1.19583</code>. At
+          <code>2026-01-28T16:00Z</code>, the LTF structure engine closed below that same
+          <code>1.19583</code> floor and emitted <code>itrSbDown</code> /
+          <code>structure_choch</code>. The event was fresh, so timestamp freshness gates
+          passed, but semantically it was the close-confirmation of the same MSS disruption
+          that opened E — not a post-E D setup.</p>
+          <p><b>Agreed fix:</b> split Orderflow into a separate
+          <code>orderflow_anchor_sequence</code> / <code>orderflow_probe</code> store,
+          add EC provenance fields for both MSS and structural ChoCh, and make
+          <code>D.watch</code> require a distinct post-E pro-HTF attempt before consuming
+          a later fresh counter structural event.</p>
         </div>
       </div>
     </section>

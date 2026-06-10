@@ -479,11 +479,12 @@ Outputs → EvidenceCandidate:
 <p>The Shadow Thesis runs alongside the DAG as a parallel episode journal. It is <strong>not</strong> a DAG node — it never appears on the phase graph. It tracks the local memory Layer 4 needs while navigating: what was seen, what was tried, what was consumed, and whether the current read is still valid.</p>
 <p>It is one Layer 4 component, but internally it should be split into phase-owned ledgers rather than one flat object. Each phase owns only the memory required by that phase's local node machine.</p>
 <div class="code-block">ShadowThesis
-  phase_e → E.seeking / E.stalling / E.pullback_developing memory
+  phase_e → E.seeking / E.HTF_reaction / E.stalling / E.pullback_developing memory
   phase_d → reaction-point / liquidity-test memory
   phase_c → pullback-story memory
   phase_b → B initiation / reclaim / suppression memory
   phase_a → continuation / finale memory</div>
+<p><strong>Memory lifetime — one HTF P/D epoch.</strong> The shadow thesis resets exactly when the HTF structural epoch changes: a new BOS or ChoCh on the HTF timeframe fires a new <code>last_sc</code> event, which changes <code>htf_pd_epoch_id</code>. Within a single epoch, <em>all shadow fields persist unconditionally</em> — across bar-by-bar re-evaluation, across phase transitions (E→D→C→B→A→E), and across warm restarts where the DAG re-locates itself. A footprint stamped in Phase E (e.g., <code>htf_reaction_seen</code>) remains readable when the DAG returns to Phase E later in the same epoch. Normal phase changes never clear the shadow; only epoch boundary does.</p>
 <p><strong>Why it is necessary despite the DAG:</strong></p>
 <ul>
   <li><strong>Phase-local memory</strong> — Phase E needs to remember whether a clean LTF counter orderflow leg was already consumed, whether it was disrupted, and whether the next pullback should still be soft E-memory or should graduate to a global D/C decision.</li>

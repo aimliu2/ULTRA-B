@@ -42,6 +42,29 @@ def test_orderflow_mss_fires_on_latest_hl_break():
     assert snapshot["probe_breaks_protected_anchor"] is True
 
 
+def test_orderflow_defaults_to_orderflow_anchor_store():
+    ctx = OrderflowContext({"window_size": 6}, "15m")
+    structure = {
+        "timeframe": "15m",
+        "orderflow_anchor_sequence": [
+            _anchor("OFANCH:H1", 10.0),
+            _anchor("OFANCH:L1", 5.0),
+            _anchor("OFANCH:H2", 11.0),
+            _anchor("OFANCH:L2", 6.0),
+            _anchor("OFANCH:H3", 12.0),
+            _anchor("OFANCH:L3", 7.0),
+        ],
+        "orderflow_probe": _anchor("OFPROBE:probe", 6.5),
+    }
+
+    snapshot = ctx.snapshot(structure, evaluated_at="2025-01-01T00:00:00")
+
+    assert snapshot["source_store"] == "orderflow_anchor_sequence"
+    assert snapshot["protected_anchor_ref"] == "OFANCH:L3"
+    assert snapshot["disruption_point_ref"] == "OFPROBE:probe"
+    assert snapshot["regime"] == "mss_watch"
+
+
 def test_orderflow_mss_does_not_fire_on_ll_break():
     """Probe below a LL (not an HL) must not trigger MSS — LL is not the protected anchor."""
     ctx = OrderflowContext({"window_size": 6}, "15m")

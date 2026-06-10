@@ -39,11 +39,12 @@ def _cmp(a: float, b: float) -> str:
 
 
 class OrderflowContext:
-    """Stateless Layer 3 orderflow projector over structure sequence + live probe."""
+    """Stateless Layer 3 orderflow projector over orderflow anchors + live probe."""
 
     def __init__(self, cfg: dict[str, Any] | None = None, timeframe: str | None = None) -> None:
         cfg = cfg or {}
-        self.source = str(cfg.get("source", "structure_sequence"))
+        self.source = str(cfg.get("source", "orderflow_anchor_sequence"))
+        self.probe_source = str(cfg.get("probe_source", "orderflow_probe"))
         self.window_size = int(cfg.get("probe_points", cfg.get("window_size", 8)))
         self.starts_with = str(cfg.get("starts_with", "H"))
         self.timeframe = timeframe
@@ -57,19 +58,27 @@ class OrderflowContext:
         if not structure:
             return self._empty(evaluated_at, "insufficient_points")
 
-        probe_key = self.source.replace("_sequence", "_probe")
+        source = self.source
+        probe_key = self.probe_source
         anchors = [
             point
-            for point in structure.get(self.source) or []
+            for point in structure.get(source) or []
             if _price(point) is not None
         ]
-        if not anchors and self.source == "structure_sequence":
+        if not anchors and source == "orderflow_anchor_sequence":
             anchors = [
                 point
-                for point in structure.get("structure_anchor_sequence") or []
+                for point in structure.get("structure_sequence") or structure.get("structure_anchor_sequence") or []
                 if _price(point) is not None
             ]
-            probe_key = "structure_anchor_probe"
+            source = "structure_sequence"
+            probe_key = "structure_probe" if structure.get("structure_probe") else "structure_anchor_probe"
+        elif source != "orderflow_anchor_sequence":
+            if structure.get(self.probe_source):
+                probe_key = self.probe_source
+            else:
+                probe_key = source.replace("_sequence", "_probe")
+
         probe = structure.get(probe_key)
         if _price(probe or {}) is None:
             probe = None
@@ -150,7 +159,8 @@ class OrderflowContext:
             "quality": score["quality"],
             "live_pressure": live_pressure,
             "mss_monitor_status": monitor,
-            "source": self.source,
+            "source": source,
+            "source_store": source,
             "window_size": self.window_size,
             "confirmed_sequence": sequence,
             "sequence_with_probe": [*sequence, "probe"] if probe else sequence,
@@ -190,6 +200,7 @@ class OrderflowContext:
             "live_pressure": "none",
             "mss_monitor_status": "none",
             "source": self.source,
+            "source_store": self.source,
             "window_size": self.window_size,
             "confirmed_sequence": [],
             "sequence_with_probe": [],

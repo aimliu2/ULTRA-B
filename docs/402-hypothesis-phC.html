@@ -428,7 +428,8 @@ otherwise:
           This is the regular C node after a Phase D reaction. The classifier uses <code>_phase_c_sub_status_from_current_d()</code> and currently maps reaction-point, HTF zone reclaim, HTF P/D reclaim, and HTF EQ reclaim variants into <code>htf_reaction_pullback</code>.
         </p>
 <pre class="block">Entry family:
-  D.reaction_point
+  D.HTF_reaction_point
+  D.LTF_reaction_point
   D.htf_pd_grab_reclaim_test
   D.htf_eq_grab_reclaim_test
 
@@ -497,7 +498,8 @@ B.initiation_watch → C.pullback.after_inducement</pre>
     <details open>
       <summary>Entry families <span class="where">DAG</span></summary>
       <div class="body">
-<pre class="block">D.reaction_point              → C.htf_reaction_pullback
+<pre class="block">D.HTF_reaction_point          → C.htf_reaction_pullback
+D.LTF_reaction_point          → C.htf_reaction_pullback
 D.htf_pd_grab_reclaim_test    → C.htf_reaction_pullback
 D.htf_eq_grab_reclaim_test    → C.htf_reaction_pullback
 
@@ -678,6 +680,15 @@ entry_policy = "hybrid" if (
       <div class="issue-card">
         <div class="issue-label">Next Milestone</div>
         <p><b>Reconcile Phase C with the Phase E shadow migration.</b> C should consume cleanly named origin memory from Phase E/D/B rather than inferring from a single generic <code>ltf_counter_story</code> gate. Run the full suite to confirm Q3: no stale EC fact-shape assertions in D→C and C-hold tests.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open · Missing exit path</div>
+        <p><b>C states have no explicit exit on new HTF extreme.</b>
+        If the HTF makes a new extreme while in <code>C.pullback</code> or
+        <code>C.pullback_weaken</code>, there is no stated path back to
+        <code>E.seeking</code>. Needs to be added: any C node →
+        <code>E.seeking</code> when <code>new_htf_extreme</code> fires or HTF closes
+        above PD range.</p>
       </div>
     </div>
   </main>

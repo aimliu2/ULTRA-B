@@ -389,7 +389,16 @@
     <a href="#ltf-story">LTF Counter-story</a>
     <a href="#b-setup">HTF B-phase Setup</a>
     <a href="#pd-objective">HTF P/D Objective</a>
-    <a href="#phase-e">Phase-E Context</a>
+    <a href="#phase-e">HTF Expansion Context</a>
+    <a href="#phase-e" class="l2">G1 · Expansion extreme</a>
+    <a href="#phase-e" class="l2">G2 · Expansion state</a>
+    <a href="#phase-e" class="l2">G3 · Equal-extreme</a>
+    <a href="#phase-e" class="l2">G4 · LTF bias</a>
+    <a href="#phase-e" class="l2">G5 · LTF probe / depth</a>
+    <a href="#phase-e" class="l2">G6 · Counter-orderflow</a>
+    <a href="#phase-e" class="l2">G7 · HTF opposing zone</a>
+    <a href="#phase-e" class="l2">G8 · Two-bar reaction</a>
+    <a href="#phase-e" class="l2">G9 · Reaction-failed</a>
     <a href="#algo">Algorithm</a>
     <a href="#issues">Open Issues</a>
     <div class="files">
@@ -452,8 +461,11 @@ htf_b_phase_setup     B-phase direct entry gate: LTF turned back toward HTF dire
 htf_pd_objective      A-phase finale: current HTF bar touched the P/D range extreme.
                       Sub-flag: phase_a_finale_closed_beyond for confirmed close past objective.
 
-phase_e_context       Always emitted when HTF direction is known. Tracks the running
-                      E-cycle extreme, two-bar reaction signal, and reaction_failed flag.</pre>
+htf_expansion_context Always emitted when HTF direction is known. Primary neutral name.
+                      Tracks expansion extreme, LTF bias/probe/orderflow/pullback-depth,
+                      equal-extreme retest, two-bar reaction, and reaction_failed.
+                      51 debug_facts across 9 groups. pattern="phase_e_context" is
+                      a compatibility alias copy emitted alongside.</pre>
 
     <h3>Epoch boundary</h3>
     <p>
@@ -848,42 +860,155 @@ location_context["selected_poi_touched"] = bool(selected_poi and selected_poi["i
       the structure has no <code>range_high</code> / <code>range_low</code>, the pattern is silent.
     </div>
 
-    <!-- ── §07 Phase-E Context ── -->
-    <h2 id="phase-e"><span class="sec-num">07</span> Phase-E Context</h2>
+    <!-- ── §07 HTF Expansion Context (Phase-E) ── -->
+    <h2 id="phase-e"><span class="sec-num">07</span> HTF Expansion Context <span style="font-family:var(--mono);font-size:13px;color:var(--text-dim);font-weight:400">(Phase E heartbeat)</span></h2>
     <p>
       The always-on context emitter. Every bar when HTF direction is known, this pattern fires with
-      status <code>ready</code>. It gives the DAG a running summary of the current E-cycle state
-      without the DAG needing to read HTF bars directly.
+      status <code>ready</code>. Primary pattern name is <code>htf_expansion_context</code>; a
+      duplicate with <code>pattern="phase_e_context"</code> is appended immediately after as a
+      compatibility alias so Layer 4 can migrate without a flag day.
     </p>
     <p>
-      Three signals packed into <code>debug_facts</code>:
+      The candidate carries <strong>51 <code>debug_facts</code></strong> across 9 logical groups.
+      All groups are always present (defaults to <code>False</code> / <code>None</code> when data
+      is unavailable). The DAG reads this candidate first each bar to orient itself before
+      interpreting the other five candidates.
     </p>
-    <ul class="plain">
-      <li><strong>Extreme tracker</strong> — running high (long) or low (short) of the current P/D expansion: <code>active_phase_e_extreme_price</code>, <code>active_phase_e_extreme_time</code>.</li>
-      <li><strong>Two-bar reaction signal</strong> — compares previous HTF bar vs current bar: <code>reaction_confirmed</code> (bar closed past the prior bar's extreme) and <code>reaction_warning</code> (wick crossed but close reversed). Used by DAG to detect D-phase inception.</li>
-      <li><strong>Reaction-failed flag</strong> — <code>reaction_failed</code> is true when the current bar close is past the <em>pre-update</em> extreme watermark. Detects D→E failure: price swept the prior extreme and kept going.</li>
-    </ul>
+
+    <h3>Group 1 · Expansion extreme tracker <span class="chip">Phase E — core</span></h3>
+    <p>Canonical neutral names. Stateful across bars; reset on epoch boundary.</p>
+    <pre class="block">htf_expansion_direction       "long" | "short"  — matches HTF bias
+htf_expansion_extreme_price   float | None       — running high (long) or low (short)
+htf_expansion_extreme_at      str | None         — timestamp of the current extreme
+htf_expansion_epoch_id        str | None         — same value as htf_pd_epoch_id
+
+# Compatibility aliases (identical values, kept until Layer 4 migrates)
+active_phase_e_direction      ← htf_expansion_direction
+active_phase_e_extreme_price  ← htf_expansion_extreme_price
+active_phase_e_extreme_time   ← htf_expansion_extreme_at</pre>
+
+    <h3>Group 2 · Expansion state <span class="chip">Phase E — stalling gate</span></h3>
+    <p>Whether the current bar extended the running extreme. The primary <code>E.seeking → E.stalling</code> input.</p>
+    <pre class="block">new_htf_extreme          bool  — True when current bar set a new expansion extreme
+htf_pd_stopped_expanding bool  — not new_htf_extreme (E.stalling candidate condition)</pre>
+
+    <h3>Group 3 · Equal-extreme retest <span class="chip">Phase E — EQ pool</span></h3>
+    <p>
+      Whether the current HTF bar retested the previous expansion extreme within EQ tolerance.
+      Checks <code>active_htf_eq_pools</code> for a matching pool.
+      Canonical names use <code>expansion_extreme</code>; <code>phase_e_extreme</code> aliases are kept for Layer 4 compatibility.
+    </p>
+    <pre class="block">htf_equal_extreme_retest            bool        — any EQ retest of the running extreme
+htf_equal_expansion_extreme_kind    str | None  — "htf_eqh_at_expansion_extreme" | "htf_eql_at_expansion_extreme"
+htf_equal_extreme_kind              str | None  — compat alias (phase_e flavour)
+htf_equal_extreme_source            str | None  — "eqh" | "eql"
+htf_equal_extreme_level             float|None  — exact level price
+htf_equal_extreme_pool_id           str | None  — matching pool id if found
+htf_equal_extreme_pool_status       str | None  — pool status from liquidity snapshot
+htf_eqh_at_expansion_extreme        bool        — canonical: EQH retest
+htf_eql_at_expansion_extreme        bool        — canonical: EQL retest
+htf_eqh_at_phase_e_extreme          bool        — compat alias ← htf_eqh_at_expansion_extreme
+htf_eql_at_phase_e_extreme          bool        — compat alias ← htf_eql_at_expansion_extreme</pre>
+
+    <h3>Group 4 · LTF bias <span class="chip">Phase E — counter check</span></h3>
+    <pre class="block">ltf_bias_counter_htf   bool  — True when LTF structural bias is opposite to HTF direction
+                               (bearish LTF vs long HTF, or bullish LTF vs short HTF)</pre>
+
+    <h3>Group 5 · LTF probe vs HTF P/D range <span class="chip">Phase E — pullback depth</span></h3>
+    <p>Tracks where current price sits relative to the HTF P/D <code>range_high</code> / <code>range_low</code>.</p>
+    <pre class="block">ltf_probe_outside_htf_pd_range  bool        — price is beyond HTF P/D boundary
+ltf_probe_direction             str | None  — "pro" (continuing) | "counter" (pulling back)
+ltf_pd_counter_range_breached   bool        — price broke through LTF structure range_low/high
+                                              (LTF P/D floor/ceiling breached counter-HTF)
+ltf_pullback_depth_pct          float|None  — % pullback into HTF P/D span (0 = at objective,
+                                              100 = at source); used for C.hard_pullback gate (≥50)</pre>
+
+    <h3>Group 6 · LTF counter-orderflow <span class="chip">Phase E → E.pullback_developing</span></h3>
+    <p>
+      Reads <code>ltf_orderflow</code> snapshot. The <code>mss_watch</code> flag is the
+      <code>E.stalling → E.pullback_developing</code> gate and the <code>D.speculation → C.pullback</code> gate.
+    </p>
+    <pre class="block">ltf_counter_orderflow_direction              str | None  — "bullish" | "bearish" | None
+ltf_counter_orderflow_mss_watch              bool  — PRIMARY gate: regime=mss_watch +
+                                                     monitor=watching_resolution +
+                                                     trigger=probe_vs_protected_anchor +
+                                                     probe_breaks_protected_anchor all true
+ltf_swing_orderflow_mss_watch                bool  — secondary: mss_watch_confirmed flag
+ltf_counter_orderflow_mss_regime             str   — from orderflow.mss_regime
+ltf_counter_orderflow_mss_monitor_status     str   — from orderflow.mss_monitor_status
+ltf_counter_orderflow_mss_trigger_source     str   — from orderflow.mss_trigger_source
+ltf_counter_orderflow_probe_breaks_protected_anchor  bool
+ltf_counter_orderflow_clean                  bool  — direction==counter + quality=clean + regime=directional
+ltf_counter_orderflow_broken                 bool  — regime=compression/sweep_range or quality=broken
+                                                     or direction flipped back pro
+ltf_counter_orderflow_leg_id                 str|None  — range_ref | protected_anchor_ref | last_shift_at
+ltf_counter_orderflow_started_at             str|None  — orderflow.last_shift_at
+ltf_counter_orderflow_anchor_id              str|None  — target: protected orderflow anchor id
+ltf_counter_orderflow_disruption_id          str|None  — target: live probe / disruption id
+ltf_counter_orderflow_source_store           str|None  — target: "orderflow_anchor_sequence"
+ltf_counter_orderflow_quality                str   — from orderflow.quality
+ltf_counter_orderflow_regime                 str   — from orderflow.regime</pre>
+
+    <div class="rule-block">
+      <b>Target provenance contract:</b> EC must expose enough orderflow lineage for
+      Layer 4 to tell whether a later structural ChoCh is only the close-confirmation
+      of the same MSS disruption that opened <code>E.pullback_developing</code>. The
+      existing <code>leg_id</code> remains a coarse compatibility key; the target keys
+      are anchor id, disruption id, and source store.
+    </div>
+
+    <h3>Group 7 · LTF probe at HTF opposing zone <span class="chip">Phase E — HTF_reaction</span></h3>
+    <p>Whether current price entered a counter-direction HTF SD zone (supply for long, demand for short). Used for the <code>E.HTF_reaction</code> node check.</p>
+    <pre class="block">ltf_probe_at_htf_opposing_zone    bool        — any counter-direction HTF SD zone in_zone==true
+ltf_probe_htf_opposing_zone_id    str | None  — zone_id of the entered zone</pre>
+
+    <h3>Group 8 · Two-bar HTF reaction signal <span class="chip">Phase E → D inception</span></h3>
+    <p>Compares previous HTF bar vs current HTF bar. D-phase inception signal for Layer 4.</p>
+    <pre class="block">reaction_confirmed   bool        — close broke past prior bar's low (long) or high (short)
+reaction_warning     bool        — wick crossed prior extreme but close reversed
+reaction_rule        str | None  — rule label present only when confirmed or warning fires
+                                   "bullish_phase_e_close_below_previous_htf_low"
+                                   "bearish_phase_e_close_above_previous_htf_high"
+
+# Raw bar values (always present when htf_bar available)
+previous_htf_low     float | None
+current_htf_low      float | None
+previous_htf_high    float | None
+current_htf_high     float | None
+current_htf_close    float | None</pre>
+
+    <h3>Group 9 · Reaction-failed <span class="chip">D → E collapse</span></h3>
+    <p>
+      Compared against the <em>pre-update</em> watermark (snapped before
+      <code>_update_htf_expansion_extreme()</code> runs). Detects D→E failure: price swept
+      the prior extreme and the HTF bar closed past it, confirming trend resumption.
+    </p>
+    <pre class="block">reaction_failed       bool        — close past pre-update extreme (long: close > old extreme)
+reaction_failed_rule  str | None  — present only when reaction_failed is true
+                                    "bullish_phase_d_close_above_phase_e_extreme"
+                                    "bearish_phase_d_close_below_phase_e_extreme"</pre>
+
+    <h3>HTF context (location_context)</h3>
+    <pre class="block">htf_phase   str | None  — raw HTF structure phase field (informational)
+htf_bias    str | None  — raw HTF structure bias field (informational)</pre>
 
     <h3>Pre-update extreme ordering</h3>
     <p>
-      A subtle ordering issue: <code>_update_phase_e_extreme()</code> is called before
-      <code>_compile_phase_e_context()</code>, so if both run in the same bar, the extreme is already
-      updated to include the current bar's movement when the context compiler runs.
-      This would cause <code>reaction_failed</code> to compare the close against the current bar's
-      <em>new</em> watermark rather than the <em>previous</em> watermark — always false.
+      <code>_update_htf_expansion_extreme()</code> is called <em>before</em>
+      <code>_compile_htf_expansion_context()</code>.
+      Without a snapshot, <code>reaction_failed</code> would always compare against the
+      <em>just-updated</em> watermark — always false on the new-extreme bar.
+      Fix: extreme is snapped before the update and passed as <code>pre_update_extreme</code>:
     </p>
-    <p>
-      Fix: the extreme is snapped before the update call and passed as <code>pre_update_extreme</code>:
-    </p>
-    <pre class="block">pre_update_extreme = self.active_phase_e_extreme_price      # save before
-self._update_phase_e_extreme(fused, htf_struct, direction, htf_bar)
+    <pre class="block">pre_update_extreme = self.htf_expansion_extreme_price    # snap before
+self._update_htf_expansion_extreme(fused, htf_struct, direction, htf_bar)
 # ...
-phase_e = self._compile_phase_e_context(..., pre_update_extreme=pre_update_extreme)</pre>
+expansion = self._compile_htf_expansion_context(..., pre_update_extreme=pre_update_extreme)</pre>
 
     <div class="rule-block">
-      <code>phase_e_context</code> is the DAG's heartbeat signal for the expansion cycle. It is emitted
-      every bar regardless of whether the other patterns fire. The DAG should read it first to understand
-      the current E-phase state, then interpret the other candidates against it.
+      <code>htf_expansion_context</code> (and its <code>phase_e_context</code> compat copy) are the
+      DAG's heartbeat signal for the expansion cycle. Emitted every bar regardless of other patterns.
+      The DAG reads Group 1–3 to orient phase, Group 6 for the MSS gate, and Group 8–9 for D inception.
     </div>
 
     <!-- ── §08 Algorithm ── -->
@@ -898,7 +1023,7 @@ phase_e = self._compile_phase_e_context(..., pre_update_extreme=pre_update_extre
       <div class="tabbar">
         <button class="on" data-t="0">update() outer loop</button>
         <button data-t="1">_compile_b_initiation()</button>
-        <button data-t="2">_compile_phase_e_context()</button>
+        <button data-t="2">_compile_htf_expansion_context()</button>
       </div>
 <pre class="on"><span class="cm"># EvidenceCompiler.update() — called once per bar</span>
 <span class="hl">def</span> update(self, fused, *, higher_bars=None) -> list[EvidenceCandidate]:
@@ -911,32 +1036,33 @@ phase_e = self._compile_phase_e_context(..., pre_update_extreme=pre_update_extre
     if epoch_id and epoch_id != self.htf_pd_epoch_id:
         self.htf_pd_epoch_id = epoch_id
         self._b_init.reset()
-        self.active_phase_e_direction  = "none"
-        self.active_phase_e_extreme_price = None
+        self._expansion.reset()   <span class="cm"># clears htf_expansion_extreme_price / _at / _direction</span>
 
     htf_bar, htf_prev_bar = _htf_bars_current_and_previous(higher_bars)
     if direction == "none" or htf_struct is None:
         return []
 
-    <span class="cm"># 2. Save extreme BEFORE updating (for reaction_failed)</span>
-    pre_update_extreme = self.active_phase_e_extreme_price
-    self._update_phase_e_extreme(fused, htf_struct, direction, htf_bar)
+    <span class="cm"># 2. Snap extreme BEFORE updating (reaction_failed compares against old watermark)</span>
+    pre_update_extreme = self.htf_expansion_extreme_price
+    self._update_htf_expansion_extreme(fused, htf_struct, direction, htf_bar)
 
-    candidates = []
     <span class="cm"># 3. Run all six pattern compilers</span>
-    for fn in [
-        lambda: self._compile_b_initiation(fused, direction, timestamp),
-        lambda: self._compile_htf_counter_reaction(fused, htf_struct, direction, htf_bar, timestamp),
-        lambda: self._compile_ltf_counter_story(fused, direction, timestamp),
-        lambda: self._compile_htf_b_phase_setup(fused, htf_struct, direction, timestamp),
-        lambda: self._compile_htf_pd_objective(fused, htf_struct, direction, htf_bar, timestamp),
-        lambda: self._compile_phase_e_context(fused, htf_struct, direction,
-                    htf_bar, htf_prev_bar, timestamp,
-                    pre_update_extreme=pre_update_extreme),
-    ]:
-        result = fn()
-        if result is not None:
-            candidates.append(result)
+    candidates = []
+    expansion = self._compile_htf_expansion_context(
+        fused, htf_struct, direction, htf_bar, htf_prev_bar, timestamp,
+        pre_update_extreme=pre_update_extreme,
+    )
+    <span class="cm"># Other five patterns …</span>
+    candidates += [c for c in [
+        self._compile_b_initiation(fused, direction, timestamp),
+        self._compile_htf_counter_reaction(fused, htf_struct, direction, htf_bar, timestamp),
+        self._compile_ltf_counter_story(fused, direction, timestamp),
+        self._compile_htf_b_phase_setup(fused, htf_struct, direction, timestamp),
+        self._compile_htf_pd_objective(fused, htf_struct, direction, htf_bar, timestamp),
+    ] if c is not None]
+    if expansion is not None:
+        candidates.append(expansion)
+        candidates.append(_compat_candidate(expansion, "phase_e_context"))
     return candidates</pre>
 <pre><span class="cm"># Multi-bar accumulator — stateful across bars via _BInitiationState</span>
 <span class="hl">def</span> _compile_b_initiation(self, fused, direction, timestamp):
@@ -978,41 +1104,73 @@ phase_e = self._compile_phase_e_context(..., pre_update_extreme=pre_update_extre
         ],
         ...
     )</pre>
-<pre><span class="cm"># Phase-E emitted every bar when direction is known</span>
-<span class="hl">def</span> _compile_phase_e_context(self, fused, htf_struct, direction,
-                               htf_bar, htf_prev_bar, timestamp,
-                               *, pre_update_extreme=None):
-    <span class="cm"># Two-bar reaction signal</span>
-    reaction_confirmed = reaction_warning = False
-    if htf_bar and htf_prev_bar:
-        if direction == "long":
-            prev_low  = float(htf_prev_bar["low"])
-            cur_low   = float(htf_bar["low"])
-            cur_close = float(htf_bar["close"])
-            <span class="cm"># Bearish bar breaks below previous low — D-phase inception signal</span>
-            reaction_confirmed = cur_low &lt; prev_low and cur_close &lt; prev_low
-            reaction_warning   = cur_low &lt; prev_low and cur_close >= prev_low
+<pre><span class="cm"># Neutral expansion context — emitted every bar when direction is known</span>
+<span class="hl">def</span> _compile_htf_expansion_context(self, fused, htf_struct, direction,
+                                     htf_bar, htf_prev_bar, timestamp,
+                                     *, pre_update_extreme=None):
+    <span class="cm"># ── Group 4 · LTF bias ──────────────────────────────────────────</span>
+    ltf_bias_counter = ltf_struct.get("bias") == counter_ltf_bias
 
-    <span class="cm"># Reaction-failed against PRE-UPDATE watermark</span>
-    reaction_failed = False
-    if htf_bar and pre_update_extreme is not None:
-        close = float(htf_bar["close"])
-        if direction == "long":
-            reaction_failed = close > pre_update_extreme
-            <span class="cm"># close above previous E-extreme → D-phase failed, trend resumed</span>
+    <span class="cm"># ── Group 5 · LTF probe vs HTF P/D range ───────────────────────</span>
+    ltf_pullback_depth_pct = _clamp_pct(((range_high - price) / span) * 100)  <span class="cm"># long</span>
+    ltf_probe_outside_htf_pd_range = price > range_high or price < range_low
+    ltf_probe_direction = "pro" | "counter" | None
+
+    <span class="cm"># ── Group 6 · LTF counter-orderflow ────────────────────────────</span>
+    ltf_counter_orderflow_mss_watch = (
+        confirmed_direction == pro_ltf_bias
+        and mss_regime == "mss_watch"
+        and monitor_status == "watching_resolution"
+        and trigger_source == "probe_vs_protected_anchor"
+        and probe_breaks_protected_anchor
+    )
+
+    <span class="cm"># ── Group 7 · HTF opposing zone ────────────────────────────────</span>
+    _opp_zone_entered = any(z["in_zone"] for z in _htf_opp_zones)
+
+    <span class="cm"># ── Group 8 · Two-bar reaction signal ──────────────────────────</span>
+    if direction == "long":
+        reaction_confirmed = cur_close < prev_low   <span class="cm"># D-phase inception</span>
+        reaction_warning   = cur_low   < prev_low   <span class="cm"># wick only</span>
+
+    <span class="cm"># ── Group 9 · Reaction-failed (PRE-UPDATE watermark) ───────────</span>
+    if direction == "long":
+        reaction_failed = close > pre_update_extreme   <span class="cm"># D→E collapse</span>
+
+    <span class="cm"># ── Group 2–3 · Expansion state + equal extreme ─────────────────</span>
+    new_extreme = self._new_htf_expansion_extreme(direction, htf_bar, pre_update_extreme)
+    equal_extreme = self._htf_expansion_equal_extreme_facts(...)  <span class="cm"># 11 keys</span>
 
     return EvidenceCandidate(
-        pattern  = "phase_e_context",
-        status   = <span class="hl">"ready"</span>,
+        pattern = <span class="hl">"htf_expansion_context"</span>,
+        status  = <span class="hl">"ready"</span>,
         debug_facts = {
-            "active_phase_e_extreme_price": self.active_phase_e_extreme_price,
-            "new_htf_extreme":    self._new_phase_e_extreme(direction, htf_bar),
-            "reaction_confirmed": reaction_confirmed,
-            "reaction_warning":   reaction_warning,
-            <span class="hl">"reaction_failed"</span>:   reaction_failed,
-            ...
+            <span class="cm"># Group 1 — canonical + compat aliases</span>
+            "htf_expansion_direction":      self.htf_expansion_direction,
+            "htf_expansion_extreme_price":  self.htf_expansion_extreme_price,
+            "htf_expansion_extreme_at":     self.htf_expansion_extreme_at,
+            "htf_expansion_epoch_id":       self.htf_pd_epoch_id,
+            "active_phase_e_direction":     self.active_phase_e_direction,   <span class="cm"># compat</span>
+            "active_phase_e_extreme_price": self.active_phase_e_extreme_price, <span class="cm"># compat</span>
+            "active_phase_e_extreme_time":  self.active_phase_e_extreme_time,  <span class="cm"># compat</span>
+            <span class="cm"># Group 2</span>
+            "new_htf_extreme":          new_extreme,
+            "htf_pd_stopped_expanding": not new_extreme,
+            <span class="cm"># Group 3 (11 keys from **equal_extreme spread)</span>
+            **equal_extreme,
+            <span class="cm"># Groups 4–9 …</span>
+            "ltf_bias_counter_htf":     ltf_bias_counter,
+            <span class="hl">"ltf_counter_orderflow_mss_watch"</span>: ltf_counter_orderflow_mss_watch,
+            "ltf_probe_at_htf_opposing_zone": _opp_zone_entered,
+            "ltf_pullback_depth_pct":   ltf_pullback_depth_pct,
+            "reaction_confirmed":       reaction_confirmed,
+            "reaction_warning":         reaction_warning,
+            <span class="hl">"reaction_failed"</span>:          reaction_failed,
+            <span class="cm"># … (see full source for all 51 keys)</span>
         }, ...
-    )</pre>
+    )
+<span class="cm"># Immediately after: compat copy for Layer 4</span>
+candidates.append(_compat_candidate(expansion, <span class="hl">"phase_e_context"</span>))</pre>
     </div>
 
     <h3>Wire-up in dual_smc</h3>

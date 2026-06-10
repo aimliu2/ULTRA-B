@@ -471,11 +471,11 @@ controlled chase permission becomes possible</pre>
     <p>The point source is intentionally different by timeframe. LTF is used for execution posture, so it starts cleaner. HTF is used for macro posture, so regular ITR should be enough.</p>
 
     <details open>
-      <summary>LTF · structure sequence <span class="where">initial policy</span></summary>
+      <summary>LTF · orderflow anchor sequence <span class="where">target policy</span></summary>
       <div class="body">
-        <p>LTF orderflow uses <code>structure_sequence</code> plus <code>structure_probe</code> produced by every active Structure Context instance. Confirmed pivots are labeled as anchor swing points (HH/HL/LH/LL) by the orderflow engine — these are an orderflow concept, not the same as the raw source events.</p>
-        <pre class="block">LTF source = structure_sequence + structure_probe
-shape = last 8 confirmed structure points + 1 live probe
+        <p>LTF orderflow owns a separate <code>orderflow_anchor_sequence</code> plus <code>orderflow_probe</code>. The store may be derived from filtered structure pivots during migration, but it must emit separate IDs and provenance from <code>structure_sequence</code>. This prevents the same structural range floor from opening <code>E.pullback_developing</code> as an MSS probe and then opening <code>D.watch</code> as a later structural ChoCh.</p>
+        <pre class="block">LTF source = orderflow_anchor_sequence + orderflow_probe
+shape = last N confirmed orderflow anchor swings + 1 live probe
 questions:
   current leg = impulse | pullback | anchor_threat | broken | unknown
   probe relation = near protected anchor | reclaiming | breaking away
@@ -516,7 +516,11 @@ questions:
 SB / ChoCh → structure channel → reads ITR / LTR anchors
 
 "LTF MSS then LTF SB" = two reads from two channels — no ambiguity.</pre>
-        <p>The orderflow swing sequence happens to be built from confirmed LTF structure pivots stored in the State Store, but that is an implementation detail. Conceptually, orderflow owns its own sequence; the event name is the routing key.</p>
+        <p>Previous implementation used <code>structure_sequence</code> directly as the LTF
+        orderflow source. That blurred provenance: one structural low could be both the
+        protected orderflow HL for MSS and the structural floor for ChoCh. The target
+        contract makes the separation explicit in storage and EC provenance, not just in
+        naming.</p>
       </div>
     </details>
 
@@ -532,11 +536,12 @@ State Store:
   retains structure_sequence for every active StructureEngine instance
   keeps last 8 confirmed structure points by default
   exposes recent_structure_sequence_points and structure_probe
-  LTF and HTF both retain structure sequences unless that structure context is disabled
+  retains orderflow_anchor_sequence separately from structure_sequence
+  exposes orderflow_probe separately from structure_probe
 
 Orderflow Context:
   is a separate Layer 3 context channel
-  consumes structure_sequence + structure_probe on LTF by default
+  consumes orderflow_anchor_sequence + orderflow_probe on LTF
   consumes itr_sequence on HTF by default
   owns BoS / MSS over swing-point or pivot-sequence anchors
   maintains direction, live pressure, MSS monitor, protected refs
@@ -774,8 +779,8 @@ if confirmed_direction == "bullish":
     </div>
 
     <h3>Layer handoff</h3>
-    <pre class="block">State Store structure_sequence
-+ Structure-projected structure_probe
+    <pre class="block">State Store orderflow_anchor_sequence
+  + orderflow_probe
 -> Orderflow Context
 -> State Store orderflow object
 -> Interpreter projects OrderflowSnapshot
@@ -784,7 +789,7 @@ if confirmed_direction == "bullish":
 -> Layer 4 may use it as context, not verdict</pre>
 
     <h2 id="config"><span class="sec-num">06</span> Config</h2>
-    <p>There is no committed <code>orderflow:</code> config block yet. The existing config already exposes the structure tier, pivot tiers, and structure sequence retention limit that Orderflow will consume.</p>
+    <p>The current runtime still defaults to <code>source = "structure_sequence"</code>. The target config below introduces an explicit orderflow anchor store so the orderflow source is not the structural SB / ChoCh sequence.</p>
 
     <div class="tabs" data-tabs>
       <div class="tabbar">
@@ -805,13 +810,19 @@ pivot_events:
 structure:
   enabled: true
   tier: "itr"          <span class="cm"># "itr" default, or "ltr"</span>
-  structure_sequence_limit: 8</pre>
+  structure_sequence_limit: 8
+
+orderflow:
+  enabled: true
+  source: "orderflow_anchor_sequence"
+  orderflow_anchor_sequence_limit: 8</pre>
 <pre><span class="cm"># proposed future block</span>
 orderflow:
   enabled: true
   window_size: 6
   probe_points: 8
-  higher_timeframe_source: itr_sequence  <span class="cm"># LTF is fixed to structure_sequence</span>
+  lower_timeframe_source: orderflow_anchor_sequence
+  higher_timeframe_source: itr_sequence
   mss_monitor:
     enabled: true
     require_decision_point: true
@@ -824,8 +835,7 @@ self.enabled = bool(cfg.get("enabled", True))
 self.window_size = int(cfg.get("window_size", 6))
 self.probe_points = int(cfg.get("probe_points", 8))
 
-<span class="cm"># LTF source is fixed; only HTF source is configurable</span>
-self.lower_source = "structure_sequence"
+self.lower_source = cfg.get("lower_timeframe_source", "orderflow_anchor_sequence")
 self.higher_source = cfg.get("higher_timeframe_source", "itr_sequence")
 
 monitor_cfg = cfg.get("mss_monitor", {})
@@ -836,8 +846,16 @@ self.require_decision_point = bool(monitor_cfg.get("require_decision_point", Tru
     <h2 id="issues"><span class="sec-num">07</span> Open Issues · Edge Cases · Next Milestone</h2>
     <div class="issue-grid">
       <div class="issue-card">
-        <div class="issue-label">Resolved · Naming Reconcile</div>
-        <p><b>MSS and SB/ChoCh are separate channels.</b> <b>Structural SB / ChoCh</b> (<code>last_sc.choch</code>, <code>structureEngine.py</code>) is a close-through event over ITR/LTR anchors — one bar, immediate. <b>Orderflow MSS</b> fires when the live probe breaks the latest confirmed <b>HL</b> (bullish) or <b>LH</b> (bearish) in the orderflow swing sequence. The event name is the routing key: MSS → read orderflow; SB/ChoCh → read structure. The same visual move can create a structural SB first and an orderflow BoS later; those are separate facts. EC's <code>ltf_counter_choch</code> reads the structural event for Phase D chronology. <code>mss_watch_confirmed</code> is emitted when a confirmed counter-pivot exists in the orderflow sequence — additional context, not the MSS gate.</p>
+        <div class="issue-label">Migration · Reopened</div>
+        <p><b>MSS and SB/ChoCh need separate stores, not only separate names.</b>
+        <b>Structural SB / ChoCh</b> (<code>last_sc.choch</code>, <code>structureEngine.py</code>)
+        is a close-through event over ITR/LTR anchors. <b>Orderflow MSS</b> fires when
+        the live probe breaks the latest confirmed <b>HL</b> (bullish) or <b>LH</b>
+        (bearish) in the orderflow anchor sequence. Runtime must expose
+        <code>orderflow_anchor_sequence</code> / <code>orderflow_probe</code> with distinct
+        provenance from <code>structure_sequence</code> / <code>structure_probe</code>. EC's
+        <code>ltf_counter_choch</code> remains structural chronology; EC's MSS facts remain
+        orderflow chronology.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Open Issue</div>

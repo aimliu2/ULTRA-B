@@ -239,6 +239,45 @@ def _structure_choch_seen(last_sc: dict[str, Any]) -> bool:
     return _structure_event_action(last_sc) == "structure_choch"
 
 
+def _structure_ichoch_seen(last_isc: dict[str, Any]) -> bool:
+    action = str(last_isc.get("eventAction") or "")
+    if action == "structure_ichoch":
+        return True
+    return last_isc.get("structure_ichoch") is True
+
+
+def _structure_event_id(last_sc: dict[str, Any]) -> str | None:
+    explicit = last_sc.get("event_id") or last_sc.get("eventId")
+    if explicit:
+        return str(explicit)
+    event_code = last_sc.get("eventCode")
+    event_at = last_sc.get("eventTimestamp")
+    direction = last_sc.get("breakDirection")
+    level = last_sc.get("levelPrice")
+    if not (event_code and event_at and direction):
+        return None
+    return ":".join(
+        [
+            str(event_code),
+            str(event_at),
+            str(direction),
+            str(level) if level is not None else "NA",
+        ]
+    )
+
+
+def _structure_source_level_id(last_sc: dict[str, Any]) -> str | None:
+    explicit = last_sc.get("source_level_id") or last_sc.get("level_id") or last_sc.get("levelId")
+    if explicit:
+        return str(explicit)
+    level_ts = last_sc.get("levelTimestamp")
+    level_side = last_sc.get("levelSide")
+    level_price = last_sc.get("levelPrice")
+    if not (level_ts and level_side and level_price is not None):
+        return None
+    return ":".join(["structure_level", str(level_side), str(level_ts), str(level_price)])
+
+
 def _htf_zones(fused: dict[str, Any]) -> list[dict[str, Any]]:
     return _htf_ctx(fused).get("zones") or []
 
@@ -1239,20 +1278,35 @@ class EvidenceCompiler:
         timestamp: str | None,
     ) -> EvidenceCandidate | None:
         ltf_struct = _ltf_struct(fused) or {}
-        last_sc = ltf_struct.get("last_sc") or {}
-        if not last_sc:
+        last_isc = ltf_struct.get("last_isc") or {}  # internal iChoCh (SC06) — primary
+        last_sc  = ltf_struct.get("last_sc")  or {}  # macro SC — kept for sb_seen fallback
+        if not last_isc and not last_sc:
             return None
 
         ltf_label = _execution_tf(fused)
         expected_counter_break = "down" if direction == "long" else "up"
 
+        # PRIMARY: internal iChoCh (SC06) against confirmed ITR pivot
         choch_seen = bool(
-            _structure_choch_seen(last_sc)
+            _structure_ichoch_seen(last_isc)
+            and last_isc.get("breakDirection") == expected_counter_break
+        )
+        choch_at              = last_isc.get("eventTimestamp")      if choch_seen else None
+        choch_level           = last_isc.get("levelPrice")          if choch_seen else None
+        choch_direction       = last_isc.get("breakDirection")      if choch_seen else None
+        choch_event_id        = _structure_event_id(last_isc)       if choch_seen else None
+        choch_source_level_id = _structure_source_level_id(last_isc) if choch_seen else None
+
+        # FALLBACK: macro counter SB from last_sc (Path B — pullback_confirmed gate in DAG)
+        sb_seen = bool(
+            not choch_seen
+            and _structure_event_action(last_sc) == "structure_sb"
             and last_sc.get("breakDirection") == expected_counter_break
         )
-        choch_at = last_sc.get("eventTimestamp") if choch_seen else None
-        choch_level = last_sc.get("levelPrice") if choch_seen else None
-        choch_direction = last_sc.get("breakDirection") if choch_seen else None
+        sb_level           = last_sc.get("levelPrice")      if sb_seen else None
+        sb_at              = last_sc.get("eventTimestamp")  if sb_seen else None
+        sb_event_id        = _structure_event_id(last_sc)   if sb_seen else None
+        sb_source_level_id = _structure_source_level_id(last_sc) if sb_seen else None
 
         return EvidenceCandidate(
             candidate_id=uuid4().hex,
@@ -1263,7 +1317,7 @@ class EvidenceCompiler:
             evidence_refs=[],
             source_object_refs=[],
             location_context={"timestamp": timestamp, "current_price": _current_price(fused)},
-            blocked_reasons=[] if choch_seen else ["no_ltf_counter_choch"],
+            blocked_reasons=[] if choch_seen else ["no_ltf_counter_ichoch"],
             first_seen_at=choch_at,
             ready_at=timestamp if choch_seen else None,
             debug_facts={
@@ -1272,6 +1326,15 @@ class EvidenceCompiler:
                 "ltf_counter_choch_event_at": choch_at,
                 "ltf_counter_choch_direction": choch_direction,
                 "ltf_counter_choch_level": choch_level,
+                "ltf_counter_choch_event_id": choch_event_id,
+                "ltf_counter_choch_source_level_id": choch_source_level_id,
+                "ltf_counter_choch_source_store": "structure_isc" if choch_seen else None,
+                "ltf_counter_sb_seen": sb_seen,
+                "ltf_counter_sb_level": sb_level,
+                "ltf_counter_sb_event_at": sb_at,
+                "ltf_counter_sb_event_id": sb_event_id,
+                "ltf_counter_sb_source_level_id": sb_source_level_id,
+                "ltf_counter_sb_source_store": "structure_sequence" if sb_seen else None,
             },
         )
 
@@ -1647,6 +1710,15 @@ class EvidenceCompiler:
             or ltf_orderflow.get("last_shift_at")
         )
         ltf_counter_orderflow_started_at = ltf_orderflow.get("last_shift_at")
+        ltf_counter_orderflow_anchor_id = ltf_orderflow.get("protected_anchor_ref")
+        ltf_counter_orderflow_disruption_id = (
+            ltf_orderflow.get("disruption_point_ref")
+            or ltf_orderflow.get("probe_ref")
+        )
+        ltf_counter_orderflow_source_store = (
+            ltf_orderflow.get("source_store")
+            or ltf_orderflow.get("source")
+        )
         current_price = _current_price(fused)
         range_high = htf_struct.get("range_high")
         range_low = htf_struct.get("range_low")
@@ -1682,6 +1754,20 @@ class EvidenceCompiler:
                     ltf_pd_counter_range_breached = price > float(ltf_range_high)
             except (TypeError, ValueError):
                 pass
+
+        # HTF opposing zone probe — only meaningful during active expansion (new_htf_extreme guard
+        # applied after new_extreme is computed below; set defaults here, updated after).
+        _htf_label_ec = _reference_tf(fused)
+        _opposing_dir = "supply" if direction == "long" else "demand"
+        _htf_opp_zones = [
+            z for z in _htf_zones(fused)
+            if z.get("direction") == _opposing_dir and _zone_tf(z) == _htf_label_ec
+        ]
+        _opp_zone_entered = any(bool(z.get("in_zone")) for z in _htf_opp_zones)
+        _opp_zone_id: str | None = next(
+            (str(z["zone_id"]) for z in _htf_opp_zones if bool(z.get("in_zone")) and z.get("zone_id")),
+            None,
+        )
 
         # Two-bar reaction signal (previous HTF bar vs current HTF bar close)
         reaction_confirmed = False
@@ -1778,8 +1864,13 @@ class EvidenceCompiler:
                 "ltf_counter_orderflow_broken": ltf_counter_orderflow_broken,
                 "ltf_counter_orderflow_leg_id": ltf_counter_orderflow_leg_id,
                 "ltf_counter_orderflow_started_at": ltf_counter_orderflow_started_at,
+                "ltf_counter_orderflow_anchor_id": ltf_counter_orderflow_anchor_id,
+                "ltf_counter_orderflow_disruption_id": ltf_counter_orderflow_disruption_id,
+                "ltf_counter_orderflow_source_store": ltf_counter_orderflow_source_store,
                 "ltf_counter_orderflow_quality": orderflow_quality,
                 "ltf_counter_orderflow_regime": orderflow_regime,
+                "ltf_probe_at_htf_opposing_zone": _opp_zone_entered,
+                "ltf_probe_htf_opposing_zone_id": _opp_zone_id if _opp_zone_entered else None,
                 "ltf_pullback_depth_pct": ltf_pullback_depth_pct,
                 "reaction_confirmed": reaction_confirmed,
                 "reaction_warning": reaction_warning,

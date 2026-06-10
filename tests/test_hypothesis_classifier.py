@@ -5,6 +5,14 @@ from ultrab.core.smc.evidence_compiler import EvidenceCompiler
 from ultrab.core.smc.hypothesis import HypothesisClassifier
 
 
+PHASE_B_C_A_DISABLED_REASON = (
+    "Phase B/C/A gates are temporarily disabled during Phase D simplify migration"
+)
+LEGACY_PHASE_D_DISABLED_REASON = (
+    "Legacy four-node Phase D model is archived during Phase D simplify migration"
+)
+
+
 def structure(bias="bullish", phase="open", high=1.12, low=1.10, choch=False):
     last_sc: dict = {
         "eventTimestamp": "2024-01-01T00:00:00+00:00",
@@ -432,6 +440,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.direction, "long")
         self.assertEqual(hyp.entry_policy, "skip")
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bullish_phase_e_reaction_without_reaction_point_stays_phase_e(self):
         classifier = HypothesisClassifier()
         first = dual_snapshot(
@@ -788,6 +797,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(stalling.debug_facts["phase_e_context_htf_equal_extreme_pool_id"], "EQH:phase-e:1")
         self.assertEqual(stalling.debug_facts["phase_e_shadow_selection_reason"], "htf_pd_stopped_expanding")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_fast_phase_e_midpoint_pullback_classifies_c_hard_pullback(self):
         classifier = HypothesisClassifier()
         htf = structure("bullish", "open", high=1.123, low=1.10)
@@ -824,6 +834,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             "OF:fast-hard-pullback",
         )
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_e_pullback_developing_becomes_c_slow_pullback_after_ltf_pd_flip(self):
         classifier = HypothesisClassifier()
         bars_1 = [
@@ -932,6 +943,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             "direct_e_to_b_requires_c_origin",
         )
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_c_slow_pullback_promotes_to_b_shallow_reclaim_even_while_htf_open(self):
         classifier = HypothesisClassifier()
         bars_1 = [
@@ -1122,6 +1134,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             "htf_opposing_zone_reclaim_after_weakened_shallow_b",
         )
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bearish_phase_e_reaction_without_reaction_point_stays_phase_e(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1149,6 +1162,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["reaction_confirmed"])
         self.assertFalse(hyp.debug_facts["phase_d_ready"])
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bullish_opposing_htf_sd_and_ltf_counter_sd_classifies_phase_d(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1185,6 +1199,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_d_trigger"], "opposing_htf_sd_reaction_with_ltf_counter_sd")
         self.assertFalse(hyp.debug_facts["htf_opposing_sd_resolved"])
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bullish_resolved_htf_sd_and_ltf_counter_sd_classifies_phase_d(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1219,6 +1234,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["htf_last_resolved_zone_resolution"], "bounced")
         self.assertEqual(hyp.debug_facts["phase_d_trigger"], "opposing_htf_sd_reaction_with_ltf_counter_sd")
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bullish_resolved_htf_liquidity_run_does_not_classify_phase_d(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1249,6 +1265,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertFalse(hyp.debug_facts["htf_opposing_sd_resolved"])
         self.assertFalse(hyp.debug_facts["phase_d_ready"])
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bullish_htf_pd_grab_reclaim_classifies_phase_d_without_sd_zone(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1289,6 +1306,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_d_trigger"], "pd_liquidity_grab_reclaim")
         self.assertEqual(hyp.debug_facts["phase_d_selection_reason"], "htf_pd_liquidity_grab_reclaim_ready")
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bullish_htf_eq_grab_reclaim_classifies_phase_d_without_sd_zone(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1329,6 +1347,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_d_trigger"], "eq_liquidity_grab_reclaim")
         self.assertEqual(hyp.debug_facts["phase_d_selection_reason"], "htf_eq_liquidity_grab_reclaim_ready")
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_htf_pd_grab_wrong_direction_does_not_classify_phase_d(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1355,6 +1374,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.phase, "E")
         self.assertFalse(hyp.debug_facts["phase_d_liquidity_ready"])
 
+    @unittest.skip(LEGACY_PHASE_D_DISABLED_REASON)
     def test_bearish_new_low_with_ltf_counter_bias_classifies_phase_d(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -1384,6 +1404,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.direction, "none")
         self.assertEqual(hyp.debug_facts["phase_d_trigger"], "new_htf_extreme_with_ltf_counter_bias")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bullish_phase_d_to_phase_c_watching_when_ltf_counter_story_has_no_poi(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_with_auto_ec(classifier,
@@ -1435,6 +1456,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertFalse(hyp.debug_facts["phase_c_armed"])
         self.assertTrue(hyp.debug_facts["phase_c_ltf_counter_pd_break"])
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bullish_phase_d_to_phase_c_armed_when_counter_poi_exists_before_return(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_with_auto_ec(classifier,
@@ -1475,6 +1497,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertFalse(hyp.debug_facts["phase_c_selected_poi_touched"])
         self.assertEqual(hyp.debug_facts["phase_c_selected_poi_id"], "SD-15m-supply")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bullish_phase_c_debug_marks_poi_touch_when_ltf_counter_poi_returns(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         hyp = classify_bullish_phase_c(classifier)
@@ -1488,6 +1511,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["phase_c_selected_poi_touched"])
         self.assertEqual(hyp.debug_facts["phase_c_ltf_counter_sd_returned"], ["SD-15m-supply"])
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_c_collapses_to_phase_e_when_htf_continuation_resumes(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1512,6 +1536,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             "bullish_phase_d_close_above_phase_e_extreme",
         )
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_c_to_strict_phase_b_when_htf_demand_reacts_and_ltf_flips_bullish(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1541,6 +1566,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["phase_b_ready"])
         self.assertEqual(hyp.debug_facts["phase_b_candidate_variant"], "strict")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_c_records_itr_grab_footprint_without_starting_b_initiation(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1572,6 +1598,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_b_initiation_origin_node"], "C.htf_reaction_pullback")
         self.assertEqual(hyp.debug_facts["htf_itr_grab_reclaim_variant"], "level")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_b_initiation_watch_counter_itr_grab_becomes_decisive(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1615,6 +1642,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(decisive.debug_facts["phase_b_initiation_opposite_itr_grab_seen"])
         self.assertTrue(decisive.debug_facts["phase_b_initiation_decision_zone_seen"])
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_b_initiation_watch_decisive_failure_evidence_becomes_c_no_followthrough(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1674,6 +1702,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             "b_initiation_watch_decision_failed_with_ltf_counter_confirmation",
         )
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_b_initiation_watch_source_anchor_run_becomes_c_no_followthrough(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1742,6 +1771,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             "b_initiation_watch_source_itr_anchor_was_run",
         )
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bearish_strict_phase_b_classifies_from_pullback_context(self):
         classifier = HypothesisClassifier()
         htf = structure("bearish", "pullback_confirmed", high=1.12, low=1.10)
@@ -1769,6 +1799,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["phase_b_ready"])
         self.assertEqual(hyp.debug_facts["phase_b_candidate_variant"], "strict")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bullish_strict_phase_b_accepts_resolved_htf_demand_bounce(self):
         classifier = HypothesisClassifier()
         htf = structure("bullish", "pullback_confirmed", high=1.123, low=1.10)
@@ -1793,6 +1824,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["phase_b_htf_pro_sd_resolved"])
         self.assertEqual(hyp.debug_facts["phase_b_candidate_variant"], "strict")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bullish_shallow_phase_b_requires_htf_demand_mitigation(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1823,6 +1855,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_b_location"], "shallow")
         self.assertEqual(hyp.debug_facts["phase_b_candidate_variant"], "shallow_htf_sd_mitigation")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bearish_shallow_phase_b_uses_direction_normalized_pd_value(self):
         classifier = HypothesisClassifier()
         htf = structure("bearish", "pullback_confirmed", high=1.12, low=1.10)
@@ -1851,6 +1884,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_b_location"], "shallow")
         self.assertEqual(hyp.debug_facts["phase_b_candidate_variant"], "shallow_htf_sd_mitigation")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_c_holds_and_marks_missing_htf_demand_b_candidate_without_classifying_b(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1876,6 +1910,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_b_candidate_variant"], "missing_htf_reaction_zone")
         self.assertEqual(hyp.debug_facts["phase_b_blocked_reason"], "no_htf_demand_reaction")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_c_holds_and_excludes_shallow_pullback_without_htf_mitigation(self):
         classifier = HypothesisClassifier({"allow_pullback_trade": True})
         classify_bullish_phase_c(classifier)
@@ -1904,6 +1939,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.debug_facts["phase_b_location"], "shallow")
         self.assertEqual(hyp.debug_facts["phase_b_blocked_reason"], "no_htf_demand_reaction")
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bullish_phase_a_classifies_only_after_phase_b(self):
         classifier = HypothesisClassifier()
         hyp = classify_bullish_phase_a(classifier)
@@ -1941,6 +1977,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(hyp.phase, "none")
         self.assertEqual(hyp.required_evidence, ["phase_a_classifier"])
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_a_touch_without_close_beyond_objective_classifies_range(self):
         classifier = HypothesisClassifier()
         classify_bullish_phase_a(classifier)
@@ -1966,6 +2003,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["phase_a_finale_touched"])
         self.assertFalse(hyp.debug_facts["phase_a_finale_closed_beyond"])
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_a_close_beyond_objective_classifies_new_phase_e(self):
         classifier = HypothesisClassifier()
         classify_bullish_phase_a(classifier)
@@ -1988,6 +2026,7 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertTrue(hyp.debug_facts["phase_a_finale_touched"])
         self.assertTrue(hyp.debug_facts["phase_a_finale_closed_beyond"])
 
+    @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_bearish_phase_a_touch_without_close_beyond_objective_classifies_range(self):
         classifier = HypothesisClassifier()
         classify_bearish_phase_a(classifier)

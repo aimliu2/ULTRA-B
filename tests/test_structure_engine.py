@@ -116,7 +116,7 @@ class StructureEngineRangeTests(unittest.TestCase):
 
         self.assertEqual(last_sc["eventName"], "itrSbUp")
         self.assertEqual(last_sc["targetEventName"], "itrSbUp")
-        self.assertEqual(last_sc["runtimeAlias"], "itrBosUp")
+        self.assertEqual(last_sc["runtimeAlias"], "itrSbUp")
         self.assertEqual(last_sc["eventAction"], "structure_sb")
         self.assertTrue(last_sc["structure_sb"])
         self.assertFalse(last_sc["structure_choch"])
@@ -181,7 +181,12 @@ class StructureEngineRangeTests(unittest.TestCase):
         events = step(engine, 2, 11, 13, 10, 12.8, pivots=[pe("PE03", 2, 12.5)])
 
         snapshot = engine.get_snapshot(12.8)
-        self.assertEqual(events, [])
+        # No macro SC (SC01-SC04) fires — warmup registry no longer drives structure.
+        # A new post-warmup PE03 at 12.5 arrived; close=12.8 broke it → SC05 iSb fires.
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].event_code, "SC05")
+        self.assertEqual(events[0].event_name, "itrISb")
+        self.assertFalse(events[0].choch)
         self.assertEqual(snapshot["phase"], "pullback_confirmed")
         self.assertEqual(snapshot["range_high"], 13)
         self.assertEqual(snapshot["confirmed_by"], "itr")
@@ -211,6 +216,17 @@ class StructureEngineRangeTests(unittest.TestCase):
         self.assertEqual(initial["structure_anchor_sequence"], initial["structure_sequence"])
         self.assertEqual(initial["recent_structure_anchor_points"], initial["structure_sequence"])
         self.assertEqual(initial["structure_anchor_probe"], initial["structure_probe"])
+        self.assertEqual(len(initial["orderflow_anchor_sequence"]), 1)
+        self.assertTrue(initial["orderflow_anchor_sequence"][0]["point_id"].startswith("OFANCH:"))
+        self.assertEqual(
+            initial["orderflow_anchor_sequence"][0]["source_structure_point_id"],
+            initial["structure_sequence"][0]["point_id"],
+        )
+        self.assertTrue(initial["orderflow_probe"]["point_id"].startswith("OFPROBE:"))
+        self.assertEqual(
+            initial["orderflow_probe"]["source_structure_probe_id"],
+            initial["structure_probe"]["point_id"],
+        )
 
         step(engine, 2, 11, 15, 10, 14)
         step(engine, 3, 14, 14.2, 12, 13, pivots=[pe("PE03", 3, 13)])
@@ -222,6 +238,7 @@ class StructureEngineRangeTests(unittest.TestCase):
         )
         self.assertEqual(pullback["recent_structure_sequence_points"], pullback["structure_sequence"])
         self.assertEqual(pullback["recent_structure_anchor_points"], pullback["structure_sequence"])
+        self.assertEqual(pullback["recent_orderflow_anchor_points"], pullback["orderflow_anchor_sequence"])
         self.assertEqual(pullback["structure_probe"]["side"], "low")
         self.assertEqual(pullback["structure_probe"]["role"], "pullback_probe")
         self.assertEqual(pullback["structure_probe"]["price"], 12)
@@ -255,7 +272,7 @@ class StructureEngineRangeTests(unittest.TestCase):
         self.assertEqual(snapshot["last_sc"]["eventAction"], "structure_choch")
         self.assertEqual(snapshot["last_sc"]["eventName"], "itrSbDown")
         self.assertEqual(snapshot["last_sc"]["targetEventName"], "itrSbDown")
-        self.assertEqual(snapshot["last_sc"]["runtimeAlias"], "itrBosDown")
+        self.assertEqual(snapshot["last_sc"]["runtimeAlias"], "itrSbDown")
         self.assertNotIn("choach", snapshot["last_sc"])
         self.assertEqual(
             [(p["side"], p["role"], p["price"]) for p in snapshot["structure_sequence"]],
@@ -302,6 +319,164 @@ class StructureEngineRangeTests(unittest.TestCase):
         self.assertEqual(failed["status"], "failed")
         self.assertEqual(failed["failure_reason"], "traded_below_itr_low")
         self.assertTrue(failed["anchor_level_id"].startswith("PE04:"))
+
+
+class StructureEngineInternalSCTests(unittest.TestCase):
+    """SC05–SC08: internal iSb / iChoCh against confirmed ITR/LTR pivot levels."""
+
+    # ── bullish iSb (SC05) ────────────────────────────────────────────
+
+    def test_isb_fires_on_new_hh_itr_high(self):
+        engine = warm_bullish_engine()
+        # New PE03@12 (HH vs warmup PE03@10), close=12.5 breaks it.
+        events = step(engine, 2, 11, 13, 10, 12.5, pivots=[pe("PE03", 2, 12)])
+        isc = next((e for e in events if e.event_code == "SC05"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrISb")
+        self.assertFalse(isc.choch)
+        self.assertFalse(isc.bias_flip)
+        self.assertTrue(isc.is_internal)
+        self.assertEqual(isc.to_dict()["eventAction"], "structure_isb")
+
+    def test_isb_blocked_when_new_itr_high_is_lh(self):
+        engine = warm_bullish_engine()
+        # PE03@8 is a LH (8 < warmup PE03@10) — iSb must not fire.
+        events = step(engine, 2, 9, 9.5, 7, 8.5, pivots=[pe("PE03", 2, 8)])
+        self.assertFalse(any(e.event_code == "SC05" for e in events))
+
+    def test_isb_dedup_same_level_fires_once(self):
+        engine = warm_bullish_engine()
+        # Bar 2: new PE03@12 arrives, close breaks it → SC05.
+        step(engine, 2, 11, 13, 10, 12.5, pivots=[pe("PE03", 2, 12)])
+        # Bar 3: same PE03@12 still latest level, close still above it.
+        events = step(engine, 3, 12.5, 13.2, 11.5, 12.8)
+        self.assertFalse(any(e.event_code == "SC05" for e in events))
+
+    def test_isb_resets_on_new_hh_pe(self):
+        engine = warm_bullish_engine()
+        step(engine, 2, 11, 13, 10, 12.5, pivots=[pe("PE03", 2, 12)])  # SC05 fires, consumed
+        # Bar 3: new PE03@14 (HH vs 12) — fresh level, close breaks it → SC05 again.
+        events = step(engine, 3, 12.5, 15, 12, 14.5, pivots=[pe("PE03", 3, 14)])
+        self.assertTrue(any(e.event_code == "SC05" for e in events))
+
+    def test_warmup_pivot_does_not_trigger_isb(self):
+        # The PE03@10 that fired warmup SC01 is consumed; subsequent bars with
+        # close > 10 must not re-emit SC05 while it remains the latest level.
+        engine = warm_bullish_engine()
+        events = step(engine, 2, 11, 15, 10, 14)  # close=14 > warmup PE03@10
+        self.assertFalse(any(e.event_code == "SC05" for e in events))
+
+    # ── bullish iChoCh (SC06) ─────────────────────────────────────────
+
+    def test_ichoch_fires_below_itr_low_in_bullish(self):
+        engine = warm_bullish_engine()
+        # range_low=4 (wick). PE04@4.5. close=4.3: below PE04 but above range_low.
+        events = step(engine, 2, 11, 12, 4.2, 4.3)
+        isc = next((e for e in events if e.event_code == "SC06"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrIChoCh")
+        self.assertTrue(isc.choch)
+        self.assertFalse(isc.bias_flip)
+        self.assertTrue(isc.is_internal)
+        self.assertEqual(isc.to_dict()["eventAction"], "structure_ichoch")
+
+    def test_ichoch_dedup_same_itr_low_fires_once(self):
+        engine = warm_bullish_engine()
+        step(engine, 2, 11, 12, 4.2, 4.3)          # SC06 fires
+        events = step(engine, 3, 4.3, 5, 4.1, 4.4)  # still below PE04@4.5, same level
+        self.assertFalse(any(e.event_code == "SC06" for e in events))
+
+    # ── pure observation ──────────────────────────────────────────────
+
+    def test_isb_does_not_change_bias_or_range(self):
+        engine = warm_bullish_engine()
+        step(engine, 2, 11, 20, 10, 19)  # extend range_high to 20, no PE
+        # Bar 3: PE03@16 (HH vs 10), close=17 > 16 but < range_high=20.
+        # iSb fires (SC05). No macro SC (close < range_high). Bias and floor unchanged.
+        events = step(engine, 3, 19, 20, 15, 17, pivots=[pe("PE03", 3, 16)])
+        snap = engine.get_snapshot(17)
+        self.assertTrue(any(e.event_code == "SC05" for e in events))
+        self.assertFalse(any(e.event_code in {"SC01", "SC02"} for e in events))
+        self.assertEqual(snap["bias"], "bullish")
+        self.assertEqual(snap["range_low"], 4)    # wick floor untouched
+        self.assertEqual(snap["range_high"], 20)  # ceiling untouched
+
+    def test_ichoch_does_not_change_structural_state(self):
+        engine = warm_bullish_engine()
+        snap_before = engine.get_snapshot(11)
+        step(engine, 2, 11, 12, 4.2, 4.3)
+        snap_after = engine.get_snapshot(4.3)
+        self.assertEqual(snap_after["bias"], "bullish")
+        self.assertEqual(snap_after["range_low"], snap_before["range_low"])
+
+    # ── co-emit: SC05 + SC01 on same bar ─────────────────────────────
+
+    def test_isb_and_range_sc_coemit_on_same_bar(self):
+        engine = warm_bullish_engine()
+        step(engine, 2, 11, 15, 10, 14)                                   # extend
+        step(engine, 3, 14, 15.2, 13, 13.5, pivots=[pe("PE03", 3, 13)])   # pullback_confirmed, SC05 fires
+        # Bar 4: new PE03@14 (HH), pullback_confirmed; close=16 > range_high=15 → SC01 AND SC05.
+        events = step(engine, 4, 13.5, 16.5, 13, 16, pivots=[pe("PE03", 4, 14)])
+        codes = [e.event_code for e in events]
+        self.assertIn("SC05", codes)
+        self.assertIn("SC01", codes)
+        self.assertEqual(codes.index("SC05"), 0)   # internal fires first
+
+    # ── bearish iSb / iChoCh ─────────────────────────────────────────
+
+    def test_bearish_isb_fires_on_new_ll_itr_low(self):
+        engine = warm_bearish_engine()
+        # Warmup PE04@5.5 consumed. New PE04@4 (LL vs 5.5), close=3.8 < 4.
+        # range_low=3 (wick) so close=3.8 > 3 → no SC02.
+        events = step(engine, 2, 5, 6, 3.5, 3.8, pivots=[pe("PE04", 2, 4)])
+        isc = next((e for e in events if e.event_code == "SC05"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrISb")
+        self.assertFalse(isc.choch)
+        self.assertEqual(isc.break_direction, "down")
+
+    def test_bearish_ichoch_fires_above_itr_high(self):
+        engine = warm_bearish_engine()
+        # Bar 2: new PE03@8 arrives (a LH since 8 < 10.5), bearish extension.
+        step(engine, 2, 5, 6, 2.5, 3, pivots=[pe("PE03", 2, 8)])
+        # Bar 3: close=9 > PE03@8 but < range_high=10 → SC06 iChoCh; no range SC.
+        events = step(engine, 3, 3, 9.5, 2.8, 9)
+        isc = next((e for e in events if e.event_code == "SC06"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrIChoCh")
+        self.assertTrue(isc.choch)
+        self.assertEqual(isc.break_direction, "up")
+        self.assertEqual(engine.get_snapshot(9)["bias"], "bearish")  # pure observation
+
+    # ── LTR tier → SC07 / SC08 ───────────────────────────────────────
+
+    def test_ltr_tier_does_not_emit_sc07_sc08(self):
+        # SC07/SC08 (LTR internal) are disabled — last_isc stays None for ltr tier
+        engine = StructureEngine({"tier": "ltr"}, "1h")
+        step(engine, 0, 6, 9, 4, 8, pivots=[pe("PE05", 0, 10), pe("PE06", 0, 4.5)])
+        step(engine, 1, 8, 12, 6, 11)   # SC03 ltrSbUp
+
+        events = step(engine, 2, 11, 13, 10, 12.5, pivots=[pe("PE05", 2, 12)])
+        self.assertFalse(any(e.event_code in {"SC07", "SC08"} for e in events))
+
+        snap = engine.get_snapshot(12.5)
+        self.assertIsNone(snap["last_isc"])
+
+        events = step(engine, 3, 11, 12, 4.2, 4.3)
+        self.assertFalse(any(e.event_code in {"SC07", "SC08"} for e in events))
+
+    # ── snapshot exposes last_isc ─────────────────────────────────────
+
+    def test_snapshot_exposes_last_isc(self):
+        engine = warm_bullish_engine()
+        step(engine, 2, 11, 13, 10, 12.5, pivots=[pe("PE03", 2, 12)])
+        snap = engine.get_snapshot(12.5)
+        self.assertIsNotNone(snap["last_isc"])
+        self.assertEqual(snap["last_isc"]["eventCode"], "SC05")
+        self.assertEqual(snap["last_isc"]["eventAction"], "structure_isb")
+        self.assertTrue(snap["last_isc"]["is_internal"])
+        self.assertTrue(snap["last_isc"]["structure_isb"])
+        self.assertFalse(snap["last_isc"]["structure_ichoch"])
 
 
 if __name__ == "__main__":

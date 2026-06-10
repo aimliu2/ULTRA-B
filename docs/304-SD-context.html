@@ -336,6 +336,7 @@
     <a href="#edge-cases">06 Edge Cases</a>
     <a href="#algorithm">07 Algorithm</a>
     <a href="#config">08 Config</a>
+    <a href="#ui">08 Replayer UI</a>
     <a href="#issues">09 Open Issues</a>
     <div class="files">
       <div class="label">Sources</div>
@@ -738,6 +739,53 @@ Supply fallback:
     self._resolved_this_bar = []</pre>
         </div>
       </div>
+    </section>
+
+    <section>
+      <h2 id="ui"><span class="sec-num">08</span>Replayer UI</h2>
+      <p>S/D zones appear in two places: chart rectangle overlays and the right-side Zones panel.</p>
+
+      <h3>Chart rectangles</h3>
+      <p>Each active zone is drawn as a filled rectangle from <code>anchor_ts</code> (FVG bar2) to the current cursor bar. The right edge is capped at the cursor so future bars are never revealed.</p>
+      <pre class="block">DEMAND zone (rally FVG origin)
+  fill:   rgba(102,187,106,0.12)   — light green WATCHING
+          rgba(102,187,106,0.28)   — bright green TAPPED
+  border: rgba(102,187,106,0.55)
+
+SUPPLY zone (drop FVG origin)
+  fill:   rgba(239,83,80,0.12)     — light red WATCHING
+          rgba(239,83,80,0.28)     — bright red TAPPED
+  border: rgba(239,83,80,0.55)</pre>
+
+      <h3>Dual mode display</h3>
+      <p>Controlled by <code>sd_zones.dual_display</code> in config.</p>
+      <pre class="block">projected (default)
+  top pane (LTF):  LTF zones + HTF zones projected (both timeframes)
+  bottom pane (HTF): HTF zones only
+
+both
+  top pane:    LTF zones only
+  bottom pane: HTF zones only
+
+lower / higher
+  restrict each pane to one timeframe</pre>
+
+      <h3>Zones sidebar panel</h3>
+      <p>The <b>Zones</b> tab lists all active zones sorted by distance to current price.</p>
+      <pre class="block">per zone row:
+  direction     DEMAND (green) | SUPPLY (red)
+  timeframe     badge (e.g. 15m, 4h)
+  state         WATCHING (gray) | TAPPED (amber)
+  price range   zone.high – zone.low
+  distance      "above · dist x.xxxxx" or "below · dist x.xxxxx"
+
+ordering: nearest zone to price first (abs(distance) ascending)</pre>
+
+      <h3>Snapshot tab (summary row)</h3>
+      <pre class="block">supply zones   N active · M tapped
+demand zones   N active · M tapped</pre>
+
+      <div class="rule">Resolved zones (bounced / liquidity_run / liquidity_swept) disappear from both the chart and the panel immediately. Only the last resolved zone is retained as a debug snapshot field; it is not drawn on chart.</div>
     </section>
 
     <section>

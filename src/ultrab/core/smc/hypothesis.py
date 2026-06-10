@@ -65,7 +65,26 @@ class PhaseEShadow:
     bars_in_node: int = 0
     source_orderflow_leg_id: str | None = None
     source_orderflow_started_at: str | None = None
+    source_orderflow_anchor_id: str | None = None
+    source_orderflow_disruption_id: str | None = None
+    source_orderflow_source_store: str | None = None
+    pullback_developing_entered_at: str | None = None  # cursor_time when classifier first entered E.pullback_developing
     consumed_orderflow_leg_id: str | None = None
+    counter_structure_confirmed_at: str | None = None
+    counter_structure_event_id: str | None = None
+    counter_structure_source_level_id: str | None = None
+    counter_structure_source_store: str | None = None
+    counter_structure_level: float | None = None
+    pro_attempt_seen: bool = False
+    pro_attempt_started_at: str | None = None
+    pro_attempt_direction: str | None = None
+    pro_attempt_event_id: str | None = None
+    pro_attempt_level: float | None = None
+    # Journal — epoch-sticky waypoint flags (cleared only on epoch reset)
+    htf_reaction_seen: bool = False
+    htf_reaction_zone_id: str | None = None
+    htf_reaction_entered_at: str | None = None
+    htf_reaction_exit_reason: str | None = None  # "ran_zone" | "stalled" | "mss_fired"
 
     def reset(self) -> None:
         self.node = "E.seeking"
@@ -73,7 +92,46 @@ class PhaseEShadow:
         self.bars_in_node = 0
         self.source_orderflow_leg_id = None
         self.source_orderflow_started_at = None
+        self.source_orderflow_anchor_id = None
+        self.source_orderflow_disruption_id = None
+        self.source_orderflow_source_store = None
+        self.pullback_developing_entered_at = None
         self.consumed_orderflow_leg_id = None
+        self.counter_structure_confirmed_at = None
+        self.counter_structure_event_id = None
+        self.counter_structure_source_level_id = None
+        self.counter_structure_source_store = None
+        self.counter_structure_level = None
+        self.pro_attempt_seen = False
+        self.pro_attempt_started_at = None
+        self.pro_attempt_direction = None
+        self.pro_attempt_event_id = None
+        self.pro_attempt_level = None
+        self.htf_reaction_seen = False
+        self.htf_reaction_zone_id = None
+        self.htf_reaction_entered_at = None
+        self.htf_reaction_exit_reason = None
+
+
+@dataclass
+class PhaseDShadow:
+    """Internal Phase D sub-node memory across D.watch / D.speculation bars."""
+    node: str | None = None  # "D.watch" | "D.speculation"
+    consumed_leg_id: str | None = None  # copied from phase_e.source_orderflow_leg_id at D.watch open
+    watch_entered_at: str | None = None  # eventTimestamp of choch_1 — freshness floor for speculation gate
+    speculation_entered_at: str | None = None  # eventTimestamp of choch_2/sb — freshness floor for C gate
+    choch_1: dict | None = None  # first counter ChoCh that opened D.watch
+    pro_attempt: dict | None = None  # quality metadata accumulated while in D.watch
+    choch_2: dict | None = None  # second counter ChoCh (Path A → D.speculation)
+
+    def reset(self) -> None:
+        self.node = None
+        self.consumed_leg_id = None
+        self.watch_entered_at = None
+        self.speculation_entered_at = None
+        self.choch_1 = None
+        self.pro_attempt = None
+        self.choch_2 = None
 
 
 @dataclass
@@ -84,11 +142,13 @@ class ShadowThesis:
     Only cleared on epoch boundary reset or explicit invalidation.
 
     phase_e  — Phase E expansion sub-node ledger (PhaseEShadow).
+    phase_d  — Phase D watch/speculation sub-node ledger (PhaseDShadow).
     B-phase fields (status, selected_poi_*…) — commitment memory for
     Phase B shallow-reclaim tracking. reset() clears only these fields;
-    phase_e has its own reset via phase_e.reset().
+    phase_e/phase_d have their own reset via phase_e.reset()/phase_d.reset().
     """
     phase_e: PhaseEShadow = field(default_factory=PhaseEShadow)
+    phase_d: PhaseDShadow = field(default_factory=PhaseDShadow)
     status: str | None = None
     opened_at: str | None = None
     selected_poi_id: str | None = None
@@ -154,6 +214,28 @@ def _epoch_id(structure: dict[str, Any] | None) -> str | None:
 
 def _bar_time(bar: dict[str, Any] | None) -> str | None:
     return str(bar.get("time")) if bar and bar.get("time") else None
+
+
+def _sc_event_id(last_sc: dict[str, Any] | None) -> str | None:
+    if not isinstance(last_sc, dict):
+        return None
+    explicit = last_sc.get("event_id") or last_sc.get("eventId")
+    if explicit:
+        return str(explicit)
+    event_code = last_sc.get("eventCode")
+    event_at = last_sc.get("eventTimestamp")
+    direction = last_sc.get("breakDirection")
+    level = last_sc.get("levelPrice")
+    if not (event_code and event_at and direction):
+        return None
+    return ":".join(
+        [
+            str(event_code),
+            str(event_at),
+            str(direction),
+            str(level) if level is not None else "NA",
+        ]
+    )
 
 
 def _zone_timeframe(zone: dict[str, Any]) -> str:
@@ -241,6 +323,7 @@ class HypothesisClassifier:
             self.state.htf_pd_epoch_id = epoch_id
             self.state.active_phase_e_direction = "none"
             self._reset_phase_e_shadow()
+            self._reset_phase_d_shadow()
             self._reset_phase_b_shadow()
 
         debug = {
@@ -255,6 +338,7 @@ class HypothesisClassifier:
             "active_phase_e_direction": self.state.active_phase_e_direction,
             "current_htf_bar_time": _bar_time(current_bar),
             "previous_htf_bar_time": _bar_time(previous_bar),
+            "cursor_time": cursor_time,
         }
 
         if not htf:
@@ -370,112 +454,188 @@ class HypothesisClassifier:
                     return self._commit(hyp)
 
             if self.state.previous_phase == "D" and self.state.active_phase_e_direction == direction:
-                if not debug.get("reaction_failed"):
-                    phase_c = self._phase_c_setup(snapshot, ltf, direction)
-                    debug.update(phase_c)
-                    if phase_c["phase_c_story_ready"] and self._phase_d_reaction_confirmed(phase_c):
-                        status: HypothesisStatus = "armed" if phase_c["phase_c_selected_poi"] else "watching"
-                        phase_c_sub_status = self._phase_c_sub_status_from_current_d()
-                        debug.update(
-                            self._phase_c_origin_debug_from_current_d(
-                                phase_c_sub_status,
-                                "ltf_counter_story_after_d_reaction",
-                            )
-                        )
-                        hyp = self._phase_c(
+                d_shadow = self.state.shadow_thesis.phase_d
+                d_choch_candidate, d_choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
+                _, e_ctx_facts = _ec_candidate(snapshot, "phase_e_context")
+                _choch_dir_valid = d_choch_candidate.get("direction") == direction
+
+                if d_shadow.node == "D.watch":
+                    choch_seen = _choch_dir_valid and d_choch_facts.get("ltf_counter_choch_seen", False)
+                    sb_seen = _choch_dir_valid and d_choch_facts.get("ltf_counter_sb_seen", False)
+
+                    # Accumulate quality metadata each bar while watching
+                    htf_react, _ = _ec_candidate(snapshot, "htf_counter_reaction")
+                    ltf_story, _ = _ec_candidate(snapshot, "ltf_counter_story")
+                    d_shadow.pro_attempt = {
+                        "htf_reaction_status": htf_react.get("status"),
+                        "ltf_story_status": ltf_story.get("status"),
+                    }
+
+                    # Path A: second LTF ChoCh — enter D.speculation
+                    _choch_at = d_choch_facts.get("ltf_counter_choch_event_at")
+                    _choch_fresh = bool(_choch_at and d_shadow.watch_entered_at and _choch_at > d_shadow.watch_entered_at)
+                    if choch_seen and _choch_fresh:
+                        _choch_2_at = _choch_at
+                        d_shadow.node = "D.speculation"
+                        d_shadow.speculation_entered_at = _choch_2_at
+                        d_shadow.choch_2 = {
+                            "trigger_type": "choch",
+                            "choch": True,
+                            "at": _choch_2_at,
+                            "level": d_choch_facts.get("ltf_counter_choch_level"),
+                        }
+                        hyp = self._phase_d(
                             direction,
-                            phase_c["phase_c_selected_poi"],
-                            status,
                             cursor_time,
-                            debug,
-                            phase_sub_status=phase_c_sub_status,
+                            {**debug, "phase_d_node": "D.speculation", "phase_d_transition": "choch_2"},
+                            phase_sub_status="speculation",
                         )
                         return self._commit(hyp)
-                    phase_d_sub_status = (
-                        self.state.current_hypothesis.phase_sub_status
-                        if self.state.current_hypothesis
-                        and self.state.current_hypothesis.phase == "D"
-                        else None
-                    )
-                    if phase_d_sub_status:
-                        debug["phase_d_sub_status"] = phase_d_sub_status
-                        debug["phase_d_held"] = True
+
+                    # Path B: LTF counter SB (choch=False) + pullback_confirmed — enter D.speculation
+                    _sb_at = d_choch_facts.get("ltf_counter_sb_event_at")
+                    _sb_fresh = bool(_sb_at and d_shadow.watch_entered_at and _sb_at > d_shadow.watch_entered_at)
+                    if sb_seen and _sb_fresh and ltf.get("phase") == "pullback_confirmed":
+                        d_shadow.node = "D.speculation"
+                        d_shadow.speculation_entered_at = _sb_at
+                        d_shadow.choch_2 = {
+                            "trigger_type": "sb",
+                            "choch": False,
+                            "at": _sb_at,
+                            "level": d_choch_facts.get("ltf_counter_sb_level"),
+                        }
+                        hyp = self._phase_d(
+                            direction,
+                            cursor_time,
+                            {**debug, "phase_d_node": "D.speculation", "phase_d_transition": "sb_pullback"},
+                            phase_sub_status="speculation",
+                        )
+                        return self._commit(hyp)
+
+                    # Hold in D.watch
                     hyp = self._phase_d(
                         direction,
                         cursor_time,
-                        debug,
-                        phase_sub_status=phase_d_sub_status,
+                        {**debug, "phase_d_node": "D.watch"},
+                        phase_sub_status="watch",
                     )
                     return self._commit(hyp)
 
-            phase_d = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
-            debug.update(phase_d)
+                if d_shadow.node == "D.speculation":
+                    mss_watch = e_ctx_facts.get("ltf_counter_orderflow_mss_watch", False)
+                    leg_id = e_ctx_facts.get("ltf_counter_orderflow_leg_id")
+                    _mss_at = e_ctx_facts.get("ltf_counter_orderflow_started_at")
+                    _mss_fresh = bool(_mss_at and d_shadow.speculation_entered_at and _mss_at > d_shadow.speculation_entered_at)
+                    if mss_watch and leg_id and leg_id != d_shadow.consumed_leg_id and _mss_fresh:
+                        hyp = self._phase_c(
+                            direction,
+                            None,
+                            "watching",
+                            cursor_time,
+                            debug,
+                            phase_sub_status="pullback",
+                        )
+                        return self._commit(hyp)
 
+                    hyp = self._phase_d(
+                        direction,
+                        cursor_time,
+                        {**debug, "phase_d_node": "D.speculation"},
+                        phase_sub_status="speculation",
+                    )
+                    return self._commit(hyp)
+
+                # Shadow node not set — hold current output unchanged
+                hyp = self._carry_current_hypothesis(cursor_time, {**debug, "phase_d_held": True})
+                return self._commit(hyp)
+
+            # D.watch entry from E.pullback_developing
             if (
                 self.state.previous_phase != "B"
                 and self.state.previous_phase != "A"
                 and self._previous_or_active_e(direction)
-                and phase_d["phase_d_ready"]
+                and self.state.phase_e_shadow_node == "E.pullback_developing"
             ):
-                phase_d_sub_status = self._phase_d_sub_status(phase_d)
-                hyp = self._phase_d(
-                    direction,
-                    cursor_time,
-                    {
-                        **debug,
-                        "phase_d_sub_status": phase_d_sub_status,
-                        "phase_d_origin_node": self._phase_d_origin_node(phase_d),
-                        "phase_d_selection_reason": self._phase_d_selection_reason(phase_d),
-                    },
-                    phase_sub_status=phase_d_sub_status,
-                )
-                return self._commit(hyp)
+                phase_e_shadow = self.state.shadow_thesis.phase_e
+                self._update_phase_e_pullback_progress(ltf, direction, debug)
+                # D.watch opens on the first LTF pro-HTF ChoCh — the bounce initiation.
+                # pro_attempt_seen is set by _update_phase_e_pullback_progress when
+                # last_sc.breakDirection == pro-HTF and timestamp > pullback_developing_entered_at.
+                _pro_at = phase_e_shadow.pro_attempt_started_at
+                _entered_at = phase_e_shadow.pullback_developing_entered_at or ""
+                if phase_e_shadow.pro_attempt_seen and _pro_at and _pro_at > _entered_at:
+                    d_shadow = self.state.shadow_thesis.phase_d
+                    d_shadow.node = "D.watch"
+                    d_shadow.watch_entered_at = _pro_at
+                    d_shadow.consumed_leg_id = phase_e_shadow.source_orderflow_leg_id
+                    phase_e_shadow.consumed_orderflow_leg_id = d_shadow.consumed_leg_id
+                    d_shadow.choch_1 = {
+                        "trigger_type": "choch",
+                        "choch": True,
+                        "at": _pro_at,
+                        "level": phase_e_shadow.pro_attempt_level,
+                        "event_id": phase_e_shadow.pro_attempt_event_id,
+                    }
+                    hyp = self._phase_d(
+                        direction,
+                        cursor_time,
+                        {
+                            **debug,
+                            "phase_d_node": "D.watch",
+                            "phase_d_entry": "E.pullback_developing",
+                            "phase_d_entry_pro_attempt_started_at": _pro_at,
+                        },
+                        phase_sub_status="watch",
+                    )
+                    return self._commit(hyp)
 
             phase_c_from_e = self._phase_c_setup(snapshot, ltf, direction)
             fast_hard_pullback = self._phase_c_fast_hard_pullback_setup(debug, phase_c_from_e)
-            if (
-                self.state.previous_phase != "B"
-                and fast_hard_pullback["phase_c_fast_hard_pullback_ready"]
-            ):
-                debug.update({**phase_c_from_e, **fast_hard_pullback})
-                status: HypothesisStatus = (
-                    "armed"
-                    if phase_c_from_e["phase_c_selected_poi"]
-                    else "watching"
-                )
-                hyp = self._phase_c(
-                    direction,
-                    phase_c_from_e["phase_c_selected_poi"],
-                    status,
-                    cursor_time,
-                    debug,
-                    phase_sub_status="hard_pullback",
-                )
-                return self._commit(hyp)
+            # C.hard_pullback temporarily disabled for investigation — re-enable when done
+            # if (
+            #     self.state.previous_phase != "B"
+            #     and fast_hard_pullback["phase_c_fast_hard_pullback_ready"]
+            # ):
+            #     debug.update({**phase_c_from_e, **fast_hard_pullback})
+            #     status: HypothesisStatus = (
+            #         "armed"
+            #         if phase_c_from_e["phase_c_selected_poi"]
+            #         else "watching"
+            #     )
+            #     hyp = self._phase_c(
+            #         direction,
+            #         phase_c_from_e["phase_c_selected_poi"],
+            #         status,
+            #         cursor_time,
+            #         debug,
+            #         phase_sub_status="hard_pullback",
+            #     )
+            #     return self._commit(hyp)
 
-            if (
-                self.state.previous_phase != "B"
-                and self.state.phase_e_shadow_node == "E.pullback_developing"
-                and phase_c_from_e["phase_c_ltf_counter_bos_confirmed"]
-            ):
-                debug.update(
-                    {
-                        **phase_c_from_e,
-                        "phase_c_origin_node": "E.pullback_developing",
-                        "phase_c_sub_status": "slow_pullback",
-                        "phase_c_selection_reason": "ltf_pd_flipped_counter_after_failed_e_continuation_attempt",
-                    }
-                )
-                status: HypothesisStatus = "armed" if phase_c_from_e["phase_c_selected_poi"] else "watching"
-                hyp = self._phase_c(
-                    direction,
-                    phase_c_from_e["phase_c_selected_poi"],
-                    status,
-                    cursor_time,
-                    debug,
-                    phase_sub_status="slow_pullback",
-                )
-                return self._commit(hyp)
+            # C.slow_pullback temporarily disabled for investigation — re-enable when done
+            # if (
+            #     self.state.previous_phase != "B"
+            #     and self.state.phase_e_shadow_node == "E.pullback_developing"
+            #     and phase_c_from_e["phase_c_ltf_counter_bos_confirmed"]
+            # ):
+            #     debug.update(
+            #         {
+            #             **phase_c_from_e,
+            #             "phase_c_origin_node": "E.pullback_developing",
+            #             "phase_c_sub_status": "slow_pullback",
+            #             "phase_c_selection_reason": "ltf_pd_flipped_counter_after_failed_e_continuation_attempt",
+            #         }
+            #     )
+            #     status: HypothesisStatus = "armed" if phase_c_from_e["phase_c_selected_poi"] else "watching"
+            #     hyp = self._phase_c(
+            #         direction,
+            #         phase_c_from_e["phase_c_selected_poi"],
+            #         status,
+            #         cursor_time,
+            #         debug,
+            #         phase_sub_status="slow_pullback",
+            #     )
+            #     return self._commit(hyp)
 
             if self.state.previous_phase == "B":
                 previous_b_sub_status = (
@@ -647,11 +807,12 @@ class HypothesisClassifier:
                         )
                     return self._commit(hyp)
 
-                phase_a = self._phase_a_setup(snapshot, htf, ltf, direction)
-                debug.update(phase_a)
-                if phase_a["phase_a_ready"]:
-                    hyp = self._phase_a(direction, phase_a["phase_a_selected_poi"], cursor_time, debug)
-                    return self._commit(hyp)
+                # TEMP disabled — Phase A reads legacy flat fields; EC candidate not yet written
+                # phase_a = self._phase_a_setup(snapshot, htf, ltf, direction)
+                # debug.update(phase_a)
+                # if phase_a["phase_a_ready"]:
+                #     hyp = self._phase_a(direction, phase_a["phase_a_selected_poi"], cursor_time, debug)
+                #     return self._commit(hyp)
 
             phase_b_dag_blocked = self._phase_b_blocked_by_dag(direction)
             phase_b = self._phase_b_setup(snapshot, htf, ltf, direction)
@@ -663,9 +824,10 @@ class HypothesisClassifier:
                     "phase_b_dag_blocked_reason": "direct_e_to_b_requires_c_origin",
                 }
             debug.update(phase_b)
-            if phase_b["phase_b_ready"]:
-                hyp = self._phase_b(direction, phase_b["phase_b_selected_poi"], cursor_time, debug)
-                return self._commit(hyp)
+            # TEMP disabled for review — B/A disabled
+            # if phase_b["phase_b_ready"]:
+            #     hyp = self._phase_b(direction, phase_b["phase_b_selected_poi"], cursor_time, debug)
+            #     return self._commit(hyp)
 
             phase_b_initiation = self._phase_b_initiation_setup(snapshot, direction)
             if phase_b_dag_blocked:
@@ -676,9 +838,10 @@ class HypothesisClassifier:
                     "phase_b_initiation_dag_blocked_reason": "direct_e_to_b_requires_c_origin",
                 }
             debug.update(phase_b_initiation)
-            if phase_b_initiation["phase_b_initiation_ready"]:
-                hyp = self._phase_b_initiation_watch(direction, cursor_time, debug)
-                return self._commit(hyp)
+            # TEMP disabled for review — B.initiation disabled
+            # if phase_b_initiation["phase_b_initiation_ready"]:
+            #     hyp = self._phase_b_initiation_watch(direction, cursor_time, debug)
+            #     return self._commit(hyp)
 
             if phase == "open" or (
                 phase == "pullback_confirmed"
@@ -721,27 +884,13 @@ class HypothesisClassifier:
         direction: Direction,
         current_bar: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        d_gate, facts = _ec_candidate(snapshot, "htf_counter_reaction")
-        ready = d_gate.get("status") == "ready"
-        choch_gate, choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
-
-        # Derive liquidity selection from EC candidates (Layer 4 owns this decision).
-        _candidates = facts.get("liquidity_reclaim_candidates") or []
-        _ready_ids = set(facts.get("liquidity_reclaim_ready_event_ids") or [])
-        _first_ready = next(
-            (c for c in _candidates if c.get("liquidity_event_id") in _ready_ids),
-            None,
-        )
-        _kind = _first_ready.get("pool_kind") if _first_ready else None
-        _kind_to_node = {"htf_pd": "D.htf_pd_grab_reclaim_test", "htf_eq": "D.htf_eq_grab_reclaim_test"}
-        _kind_to_trigger = {"htf_pd": "pd_liquidity_grab_reclaim", "htf_eq": "eq_liquidity_grab_reclaim"}
-        liq_selected_node = _kind_to_node.get(_kind or "")
-        liq_trigger = _kind_to_trigger.get(_kind or "")
-        liq_ready = bool(_first_ready)
-
+        _, facts = _ec_candidate(snapshot, "htf_counter_reaction")
+        _, choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
         return {
-            "phase_d_ready": ready,
-            "phase_d_trigger": liq_trigger or facts.get("trigger"),
+            "phase_d_ready": False,
+            "phase_d_trigger": None,
+            "phase_d_legacy_disabled": True,
+            "phase_d_disabled_reason": "phase_d_simplified_to_watch_speculation",
             "htf_pd_stopped_expanding": bool(facts.get("htf_pd_stopped_expanding")),
             "new_htf_extreme": bool(facts.get("new_htf_extreme")),
             "htf_opposing_sd_reaction": bool(facts.get("htf_opposing_sd_reaction")),
@@ -755,19 +904,19 @@ class HypothesisClassifier:
             "ltf_counter_sd_created": bool(facts.get("ltf_counter_sd_created")),
             "ltf_counter_sd_zone_ids": facts.get("ltf_counter_sd_zone_ids") or [],
             "ltf_bias_counter_htf": bool(facts.get("ltf_bias_counter_htf")),
-            "phase_d_liquidity_ready": liq_ready,
-            "phase_d_liquidity_test_status": "pending_outcome" if liq_ready else None,
+            "phase_d_liquidity_ready": False,
+            "phase_d_liquidity_test_status": None,
             "phase_d_reaction_confirmed": False,
-            "phase_d_liquidity_trigger": liq_trigger,
-            "phase_d_liquidity_candidate_nodes": [n for n in [liq_selected_node] if n],
-            "phase_d_liquidity_selected_node": liq_selected_node,
-            "phase_d_liquidity_selection_reason": facts.get("phase_d_liquidity_selection_reason"),
+            "phase_d_liquidity_trigger": None,
+            "phase_d_liquidity_candidate_nodes": [],
+            "phase_d_liquidity_selected_node": None,
+            "phase_d_liquidity_selection_reason": None,
             "phase_d_liquidity_expected_direction": facts.get("liquidity_reclaim_expected_direction"),
-            "phase_d_liquidity_pool_id": _first_ready.get("pool_id") if _first_ready else None,
-            "phase_d_liquidity_level": _first_ready.get("level") if _first_ready else None,
-            "phase_d_liquidity_source": _first_ready.get("source") if _first_ready else None,
-            "phase_d_liquidity_side": _first_ready.get("side") if _first_ready else None,
-            "phase_d_liquidity_direction": _first_ready.get("direction") if _first_ready else None,
+            "phase_d_liquidity_pool_id": None,
+            "phase_d_liquidity_level": None,
+            "phase_d_liquidity_source": None,
+            "phase_d_liquidity_side": None,
+            "phase_d_liquidity_direction": None,
             "phase_d_liquidity_confirmed_by": facts.get("phase_d_liquidity_confirmed_by"),
             "phase_d_liquidity_confirmed_at": facts.get("phase_d_liquidity_confirmed_at"),
             "htf_pd_grab_reclaim_ready": facts.get("htf_pd_grab_reclaim_ready"),
@@ -780,6 +929,8 @@ class HypothesisClassifier:
             "ltf_counter_choch_event_at": choch_facts.get("ltf_counter_choch_event_at"),
             "ltf_counter_choch_direction": choch_facts.get("ltf_counter_choch_direction"),
             "ltf_counter_choch_level": choch_facts.get("ltf_counter_choch_level"),
+            "ltf_counter_sb_seen": bool(choch_facts.get("ltf_counter_sb_seen")),
+            "ltf_counter_sb_level": choch_facts.get("ltf_counter_sb_level"),
         }
 
     def _phase_d_liquidity_grab_setup(
@@ -1518,6 +1669,33 @@ class HypothesisClassifier:
                 "phase_e_context_ltf_counter_choch_level": choch_facts.get(
                     "ltf_counter_choch_level"
                 ),
+                "phase_e_context_ltf_counter_choch_event_id": choch_facts.get(
+                    "ltf_counter_choch_event_id"
+                ),
+                "phase_e_context_ltf_counter_choch_source_level_id": choch_facts.get(
+                    "ltf_counter_choch_source_level_id"
+                ),
+                "phase_e_context_ltf_counter_choch_source_store": choch_facts.get(
+                    "ltf_counter_choch_source_store"
+                ),
+                "phase_e_context_ltf_counter_sb_seen": bool(
+                    choch_facts.get("ltf_counter_sb_seen")
+                ),
+                "phase_e_context_ltf_counter_sb_event_at": choch_facts.get(
+                    "ltf_counter_sb_event_at"
+                ),
+                "phase_e_context_ltf_counter_sb_level": choch_facts.get(
+                    "ltf_counter_sb_level"
+                ),
+                "phase_e_context_ltf_counter_sb_event_id": choch_facts.get(
+                    "ltf_counter_sb_event_id"
+                ),
+                "phase_e_context_ltf_counter_sb_source_level_id": choch_facts.get(
+                    "ltf_counter_sb_source_level_id"
+                ),
+                "phase_e_context_ltf_counter_sb_source_store": choch_facts.get(
+                    "ltf_counter_sb_source_store"
+                ),
             }
         )
         phase_e, phase_e_facts = _ec_candidate(snapshot, "phase_e_context")
@@ -1596,6 +1774,21 @@ class HypothesisClassifier:
                     "phase_e_context_ltf_counter_orderflow_started_at": phase_e_facts.get(
                         "ltf_counter_orderflow_started_at"
                     ),
+                    "phase_e_context_ltf_counter_orderflow_anchor_id": phase_e_facts.get(
+                        "ltf_counter_orderflow_anchor_id"
+                    ),
+                    "phase_e_context_ltf_counter_orderflow_disruption_id": phase_e_facts.get(
+                        "ltf_counter_orderflow_disruption_id"
+                    ),
+                    "phase_e_context_ltf_counter_orderflow_source_store": phase_e_facts.get(
+                        "ltf_counter_orderflow_source_store"
+                    ),
+                    "phase_e_context_ltf_probe_at_htf_opposing_zone": bool(
+                        phase_e_facts.get("ltf_probe_at_htf_opposing_zone")
+                    ),
+                    "phase_e_context_ltf_probe_htf_opposing_zone_id": phase_e_facts.get(
+                        "ltf_probe_htf_opposing_zone_id"
+                    ),
                     "phase_e_context_ltf_counter_orderflow_quality": phase_e_facts.get(
                         "ltf_counter_orderflow_quality"
                     ),
@@ -1624,6 +1817,9 @@ class HypothesisClassifier:
 
     def _reset_phase_e_shadow(self) -> None:
         self.state.shadow_thesis.phase_e.reset()
+
+    def _reset_phase_d_shadow(self) -> None:
+        self.state.shadow_thesis.phase_d.reset()
 
     def _reset_phase_b_shadow(self) -> None:
         self.state.shadow_thesis.reset()
@@ -1727,6 +1923,83 @@ class HypothesisClassifier:
         tolerance = max(zone_height, 0.0)
         return bar_low <= zone_high + tolerance and bar_high >= zone_low - tolerance
 
+    def _update_phase_e_pullback_progress(
+        self,
+        ltf: dict[str, Any] | None,
+        direction: Direction,
+        debug: dict[str, Any],
+    ) -> None:
+        s = self.state.shadow_thesis.phase_e
+        if s.node != "E.pullback_developing" or direction == "none":
+            return
+
+        counter_at = debug.get("phase_e_context_ltf_counter_choch_event_at")
+        if (
+            s.counter_structure_confirmed_at is None
+            and debug.get("phase_e_context_ltf_counter_choch_seen")
+            and counter_at
+            and (
+                s.pullback_developing_entered_at is None
+                or str(counter_at) > str(s.pullback_developing_entered_at)
+            )
+        ):
+            s.counter_structure_confirmed_at = str(counter_at)
+            s.counter_structure_event_id = debug.get("phase_e_context_ltf_counter_choch_event_id")
+            s.counter_structure_source_level_id = debug.get(
+                "phase_e_context_ltf_counter_choch_source_level_id"
+            )
+            s.counter_structure_source_store = debug.get(
+                "phase_e_context_ltf_counter_choch_source_store"
+            )
+            s.counter_structure_level = debug.get("phase_e_context_ltf_counter_choch_level")
+
+        if s.pro_attempt_seen or not ltf:
+            return
+
+        _floor = s.pullback_developing_entered_at or ""
+        pro_break = "up" if direction == "long" else "down"
+
+        # Check last_isc first (internal iChoCh fires before macro SC on same event)
+        last_isc = ltf.get("last_isc") or {}
+        last_isc_at = last_isc.get("eventTimestamp")
+        if (
+            last_isc_at
+            and str(last_isc_at) > _floor
+            and last_isc.get("breakDirection") == pro_break
+        ):
+            s.pro_attempt_seen = True
+            s.pro_attempt_started_at = str(last_isc_at)
+            s.pro_attempt_direction = pro_break
+            s.pro_attempt_event_id = _sc_event_id(last_isc)
+            s.pro_attempt_level = last_isc.get("levelPrice")
+            return
+
+        last_sc = ltf.get("last_sc") or {}
+        last_sc_at = last_sc.get("eventTimestamp")
+        if (
+            last_sc_at
+            and str(last_sc_at) > _floor
+            and last_sc.get("breakDirection") == pro_break
+        ):
+            s.pro_attempt_seen = True
+            s.pro_attempt_started_at = str(last_sc_at)
+            s.pro_attempt_direction = pro_break
+            s.pro_attempt_event_id = _sc_event_id(last_sc)
+            s.pro_attempt_level = last_sc.get("levelPrice")
+            return
+
+        pullback_confirmed_at = ltf.get("pullback_confirmed_ts")
+        ltf_bias = ltf.get("bias")
+        pro_bias = "bullish" if direction == "long" else "bearish"
+        if (
+            pullback_confirmed_at
+            and str(pullback_confirmed_at) > _floor
+            and ltf_bias == pro_bias
+        ):
+            s.pro_attempt_seen = True
+            s.pro_attempt_started_at = str(pullback_confirmed_at)
+            s.pro_attempt_direction = pro_break
+
     def _phase_e_shadow_facts(
         self,
         ltf: dict[str, Any] | None,
@@ -1745,16 +2018,37 @@ class HypothesisClassifier:
         ltf_counter_orderflow_mss_watch = bool(
             debug.get("phase_e_context_ltf_counter_orderflow_mss_watch")
         )
+        ltf_probe_at_htf_opposing_zone = bool(
+            debug.get("phase_e_context_ltf_probe_at_htf_opposing_zone")
+        )
 
         if self.state.previous_phase != "E" or self.state.active_phase_e_direction != direction:
             selected_node = "E.seeking"
             selection_reason = "phase_e_shadow_initialized"
         elif pd_expanding:
+            if previous_node == "E.HTF_reaction":
+                s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or "ran_zone"
             selected_node = "E.seeking"
             selection_reason = "htf_pd_expanded"
         elif previous_node == "E.seeking":
-            selected_node = "E.stalling"
-            selection_reason = "htf_pd_stopped_expanding"
+            if ltf_probe_at_htf_opposing_zone:
+                selected_node = "E.HTF_reaction"
+                selection_reason = "ltf_probe_entered_htf_opposing_zone_during_expansion"
+            else:
+                selected_node = "E.stalling"
+                selection_reason = "htf_pd_stopped_expanding"
+        elif previous_node == "E.HTF_reaction":
+            if ltf_counter_orderflow_mss_watch:
+                selected_node = "E.pullback_developing"
+                selection_reason = "ltf_counter_orderflow_mss_after_htf_reaction"
+                s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or "mss_fired"
+            elif ltf_probe_at_htf_opposing_zone:
+                selected_node = "E.HTF_reaction"
+                selection_reason = "phase_e_htf_reaction_holding_in_zone"
+            else:
+                selected_node = "E.stalling"
+                selection_reason = "left_htf_opposing_zone_without_mss"
+                s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or "stalled"
         elif previous_node == "E.stalling":
             if ltf_counter_orderflow_mss_watch:
                 selected_node = "E.pullback_developing"
@@ -1764,6 +2058,28 @@ class HypothesisClassifier:
         elif previous_node == "E.pullback_developing":
             selected_node = "E.pullback_developing"
 
+        # Journal write — on every entry (first or re-entry) into E.HTF_reaction
+        if selected_node == "E.HTF_reaction" and previous_node != "E.HTF_reaction":
+            s.htf_reaction_seen = True
+            s.htf_reaction_zone_id = debug.get("phase_e_context_ltf_probe_htf_opposing_zone_id")
+            s.htf_reaction_entered_at = debug.get("current_htf_bar_time")
+            s.htf_reaction_exit_reason = None
+        if selected_node == "E.pullback_developing" and previous_node != "E.pullback_developing":
+            s.source_orderflow_leg_id = debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
+            s.source_orderflow_started_at = debug.get("phase_e_context_ltf_counter_orderflow_started_at")
+            s.source_orderflow_anchor_id = debug.get("phase_e_context_ltf_counter_orderflow_anchor_id")
+            s.source_orderflow_disruption_id = debug.get(
+                "phase_e_context_ltf_counter_orderflow_disruption_id"
+            )
+            s.source_orderflow_source_store = debug.get(
+                "phase_e_context_ltf_counter_orderflow_source_store"
+            )
+            s.pullback_developing_entered_at = debug.get("cursor_time")
+            # Do NOT reset counter_structure or pro_attempt fields here.
+            # DAG transitions are continuous within an epoch; accumulated shadow state
+            # (counter_structure_confirmed_at, pro_attempt_seen, etc.) must carry forward
+            # across E.pullback_developing re-entries. Only thesis.over / epoch reset clears them.
+
         candidate_nodes.append(selected_node)
         if selected_node != previous_node:
             s.previous_node = previous_node
@@ -1771,6 +2087,7 @@ class HypothesisClassifier:
         else:
             s.bars_in_node += 1
         s.node = selected_node
+        self._update_phase_e_pullback_progress(ltf, direction, debug)
 
         phase_sub_status = selected_node.split(".", 1)[1] if "." in selected_node else None
         return {
@@ -1781,8 +2098,28 @@ class HypothesisClassifier:
             "phase_e_shadow_selected_node": selected_node,
             "phase_e_shadow_selection_reason": selection_reason,
             "phase_e_shadow_bars_in_node": s.bars_in_node,
+            "phase_e_shadow_htf_reaction_seen": s.htf_reaction_seen,
+            "phase_e_shadow_htf_reaction_zone_id": s.htf_reaction_zone_id,
+            "phase_e_shadow_htf_reaction_entered_at": s.htf_reaction_entered_at,
+            "phase_e_shadow_htf_reaction_exit_reason": s.htf_reaction_exit_reason,
             "phase_e_shadow_source_attempt_id": None,  # Deprecated.
             "phase_e_shadow_source_itr_level_id": None,  # Deprecated.
+            "phase_e_shadow_source_orderflow_leg_id": s.source_orderflow_leg_id,
+            "phase_e_shadow_source_orderflow_started_at": s.source_orderflow_started_at,
+            "phase_e_shadow_source_orderflow_anchor_id": s.source_orderflow_anchor_id,
+            "phase_e_shadow_source_orderflow_disruption_id": s.source_orderflow_disruption_id,
+            "phase_e_shadow_source_orderflow_source_store": s.source_orderflow_source_store,
+            "phase_e_shadow_consumed_orderflow_leg_id": s.consumed_orderflow_leg_id,
+            "phase_e_shadow_counter_structure_confirmed_at": s.counter_structure_confirmed_at,
+            "phase_e_shadow_counter_structure_event_id": s.counter_structure_event_id,
+            "phase_e_shadow_counter_structure_source_level_id": s.counter_structure_source_level_id,
+            "phase_e_shadow_counter_structure_source_store": s.counter_structure_source_store,
+            "phase_e_shadow_counter_structure_level": s.counter_structure_level,
+            "phase_e_shadow_pro_attempt_seen": s.pro_attempt_seen,
+            "phase_e_shadow_pro_attempt_started_at": s.pro_attempt_started_at,
+            "phase_e_shadow_pro_attempt_direction": s.pro_attempt_direction,
+            "phase_e_shadow_pro_attempt_event_id": s.pro_attempt_event_id,
+            "phase_e_shadow_pro_attempt_level": s.pro_attempt_level,
             "phase_e_context_attempt_id": None,  # Deprecated.
             "phase_e_context_attempt_status": None,
             "phase_e_context_attempt_origin": None,
