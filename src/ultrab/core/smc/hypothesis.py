@@ -115,23 +115,22 @@ class PhaseEShadow:
 
 @dataclass
 class PhaseDShadow:
-    """Internal Phase D sub-node memory across D.watch / D.speculation bars."""
-    node: str | None = None  # "D.watch" | "D.speculation"
+    """Internal Phase D sub-node memory for D.watch.
+
+    D.speculation and its iChoCh/SB entry paths moved to Layer 5.
+    """
+    node: str | None = None  # "D.watch"
     consumed_leg_id: str | None = None  # copied from phase_e.source_orderflow_leg_id at D.watch open
-    watch_entered_at: str | None = None  # eventTimestamp of choch_1 — freshness floor for speculation gate
-    speculation_entered_at: str | None = None  # eventTimestamp of choch_2/sb — freshness floor for C gate
-    choch_1: dict | None = None  # first counter ChoCh that opened D.watch
+    watch_entered_at: str | None = None  # eventTimestamp of choch_1 — freshness floor for Layer 5
+    choch_1: dict | None = None  # pro-HTF SC that opened D.watch (Layer 5 reads level for SL)
     pro_attempt: dict | None = None  # quality metadata accumulated while in D.watch
-    choch_2: dict | None = None  # second counter ChoCh (Path A → D.speculation)
 
     def reset(self) -> None:
         self.node = None
         self.consumed_leg_id = None
         self.watch_entered_at = None
-        self.speculation_entered_at = None
         self.choch_1 = None
         self.pro_attempt = None
-        self.choch_2 = None
 
 
 @dataclass
@@ -536,14 +535,9 @@ class HypothesisClassifier:
 
             if self.state.previous_phase == "D" and self.state.active_phase_e_direction == direction:
                 d_shadow = self.state.shadow_thesis.phase_d
-                d_choch_candidate, d_choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
                 _, e_ctx_facts = _ec_candidate(snapshot, "phase_e_context")
-                _choch_dir_valid = d_choch_candidate.get("direction") == direction
 
                 if d_shadow.node == "D.watch":
-                    choch_seen = _choch_dir_valid and d_choch_facts.get("ltf_counter_choch_seen", False)
-                    sb_seen = _choch_dir_valid and d_choch_facts.get("ltf_counter_sb_seen", False)
-
                     # Counter MSS breaks LL: pro-attempt definitively failed → C.pullback
                     _mss_watch_dw = e_ctx_facts.get("ltf_counter_orderflow_mss_watch", False)
                     _mss_leg_dw = e_ctx_facts.get("ltf_counter_orderflow_leg_id")
@@ -571,82 +565,12 @@ class HypothesisClassifier:
                         "ltf_story_status": ltf_story.get("status"),
                     }
 
-                    # Path A: second LTF ChoCh — enter D.speculation
-                    _choch_at = d_choch_facts.get("ltf_counter_choch_event_at")
-                    _choch_fresh = bool(_choch_at and d_shadow.watch_entered_at and _choch_at > d_shadow.watch_entered_at)
-                    if choch_seen and _choch_fresh:
-                        _choch_2_at = _choch_at
-                        d_shadow.node = "D.speculation"
-                        d_shadow.speculation_entered_at = _choch_2_at
-                        d_shadow.choch_2 = {
-                            "trigger_type": "choch",
-                            "choch": True,
-                            "at": _choch_2_at,
-                            "level": d_choch_facts.get("ltf_counter_choch_level"),
-                        }
-                        hyp = self._phase_d(
-                            direction,
-                            cursor_time,
-                            {**debug, "phase_d_node": "D.speculation", "phase_d_transition": "choch_2"},
-                            phase_sub_status="speculation",
-                        )
-                        return self._commit(hyp)
-
-                    # Path B: LTF counter SB (choch=False) + pullback_confirmed — enter D.speculation
-                    _sb_at = d_choch_facts.get("ltf_counter_sb_event_at")
-                    _sb_fresh = bool(_sb_at and d_shadow.watch_entered_at and _sb_at > d_shadow.watch_entered_at)
-                    if sb_seen and _sb_fresh and ltf.get("phase") == "pullback_confirmed":
-                        d_shadow.node = "D.speculation"
-                        d_shadow.speculation_entered_at = _sb_at
-                        d_shadow.choch_2 = {
-                            "trigger_type": "sb",
-                            "choch": False,
-                            "at": _sb_at,
-                            "level": d_choch_facts.get("ltf_counter_sb_level"),
-                        }
-                        hyp = self._phase_d(
-                            direction,
-                            cursor_time,
-                            {**debug, "phase_d_node": "D.speculation", "phase_d_transition": "sb_pullback"},
-                            phase_sub_status="speculation",
-                        )
-                        return self._commit(hyp)
-
-                    # Hold in D.watch
+                    # Hold in D.watch — Layer 5 owns iChoCh / SB entry timing
                     hyp = self._phase_d(
                         direction,
                         cursor_time,
                         {**debug, "phase_d_node": "D.watch"},
                         phase_sub_status="watch",
-                    )
-                    return self._commit(hyp)
-
-                if d_shadow.node == "D.speculation":
-                    mss_watch = e_ctx_facts.get("ltf_counter_orderflow_mss_watch", False)
-                    leg_id = e_ctx_facts.get("ltf_counter_orderflow_leg_id")
-                    _mss_at = e_ctx_facts.get("ltf_counter_orderflow_started_at")
-                    _mss_fresh = bool(_mss_at and d_shadow.speculation_entered_at and _mss_at > d_shadow.speculation_entered_at)
-                    if mss_watch and leg_id and leg_id != d_shadow.consumed_leg_id and _mss_fresh:
-                        c_shadow = self.state.shadow_thesis.phase_c
-                        c_shadow.origin_node = "D.speculation_mss"
-                        c_shadow.entered_at = (
-                            e_ctx_facts.get("ltf_counter_orderflow_started_at") or cursor_time
-                        )
-                        hyp = self._phase_c(
-                            direction,
-                            None,
-                            "watching",
-                            cursor_time,
-                            {**debug, "phase_c_origin_node": "D.speculation_mss"},
-                            phase_sub_status="pullback",
-                        )
-                        return self._commit(hyp)
-
-                    hyp = self._phase_d(
-                        direction,
-                        cursor_time,
-                        {**debug, "phase_d_node": "D.speculation"},
-                        phase_sub_status="speculation",
                     )
                     return self._commit(hyp)
 
