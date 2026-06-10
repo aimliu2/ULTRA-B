@@ -261,7 +261,7 @@
       <div class="eyebrow">Layer 4 / Hypothesis DAG / Shadow state</div>
       <h1>40x - Hypothesis Shadow Migration</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> - This page is intentionally only an open-issue ledger. Phase E migration is closed: EC facts, DAG ownership, and the phase-owned <code>PhaseEShadow</code> boundary are implemented. The next active phase is D. Remaining work belongs to <code>none</code>, D, C, B, A, and cross-phase gating.
+        <b>TL;DR</b> - Open-issue ledger. Phase E and D migrations closed. Phase C in progress (2-state model: <code>C.pullback</code> / <code>C.pullback_weaken</code>). D.speculation → Layer 5 complete (commit <code>10dff12</code>). Remaining work: Phase C completion, B, A, cross-phase gating.
       </div>
       <a class="panel-link" href="./401-hypothesis-DAG.html">-&gt; Related: 401 Hypothesis DAG</a>
       <a class="panel-link" href="./402-hypothesis-phE.html">-&gt; Related: 402 Phase E</a>
@@ -409,19 +409,19 @@ Phase E shadow thesis must not own:
         See <code>402-hypothesis-phD.html</code> for the final spec including the squeeze edge case.
       </p>
       <div class="rule-block">
-        <b>Model:</b> <code>D.watch</code> opens on first pro-HTF MSS (<code>last_sc</code>).
+        <b>Model:</b> <code>D.watch</code> opens on first pro-HTF macro ChoCh (<code>last_sc</code>).
         <code>D.watch + counter MSS (LL break) → C.pullback</code>.
         <code>D.watch + HTF extreme → E.seeking</code>.
-        <code>D.speculation</code> will migrate to Layer 5 in the next PR after Phase C ships.
+        DAG uses <code>last_sc</code> only. iChoCh (<code>last_isc</code>) is Layer 5 territory — see <code>docs/501-entry.html</code>.
       </div>
       <div class="issue-grid">
         <div class="issue-card">
           <div class="issue-label">Closed · 2026-06-10</div>
-          <p><b>Phase D state machine implemented and replay-validated.</b> <code>D.watch</code> / <code>D.speculation</code> model live. iChoCh sensitivity (SC05/SC06), SC07/SC08 LTR disabled, squeeze edge case (EURUSD 15m/4h 2026-01-28T22:30Z). Test suite: 132 passed, 31 skipped.</p>
+          <p><b>Phase D state machine implemented and replay-validated.</b> <code>D.watch</code>-only model live. iChoCh sensitivity (SC05/SC06), SC07/SC08 LTR disabled, squeeze edge case (EURUSD 15m/4h 2026-01-28T22:30Z). Test suite: 132 passed, 31 skipped.</p>
         </div>
         <div class="issue-card">
-          <div class="issue-label">Next · Separate PR</div>
-          <p><b>D.speculation → Layer 5 migration.</b> iChoCh entry timing moves to Layer 5 (consistent with C.speculation already being Layer 5). DAG keeps <code>D.watch</code> only. Drop <code>choch_2</code>, <code>speculation_entered_at</code> from <code>PhaseDShadow</code>. Change <code>pro_attempt_seen</code> trigger from <code>last_isc</code> → <code>last_sc</code>.</p>
+          <div class="issue-label">Closed · 2026-06-10</div>
+          <p><b>D.speculation → Layer 5 migration complete.</b> Commit <code>10dff12</code>. Removed Path A (SC06 iChoCh) and Path B (counter SB) from DAG. Dropped <code>choch_2</code> and <code>speculation_entered_at</code> from <code>PhaseDShadow</code>. <code>pro_attempt_seen</code> now reads <code>last_sc</code> only. iChoCh mechanics documented in <code>docs/501-entry.html</code>. 3 D.speculation tests removed; 129 passed, 31 skipped.</p>
         </div>
       </div>
     </section>
