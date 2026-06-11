@@ -1,0 +1,801 @@
+<!-- source: src/ultrab/core/smc/hypothesis.py (Phase B state machine — B.watch model)
+     algo:   _phase_b_watch, _update_phase_b_watch_shadow, _phase_b_watch_shadow_debug
+     algo:   _phase_b_blocked_by_dag, PhaseBShadow
+     ref:    docs/402-hypothesis-phC.html, docs/401-hypothesis-DAG.html
+     rework: 2026-06-11 — collapsed strict/shallow/initiation → B.watch lean model -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis Phase B — B.watch</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 760px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  .hl  { color: var(--accent); font-weight: 700; }
+  .hl2 { color: var(--accent2); font-weight: 700; }
+  .cm  { color: var(--text-dim); font-style: italic; }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#overview">Overview</a>
+    <a href="#entry-gate">Entry Gate</a>
+    <a href="#shadow">Shadow (PhaseBShadow)</a>
+    <a href="#state-machine">B.watch State Machine</a>
+    <a href="#dag-block">DAG Block (E → B)</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#old-model">Old Model (archived)</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/hypothesis.py</code>
+      <code>docs/402-hypothesis-phC.html</code>
+      <code>docs/401-hypothesis-DAG.html</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis · Phase B</div>
+      <h1>Hypothesis Phase B — B.watch</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — Phase B is a single node: <code>B.watch</code>. It fires when a pro-HTF
+        macro ChoCh (<code>last_sc</code>) fires while in C.pullback AND the pullback depth has
+        reached the discount zone (≥ 51%). Shadow carries pointer-only fields (IDs, booleans,
+        timestamps). Exits are D-symmetric: counter MSS → C.pullback (freshness-guarded),
+        new HTF extreme → E.seeking. Direct E → B is DAG-blocked; B entry requires C.pullback
+        depth gate.
+      </div>
+      <a class="panel-link" href="./402-hypothesis-phC.html">→ Phase C — Counter Pullback</a>
+      <a class="panel-link" href="./402-hypothesis-phD.html">→ Phase D — Watch</a>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ DAG diagram</a>
+    </header>
+
+    <!-- ── 00 Overview ──────────────────────────────────────────────────── -->
+    <h2 id="overview"><span class="sec-num">00</span> Overview</h2>
+    <p>Phase B is the first counter-pullback confirmation node. It opens when price has pulled back
+    deep enough (discount zone, ≥ 51% of the P/D range) that a pro-HTF structural ChoCh fires — the
+    pro side attempting to reclaim. B.watch is the D-symmetric counterpart: D.watch mirrors the pro
+    side (E pullback confirmed → D.watch → bounce initiation), while B.watch mirrors the counter side
+    (C pullback confirmed → B.watch → reclaim initiation).</p>
+
+    <pre class="block">DAG position:
+
+E.seeking → E.stalling → E.pullback_developing
+  → D.watch
+    → <span class="hl2">C.pullback</span>           ← counter MSS confirmed; pullback leg active
+        depth &lt; 51%:   → C.pullback_weaken   ← pro-HTF SC in premium zone
+        depth ≥ 51%:   → <span class="hl">B.watch</span>           ← pro-HTF SC; discount zone reached
+          → C.pullback      ← counter MSS fails the reclaim attempt (D-symmetric)
+          → E.seeking       ← new HTF extreme invalidates the thesis</pre>
+
+    <div class="rule-block">
+      E must mature through C before B is permitted. Direct E → B is DAG-blocked by
+      <code>_phase_b_blocked_by_dag()</code>. The depth gate (≥ 51%) is enforced at the C → B
+      transition boundary, not by the EC candidate.
+    </div>
+
+    <!-- ── 01 Entry Gate ─────────────────────────────────────────────────── -->
+    <h2 id="entry-gate"><span class="sec-num">01</span> Entry Gate — Depth Gate from C.pullback</h2>
+    <p>B.watch opens from the C block (<code>previous_phase == "C"</code>) when a pro-HTF macro ChoCh
+    fires on a fresh leg AND the pullback has reached the discount zone. No additional EC candidate
+    is required — the gate reads directly from <code>phase_e_context</code> facts already present
+    in debug.</p>
+
+    <h3>Gate conditions</h3>
+    <pre class="block"><span class="hl">last_sc.breakDirection == pro-HTF direction</span>     <span class="cm"># pro macro ChoCh (SC01/SC02)</span>
+<span class="hl">last_sc.eventTimestamp &gt; c_shadow.entered_at</span>     <span class="cm"># freshness: SC after C.pullback opened</span>
+<span class="hl">ltf_pullback_depth_pct &gt;= 51.0</span>                   <span class="cm"># discount zone reached</span></pre>
+
+    <p>When depth &lt; 51%, the same pro-HTF SC fires <code>C.pullback_weaken</code> instead (still in
+    premium zone, not deep enough for B). See Phase C docs for that path.</p>
+
+    <details open>
+      <summary>Depth gate logic <span class="where">hypothesis.py:479–501</span></summary>
+      <div class="body">
+        <pre class="block"><span class="cm"># In C block: last_sc freshness + direction check</span>
+if (last_sc_c_at
+        and str(last_sc_c_at) &gt; str(_c_entered_floor)
+        and last_sc_c.get("breakDirection") == pro_break_c):
+    depth_raw = debug.get(<span class="hl2">"phase_e_context_ltf_pullback_depth_pct"</span>)
+    depth = float(depth_raw) if depth_raw is not None else None
+
+    if depth is not None and depth &gt;= 51.0:
+        b_shadow = self.state.shadow_thesis.phase_b
+        b_shadow.entered_at = cursor_time          <span class="cm"># freshness floor for exit guard</span>
+        hyp = self._phase_b_watch(direction, cursor_time, {
+            **debug,
+            <span class="hl2">"phase_b_origin_node"</span>:    f"C.{c_shadow.origin_node or 'pullback'}",
+            <span class="hl2">"phase_b_entry_depth_pct"</span>: depth,
+        })
+        return self._commit(hyp)
+    else:
+        <span class="cm"># → C.pullback_weaken (depth &lt; 51%)</span>
+        ...</pre>
+      </div>
+    </details>
+
+    <p><code>ltf_pullback_depth_pct</code> is emitted by EC in <code>phase_e_context.debug_facts</code>
+    and prefixed to <code>phase_e_context_ltf_pullback_depth_pct</code> in the DAG debug dict.</p>
+
+    <div class="rule-block">
+      The depth gate uses the same <code>phase_e_context</code> facts already available in
+      the C block — no additional EC candidate roundtrip. The gate is enforced by the DAG at the
+      C → B boundary, not pre-filtered by the EC candidate.
+    </div>
+
+    <!-- ── 02 Shadow ─────────────────────────────────────────────────────── -->
+    <h2 id="shadow"><span class="sec-num">02</span> Shadow — PhaseBShadow</h2>
+    <p>B.watch carries commitment pointers only. Layer 3 EC snapshot is the authoritative source
+    for zone levels, orderflow direction, and prices. Layer 5 resolves IDs from the EC snapshot at
+    decision time. Shadow fields are never zone levels or prices — only IDs, booleans, and
+    timestamps.</p>
+
+    <h3>PhaseBShadow fields</h3>
+    <pre class="block">entered_at               str | None   <span class="cm"># cursor_time of C → B transition (freshness floor)</span>
+htf_sd_zone_tapped       bool         <span class="cm"># True once HTF pro-SD was tapped/resolved</span>
+htf_sd_zone_id           str | None   <span class="cm"># pointer — Layer 5 resolves level via EC</span>
+htf_sd_zone_tapped_at    str | None   <span class="cm"># cursor_time of first tap</span>
+ltf_sd_zone_tapped       bool         <span class="cm"># True once a LTF pro-SD zone appears</span>
+ltf_sd_zone_id           str | None   <span class="cm"># pointer — first zone_id from ltf_pro_sd_zone_ids</span>
+liquidity_pool_run       bool         <span class="cm"># True once HTF ITR liquidity pool ran</span>
+liquidity_pool_id        str | None   <span class="cm"># pointer — htf_itr_grab_reclaim_pool_id</span></pre>
+
+    <p><code>entered_at</code> is set on the transition bar (C block) and serves as the freshness
+    floor for the B.watch → C.pullback exit guard. The zone and liquidity fields are updated each
+    bar by <code>_update_phase_b_watch_shadow()</code>, which reads from <code>htf_b_phase_setup</code>
+    EC facts.</p>
+
+    <details open>
+      <summary>Shadow update per bar <span class="where">hypothesis.py:2269–2285</span></summary>
+      <div class="body">
+        <pre class="block">def _update_phase_b_watch_shadow(self, snapshot, debug):
+    s = self.state.shadow_thesis.phase_b
+    _, b_facts = _ec_candidate(snapshot, <span class="hl2">"htf_b_phase_setup"</span>)
+
+    <span class="cm"># HTF SD zone tap (sticky once set)</span>
+    if (b_facts.get("htf_pro_sd_tapped") or b_facts.get("htf_pro_sd_resolved")) \
+            and not s.htf_sd_zone_tapped:
+        s.htf_sd_zone_tapped = True
+        s.htf_sd_zone_id     = b_facts.get("htf_last_resolved_zone_id")
+        s.htf_sd_zone_tapped_at = debug.get("cursor_time")
+
+    <span class="cm"># LTF SD zone (sticky, first only)</span>
+    ltf_zones = b_facts.get("ltf_pro_sd_zone_ids") or []
+    if ltf_zones and not s.ltf_sd_zone_tapped:
+        s.ltf_sd_zone_tapped = True
+        s.ltf_sd_zone_id     = ltf_zones[0]
+
+    <span class="cm"># Liquidity pool run (sticky)</span>
+    pool_id = debug.get("htf_itr_grab_reclaim_pool_id")
+    if pool_id and not s.liquidity_pool_run:
+        s.liquidity_pool_run = True
+        s.liquidity_pool_id  = pool_id</pre>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Shadow pointer fields accumulate monotonically — they are never cleared within a B.watch
+      episode. All three categories (HTF SD zone, LTF SD zone, liquidity pool) are sticky: once set,
+      they remain until the next epoch reset.
+    </div>
+
+    <!-- ── 03 B.watch State Machine ──────────────────────────────────────── -->
+    <h2 id="state-machine"><span class="sec-num">03</span> B.watch State Machine</h2>
+    <p>B.watch is a single-node state. Each bar the classifier checks for two exit conditions in
+    priority order. Both exits mirror the D.watch exit logic exactly (D-symmetric design).</p>
+
+    <h3>Exit 1 — E.seeking (new HTF extreme)</h3>
+    <p>When a new HTF extreme appears, the reclaim thesis is invalidated and the cycle resets to
+    E.seeking. This mirrors D.watch → E.seeking exactly.</p>
+    <pre class="block"><span class="hl">phase_e_context_new_htf_extreme == True</span>
+  OR e_ctx.get("new_htf_extreme") == True
+→ E.seeking   <span class="cm"># HTF continuation resumes; B.watch invalidated</span></pre>
+
+    <h3>Exit 2 — C.pullback (counter MSS, freshness-guarded)</h3>
+    <p>When a counter orderflow MSS fires on a leg that started after B.watch opened, the pro
+    reclaim attempt failed — price broke structure against the bounce. This mirrors D.watch →
+    C.pullback exactly.</p>
+    <pre class="block"><span class="hl">ltf_counter_orderflow_mss_watch == True</span>
+AND <span class="hl">ltf_counter_orderflow_started_at &gt; b_shadow.entered_at</span>   <span class="cm"># freshness guard</span>
+→ C.pullback
+  c_shadow.origin_node = "B.watch_failed"
+  c_shadow.entered_at  = ltf_counter_orderflow_started_at</pre>
+
+    <details open>
+      <summary>Freshness guard explained <span class="where">hypothesis.py:711–731</span></summary>
+      <div class="body">
+        <p>The freshness guard prevents a counter MSS that was already active when B.watch opened
+        from immediately firing the exit. The guard requires <code>started_at</code> (the timestamp
+        the counter orderflow leg began) to be strictly after <code>b_shadow.entered_at</code>
+        (the cursor_time of the C → B transition bar). An MSS that started on the same bar as
+        B.watch entry — or before — is stale and blocked.</p>
+        <pre class="block"><span class="cm"># Probe observation (2026-02-03, EURUSD 15m/4h):</span>
+<span class="cm">#   B.watch entered at 03:45; mss_started=03:45 on bars 1–18 → blocked</span>
+<span class="cm">#   Fresh mss_started=10:30 appears; B.watch → C.pullback fires at 11:45</span></pre>
+      </div>
+    </details>
+
+    <h3>Hold (carry)</h3>
+    <p>If neither exit fires, B.watch carries forward. Shadow is updated by
+    <code>_update_phase_b_watch_shadow()</code> each bar, accumulating zone tap and liquidity
+    observations. Layer 5 reads these from snapshot debug_facts for entry permission decisions.</p>
+
+    <div class="rule-block">
+      B.watch has no internal sub-statuses. Layer 5 reads <code>phase_b_shadow.*</code> facts from
+      the snapshot to determine entry quality (zone tapped, liquidity run, etc.). The DAG only
+      tracks the two exit conditions.
+    </div>
+
+    <!-- ── 04 DAG Block ───────────────────────────────────────────────────── -->
+    <h2 id="dag-block"><span class="sec-num">04</span> DAG Block — Direct E → B</h2>
+    <p>When the classifier is in a Phase E context and <code>previous_phase != "C"</code>, B is
+    hard-blocked. B.watch entry is only valid via the C.pullback depth gate. The guard prevents
+    E.pullback_developing from skipping C entirely.</p>
+
+    <pre class="block"><span class="cm"># hypothesis.py:926–931</span>
+def _phase_b_blocked_by_dag(self, direction):
+    return self._previous_or_active_e(direction) and self.state.previous_phase != "C"</pre>
+
+    <p>When blocked, the debug section emits informational facts but no transition fires:</p>
+    <pre class="block">phase_b_candidate         = True
+phase_b_ready             = False
+phase_b_blocked_by_dag    = True
+phase_b_dag_blocked_reason = "direct_e_to_b_requires_c_origin"</pre>
+
+    <div class="rule-block">
+      C is not optional. D.watch → C.pullback or V1 (E.pullback_developing no-pro path) are the
+      only valid C entries that then permit B.watch via the depth gate.
+    </div>
+
+    <!-- ── 05 Algorithm ───────────────────────────────────────────────────── -->
+    <h2 id="algo"><span class="sec-num">05</span> Algorithm</h2>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-tab="algo-entry">Entry (C block)</button>
+        <button data-tab="algo-b-sm">B.watch SM</button>
+        <button data-tab="algo-shadow">Shadow update</button>
+      </div>
+      <pre class="on" data-tab="algo-entry"><span class="cm"># hypothesis.py:479–501 (C block, pro-HTF SC trigger)</span>
+
+<span class="cm"># pro-HTF SC freshness + direction check (same as C.pullback_weaken trigger)</span>
+if (last_sc_c_at
+        and str(last_sc_c_at) &gt; str(_c_entered_floor)
+        and last_sc_c.get("breakDirection") == pro_break_c):
+
+    depth_raw = debug.get(<span class="hl2">"phase_e_context_ltf_pullback_depth_pct"</span>)
+    try:
+        depth = float(depth_raw) if depth_raw is not None else None
+    except (TypeError, ValueError):
+        depth = None
+
+    if depth is not None and <span class="hl">depth &gt;= 51.0</span>:
+        <span class="cm"># → B.watch</span>
+        b_shadow = self.state.shadow_thesis.phase_b
+        b_shadow.entered_at = cursor_time
+        hyp = self.<span class="hl">_phase_b_watch</span>(direction, cursor_time, {
+            **debug,
+            "phase_b_origin_node":    f"C.{c_shadow.origin_node or 'pullback'}",
+            "phase_b_entry_depth_pct": depth,
+        })
+        return self._commit(hyp)
+    else:
+        <span class="cm"># → C.pullback_weaken (depth &lt; 51%)</span>
+        c_shadow.weaken_at = str(last_sc_c_at)
+        hyp = self._phase_c(direction, None, "watching", cursor_time,
+            {**debug, "phase_c_weakened": True}, phase_sub_status="pullback_weaken")
+        return self._commit(hyp)</pre>
+      <pre data-tab="algo-b-sm"><span class="cm"># hypothesis.py:696–734 (previous_phase == "B" block)</span>
+
+b_shadow = self.state.shadow_thesis.phase_b
+self.<span class="hl">_update_phase_b_watch_shadow</span>(snapshot, debug)
+debug.update(self.<span class="hl">_phase_b_watch_shadow_debug</span>())
+
+<span class="cm"># B.watch → E.seeking (new HTF extreme — highest priority)</span>
+_, e_ctx_b = _ec_candidate(snapshot, "phase_e_context")
+_new_htf_extreme_b = bool(
+    debug.get(<span class="hl2">"phase_e_context_new_htf_extreme"</span>)
+    or e_ctx_b.get("new_htf_extreme")
+)
+if _new_htf_extreme_b:
+    hyp = self._phase_e(direction, cursor_time, debug, ltf)
+    return self._commit(hyp)
+
+<span class="cm"># B.watch → C.pullback (counter MSS — freshness-guarded)</span>
+_mss_b       = e_ctx_b.get(<span class="hl2">"ltf_counter_orderflow_mss_watch"</span>, False)
+_mss_started = e_ctx_b.get("ltf_counter_orderflow_started_at")
+_b_floor     = b_shadow.entered_at or ""
+
+if (_mss_b and _mss_started
+        and str(_mss_started) &gt; str(_b_floor)):     <span class="cm"># freshness guard</span>
+    c_shadow = self.state.shadow_thesis.phase_c
+    c_shadow.origin_node = "B.watch_failed"
+    c_shadow.entered_at  = _mss_started
+    hyp = self._phase_c(direction, None, "watching", cursor_time,
+        {**debug, "phase_b_failed_to_c": True}, phase_sub_status="pullback")
+    return self._commit(hyp)
+
+<span class="cm"># hold</span>
+hyp = self._carry_current_hypothesis(cursor_time, debug)
+return self._commit(hyp)</pre>
+      <pre data-tab="algo-shadow"><span class="cm"># hypothesis.py:2237–2298 — emit + shadow methods</span>
+
+def _phase_b_watch(self, direction, ts, debug) -&gt; Hypothesis:
+    return Hypothesis(
+        phase=<span class="hl2">"B"</span>,
+        status=<span class="hl2">"watching"</span>,
+        phase_sub_status=<span class="hl2">"watch"</span>,
+        poi_id=None,
+        entry_policy="wait",
+        target_policy="htf_pd_level",
+        debug_facts=debug,
+        ...
+    )
+
+def _phase_b_watch_shadow_debug(self) -&gt; dict:
+    s = self.state.shadow_thesis.phase_b
+    return {
+        <span class="hl2">"phase_b_shadow_entered_at"</span>:          s.entered_at,
+        <span class="hl2">"phase_b_shadow_htf_sd_zone_tapped"</span>:   s.htf_sd_zone_tapped,
+        <span class="hl2">"phase_b_shadow_htf_sd_zone_id"</span>:       s.htf_sd_zone_id,
+        <span class="hl2">"phase_b_shadow_htf_sd_zone_tapped_at"</span>: s.htf_sd_zone_tapped_at,
+        <span class="hl2">"phase_b_shadow_ltf_sd_zone_tapped"</span>:   s.ltf_sd_zone_tapped,
+        <span class="hl2">"phase_b_shadow_ltf_sd_zone_id"</span>:       s.ltf_sd_zone_id,
+        <span class="hl2">"phase_b_shadow_liquidity_pool_run"</span>:   s.liquidity_pool_run,
+        <span class="hl2">"phase_b_shadow_liquidity_pool_id"</span>:    s.liquidity_pool_id,
+    }</pre>
+    </div>
+
+    <!-- ── 06 Old Model (archived) ───────────────────────────────────────── -->
+    <h2 id="old-model"><span class="sec-num">06</span> Old Model — Archived</h2>
+    <p>The pre-rework Phase B had three sub-statuses driven by dedicated EC candidates. All are
+    superseded by B.watch. The old code paths remain in <code>hypothesis.py</code> as dead methods
+    for reference.</p>
+
+    <details>
+      <summary>B.strict_reclaim / B.shallow_reclaim (archived) <span class="where">hypothesis.py:1297–1549 dead</span></summary>
+      <div class="body">
+        <p><b>Entry</b>: <code>_phase_b_setup()</code> read from <code>htf_b_phase_setup</code> EC
+        candidate. Required <code>htf_pullback_context_ready</code>, location buckets
+        (<code>strict_pd_half</code> / <code>shallow_pd_half</code>),
+        <code>ltf_turns_back_toward_htf</code>, <code>htf_pro_sd_reaction</code>.
+        The 51% depth gate was <em>not</em> enforced at the C block — it was implicit via
+        <code>htf_pullback_context_ready</code>.</p>
+        <p><b>B.shallow_reclaim state machine</b>: tracked shadow status
+        (<code>active → contested → weakened</code>) based on counter evidence and same-level
+        returns. Shadow used flat <code>ShadowThesis</code> fields (<code>opened_at</code>,
+        <code>selected_poi_id</code>, <code>first_counter_mitigation_at</code>,
+        <code>same_level_return_count</code>). These flat fields remain in
+        <code>ShadowThesis</code> for backward compatibility with dead method references.</p>
+        <p><b>Exit paths</b>: B.shallow → D.watch (when <code>htf_opposing_sd_reaction</code>),
+        B.shallow → E.seeking (new extreme). B.strict had no internal sub-status machine.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>B.initiation_watch (archived) <span class="where">hypothesis.py:1089–1286 dead</span></summary>
+      <div class="body">
+        <p><b>Entry</b>: <code>_phase_b_initiation_setup()</code> read from
+        <code>phase_b_initiation</code> EC candidate (nested under <code>b_initiation</code>).
+        Required valid C origin (legacy C sub-status names:
+        <code>C.htf_reaction_pullback</code>, <code>C.slow_pullback</code>, etc.) and
+        <code>b_init.status == "ready"</code>.</p>
+        <p><b>Sub-statuses</b>: <code>active → decisive → stalled/contested → weakened</code>.
+        Driven by ITR grab/reclaim signals (<code>opposite_itr_grab_seen</code>,
+        <code>source_anchor_run_seen</code>).</p>
+        <p><b>Exit paths</b>: → <code>C.pullback.no_followthrough</code> (source anchor run),
+        → <code>C.pullback.after_inducement</code> (weakened + HTF opposing resolved + LTF counter
+        story). Both of these C sub-statuses are also removed from the DAG — they are now Layer 5
+        context read from snapshot facts.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.pullback.after_inducement / C.pullback.no_followthrough (archived)</summary>
+      <div class="body">
+        <p>These were B.initiation_watch fallback exit C sub-statuses. With B.watch replacing
+        initiation_watch, they no longer exist in the DAG. The qualitative information they encoded
+        (was there an inducement sweep? did the B attempt fail?) is now Layer 5 context: Layer 5
+        reads <code>phase_b_shadow.*</code> facts (zone tapped, liquidity run, etc.) from the
+        snapshot to make that distinction.</p>
+      </div>
+    </details>
+
+    <!-- ── 07 Open Issues ─────────────────────────────────────────────────── -->
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Phase A EC candidate not written.</b> <code>_phase_a_setup()</code> is disabled and
+        B → A path is commented out. Phase A is blocked until the A EC candidate is authored.
+        After Phase B is validated through replay, A is the next DAG node.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Layer 5 B.watch entry permission.</b> Layer 5 has not been built yet. When built,
+        it will read <code>phase_b_shadow.*</code> IDs and resolve zone/orderflow details from the
+        EC snapshot. The shadow pointer-only design is intentional — Layer 5 decides entry
+        quality, not the DAG.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>B.watch fires repeatedly within a C.pullback episode.</b> After B.watch → C.pullback
+        (failed), the DAG is back in C.pullback. If a subsequent pro-SC fires at depth ≥ 51%,
+        B.watch opens again. The shadow is reset only on epoch boundary (new HTF P/D range), so
+        accumulated zone tap observations carry across re-entries.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b><code>htf_b_phase_setup</code> key names unverified in B.watch context.</b>
+        <code>_update_phase_b_watch_shadow()</code> reads <code>htf_last_resolved_zone_id</code>
+        and <code>ltf_pro_sd_zone_ids</code> from <code>htf_b_phase_setup</code> facts. These
+        key names were taken from the old model — if the EC emits different keys, shadow fields
+        will be None (non-crashing, but empty). Low priority: shadow is debug-only for now.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>B model rework decision.</b> Resolved 2026-06-11: collapsed
+        <code>strict_reclaim</code>, <code>shallow_reclaim</code>, <code>initiation_watch</code>
+        into single <code>B.watch</code> node. Depth gate (≥ 51%) enforced at C → B boundary.
+        D-symmetric exits. Old sub-status variant logic moved to Layer 5.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>C → B depth gate not enforced.</b> Resolved: depth gate at 51% is now explicitly
+        checked in the C block at the pro-HTF SC trigger. Replayed EURUSD 15m/4h confirms
+        B.watch fires correctly when depth ≥ 51% (first event at 65.4% on 2026-02-03) and
+        C.pullback_weaken fires when depth &lt; 51%.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // Tab switching
+  document.querySelectorAll('[data-tabs]').forEach(function(tabs) {
+    var buttons = tabs.querySelectorAll('.tabbar button');
+    var panes   = tabs.querySelectorAll('pre[data-tab]');
+    buttons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var target = btn.dataset.tab;
+        buttons.forEach(function(b) { b.classList.remove('on'); });
+        panes.forEach(function(p)   { p.classList.remove('on'); });
+        btn.classList.add('on');
+        tabs.querySelector('pre[data-tab="' + target + '"]').classList.add('on');
+      });
+    });
+  });
+
+  // Nav active highlight on scroll
+  var headings = document.querySelectorAll('h2[id], h3[id]');
+  var navLinks = document.querySelectorAll('nav a[href^="#"]');
+  var io = new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) {
+      if (e.isIntersecting) {
+        navLinks.forEach(function(a) { a.classList.remove('active'); });
+        var link = document.querySelector('nav a[href="#' + e.target.id + '"]');
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '0px 0px -60% 0px' });
+  headings.forEach(function(h) { io.observe(h); });
+</script>
+</body>
+</html>

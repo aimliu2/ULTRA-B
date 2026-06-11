@@ -598,7 +598,6 @@ class DualReplaySession:
         self.lower_structure = self._runtime.lower_structure
         self.higher_structure = self._runtime.higher_structure
         self.lower_orderflow = self._runtime.lower_orderflow
-        self.higher_orderflow = self._runtime.higher_orderflow
         self.hypothesis_classifier = self._runtime.hypothesis_classifier
 
     def reset(self) -> None:

@@ -1,15 +1,13 @@
 # Project status
 
-## Current state — 2026-06-10
+## Current state — 2026-06-11
 
-**Phase D + C complete. Ready for replay testing.**
+**Phase D + C + B (lean model) complete. E.HTF_reaction folded. B.watch wired. Docs/contract updated.**
 
 - Phase D: `D.watch`-only model. `D.speculation` removed from DAG (commit `10dff12`).
-- Phase C: 2-state model `C.pullback` / `C.pullback_weaken` (commit `113d4ca` + C PR).
-- DAG uses `last_sc` (macro ChoCh, SC01/SC02) only for all structural transitions.
-  `last_isc` (iChoCh, SC06) is Layer 5 entry confirmation — NOT a DAG gate.
-- Test suite: **129 passed, 31 skipped.**
-- Next: replay EURUSD 15m/4h to validate D.watch → C.pullback transitions.
+- Phase C: 2-state model `C.pullback` / `C.pullback_weaken`. Replay validated. Docs archived.
+- Orderflow MSS gate fixed. `higher_orderflow` removed. Test suite: **129 passed, 31 skipped.**
+- All Phase D/C docs complete. Next: Phase B rework (legacy code exists, incomplete/messy).
 
 ---
 
@@ -133,17 +131,54 @@ pro_attempt_level
 - ✅ Layer3 naming migration
 - ✅ `docs/401-hypothesis-DAG.html` — D.spec removed, C.pullback updated
 - ✅ `docs/402-hypothesis-phD.html` — D.watch-only, archive block
-- ✅ `docs/402-hypothesis-phC.html` — 2-state model, archive old 5-variant
+- ✅ `docs/402-hypothesis-phC.html` — 2-state model + section 06 Old Model (5 variants archived, Open Issues → 07)
+- ✅ `docs/402-hypothesis-phB.html` — B.watch model (old model archived in §06)
+- ✅ Phase B rework: `B.watch` + `PhaseBShadow`, depth gate C→B at 51%, D-symmetric exits, E.HTF_reaction folded
+- ✅ `docs/401-hypothesis-DAG.html` — E.HTF_reaction removed, C_ind/C_no removed, B_watch node, depth gate edges
 - ✅ `docs/40x-hypothesis-migration.html` — Phase D + C closed
 - ✅ `docs/501-entry.html` — Layer 5 iChoCh mechanics
 - ✅ `.claude/layer34-contract.md` — D.speculation removed, PhaseCshadow added
+- ✅ Replay validated: EURUSD 15m/4h — D.watch → C.pullback fires at 2026-01-29T12:45
+- ✅ Orderflow MSS gate fix — `probe_breaks_protected_anchor` decoupled from direction scorer; EC gate = `ltf_bias_counter AND probe_breaks_protected_anchor`; `higher_orderflow` deleted
 
 **In-flight / not started**
-- Replay validation: Phase D + C EURUSD 15m/4h — **START HERE (tomorrow)**
-- Phase B/A gates: re-enable after replay validates D/C
+- Phase B rework COMPLETE — `B.watch` implemented (depth gate from C.pullback, D-symmetric exits). `PhaseBShadow` added. `E.HTF_reaction` folded into shadow. `docs/402-hypothesis-phB.html` rewritten for B.watch model (old model archived in §06).
+- Phase A: `_phase_a_setup()` disabled, EC candidate not written. After B.
+- Cold-start self-location: post-warmup bar self-locates into best DAG node
+- Shadow consumed-event ledger for D liquidity expiry
+
+---
+
+## Phase B — current code state (pre-rework audit, 2026-06-11)
+
+**What exists (partially wired, partially commented out):**
+- `_phase_b_setup()` — reads EC `htf_b_phase_setup`; variants: `strict_reclaim` / `shallow_reclaim`. Gate: `htf_pullback_context_ready`, pd_half location, `ltf_turns_back_toward_htf`, `htf_pro_sd_reaction`, `ltf_pro_sd_selected`.
+- `_phase_b_initiation_setup()` — separate initiation watch path.
+- **C → B** (`hypothesis.py:474`): active — fires when `previous_phase == "C"` and `phase_b_ready`.
+- **B.initiation_watch** (`hypothesis.py:656`): active — handles B.initiation → C.no_followthrough / C.after_inducement fallbacks.
+- **B.shallow_reclaim** (`hypothesis.py:769`): active — holds or transitions to D/E from shallow.
+- **Direct E → B** (`hypothesis.py:844`): commented out — intentionally blocked (`direct_e_to_b_requires_c_origin`).
+- **Phase A** (`hypothesis.py:826`): commented out — EC candidate not written.
+
+**What's messy / needs rework decision:**
+- B sub-statuses (`strict_reclaim`, `shallow_reclaim`, `initiation_watch`) are legacy naming — may not align with new 2-state C model.
+- `C → B` transition condition is `ltf_pullback_depth_pct >= 50%` per DAG docs, but not enforced in the C block.
+- `htf_b_phase_setup` EC candidate may be stale relative to `last_sc`-only structural model.
+- Need user decision: target B model (how many states, entry gate from C, B → A trigger).
 - Cold-start self-location: post-warmup bar self-locates into best DAG node
 - `_phase_a_setup()` disabled — Phase A EC candidate not written
 - Shadow consumed-event ledger for D liquidity expiry
+
+---
+
+## Orderflow MSS fix (2026-06-11)
+
+**Root cause**: `_score_direction()` returns `"mixed"` at transition (bull==bear window) → probe-breaks-anchor block was gated on `score["direction"] == "bullish/bearish"` → never ran at the MSS moment.
+
+**Fix (3 files)**:
+- `orderflow.py` lines 129-148: direction scorer still nominates `protected_anchor_ref` for Layer 5 SL. Break check now direction-agnostic — finds latest HL/LH and fires regardless of window score.
+- `evidence_compiler.py` lines 1683-1685: `ltf_counter_orderflow_mss_watch = ltf_bias_counter AND probe_breaks_protected_anchor`. structureEngine bias replaces 5-condition scorer gate.
+- `dual_smc.py` + `replay_session.py`: `higher_orderflow` removed entirely (zero logic readers).
 
 ---
 

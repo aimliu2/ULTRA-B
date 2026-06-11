@@ -126,17 +126,25 @@ class OrderflowContext:
             blocked_reason = "compression"
 
         probe_relation = self._locate_probe(probe, latest_high, latest_low)
-        if probe and score["direction"] == "bullish":
+        # Nominate protected anchor from direction scorer (Layer 5 SL reference, direction-only)
+        if score["direction"] == "bullish":
             protected_anchor = self._latest_by_label(labels, "HL")
-            if protected_anchor and _price(probe) < _price(protected_anchor) - EPS:
+        elif score["direction"] == "bearish":
+            protected_anchor = self._latest_by_label(labels, "LH")
+        # Break check runs direction-agnostic: fires on mixed/unknown windows too
+        if probe:
+            latest_hl = self._latest_by_label(labels, "HL")
+            latest_lh = self._latest_by_label(labels, "LH")
+            probe_price = _price(probe)
+            if latest_hl and probe_price is not None and probe_price < _price(latest_hl) - EPS:
+                protected_anchor = latest_hl
                 probe_breaks_protected_anchor = True
                 regime = "mss_watch"
                 monitor = "watching_resolution"
                 live_pressure = "anchor_threat"
                 blocked_reason = None
-        if probe and score["direction"] == "bearish":
-            protected_anchor = self._latest_by_label(labels, "LH")
-            if protected_anchor and _price(probe) > _price(protected_anchor) + EPS:
+            elif latest_lh and probe_price is not None and probe_price > _price(latest_lh) + EPS:
+                protected_anchor = latest_lh
                 probe_breaks_protected_anchor = True
                 regime = "mss_watch"
                 monitor = "watching_resolution"

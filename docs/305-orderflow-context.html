@@ -891,6 +891,11 @@ self.require_decision_point = bool(monitor_cfg.get("require_decision_point", Tru
         <p><b>Method assigned.</b> The case-based algorithm intent is now documented in <code>305-orderflow-details.html</code>; coding can begin with conservative defaults and fixtures for cases A-H.</p>
       </div>
       <div class="issue-card">
+        <div class="issue-label">Known Blocker · Fixed</div>
+        <p><b>Direction scorer blocks MSS at the exact transition moment.</b> The probe-breaks-protected-anchor check was gated on <code>score["direction"] == "bullish|bearish"</code>. At the MSS transition moment the window is mixed (bull count == bear count), so the scorer returns <code>"mixed"</code> and the probe check never runs — even when a confirmed HL is present and the probe is below it. This blocked <code>E.stalling → E.pullback_developing</code> and <code>D.watch → C.pullback</code> simultaneously.</p>
+        <p>Fix: the probe-breaks-anchor lookup now runs unconditionally when a probe exists (checks latest HL then latest LH regardless of window score). The EC gate for <code>ltf_counter_orderflow_mss_watch</code> was simplified to <code>ltf_bias_counter AND probe_breaks_protected_anchor</code> — LTF structural bias (structureEngine) replaces the direction scorer as the context check. <code>_score_direction()</code> itself is unchanged.</p>
+      </div>
+      <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
         <p><b>Structure sequence prerequisite.</b> Structure Context now emits and retains <code>structure_sequence</code> plus <code>structure_probe</code>. Orderflow implementation can consume this instead of reading P/D range fields as history.</p>
       </div>

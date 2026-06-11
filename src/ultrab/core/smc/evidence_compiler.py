@@ -1681,10 +1681,7 @@ class EvidenceCompiler:
         )
         pro_ltf_bias = "bullish" if direction == "long" else "bearish"
         ltf_counter_orderflow_mss_watch = bool(
-            ltf_counter_orderflow_direction == pro_ltf_bias
-            and orderflow_mss_regime == "mss_watch"
-            and orderflow_mss_monitor_status == "watching_resolution"
-            and orderflow_mss_trigger_source == "probe_vs_protected_anchor"
+            ltf_bias_counter
             and orderflow_probe_breaks_protected_anchor
         )
         ltf_swing_orderflow_mss_watch = bool(

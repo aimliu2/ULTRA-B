@@ -317,7 +317,8 @@
     <a href="#transitions">03 Transitions</a>
     <a href="#algorithm">04 Algorithm</a>
     <a href="#config">05 Config</a>
-    <a href="#issues">06 Open Issues</a>
+    <a href="#old-model">06 Old Model</a>
+    <a href="#issues">07 Open Issues</a>
     <div class="files">
       <div class="label">Sources</div>
       <code>401-hypothesis-DAG.html</code>
@@ -643,7 +644,7 @@ entry_policy = "hybrid" if (
 ) else "skip"</pre>
     </div>
 
-    <h2 id="issues"><span class="sec-num">06</span> Open Issues</h2>
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues</h2>
     <p>
       Issues for the 2-state model. Old 5-variant issues retired — see Archive block in section 02.
     </p>
@@ -690,6 +691,113 @@ entry_policy = "hybrid" if (
         <p><b><code>E.pullback_developing → E.stalling</code> disruption exit is retired.</b> After the first counter-orderflow MSS, shadow holds in <code>E.pullback_developing</code> until new HTF extreme or Layer 4 selects D/C. Legacy disruption debug keys removed.</p>
       </div>
     </div>
+    <h2 id="old-model"><span class="sec-num">06</span> Old Model (Archived)</h2>
+    <p>
+      The prior Phase C had five sub-statuses. Superseded by the 2-state <code>C.pullback / C.pullback_weaken</code> model. Preserved here for migration reference.
+    </p>
+
+    <details>
+      <summary>C.htf_reaction_pullback <span class="where">Archived</span></summary>
+      <div class="body">
+        <p>
+          The primary D-to-C path. Entered when Phase D confirmed an HTF reaction and the counter story was ready.
+        </p>
+<pre class="block">Gate:
+  previous_phase == "D"
+  phase_c_story_ready                  ← ltf_counter_story EC ready
+  _phase_d_reaction_confirmed(phase_c):
+    phase_c_ltf_counter_bos_confirmed  ← confirmed_direction == counter + regime directional
+    OR phase_c_ltf_counter_pullback_confirmed
+    OR ltf_pullback_depth_pct >= depth threshold
+
+DAG:
+  phase = C
+  phase_sub_status = "htf_reaction_pullback"
+  origin: D reaction point → C</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.hard_pullback <span class="where">Archived</span></summary>
+      <div class="body">
+        <p>
+          Fast E-direct path. Required the P/D range to have stopped expanding and a clean orderflow score with sufficient depth.
+        </p>
+<pre class="block">Gate (_phase_c_fast_hard_pullback_setup):
+  phase_e_context_status == "ready"
+  NOT phase_e_context_new_htf_extreme
+  phase_e_context_htf_pd_stopped_expanding == True
+  phase_e_context_ltf_counter_orderflow_clean == True
+  NOT phase_e_context_ltf_counter_orderflow_broken
+  ltf_pullback_depth_pct >= 50.0
+  previous_phase not in {"B", "A"}
+
+DAG:
+  phase = C
+  phase_sub_status = "hard_pullback"
+  origin: E fast path, tight P/D range, depth threshold</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.slow_pullback <span class="where">Archived</span></summary>
+      <div class="body">
+        <p>
+          Slower E-direct path (Case F). Required <code>E.pullback_developing</code> shadow and confirmed orderflow direction. The <code>ltf_counter_bos_confirmed</code> flag demanded both <code>confirmed_direction == counter_ltf_bias</code> and <code>regime == "directional"</code> — meaning the direction scorer had to be non-mixed. This is the gate the orderflow MSS fix (2026-06-11) superseded.
+        </p>
+<pre class="block">Gate:
+  previous_phase not in {"B", "A"}
+  phase_e_shadow_node == "E.pullback_developing"
+  phase_c_ltf_counter_bos_confirmed == True
+    → confirmed_direction == counter_ltf_bias
+      AND regime == "directional"
+
+DAG:
+  phase = C
+  phase_sub_status = "slow_pullback"
+  origin: E.pullback_developing + confirmed orderflow direction</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.pullback.no_followthrough <span class="where">Archived</span></summary>
+      <div class="body">
+        <p>
+          Re-entry from a failed B initiation. The source ITR anchor was run through — meaning price traced back through the origin of the initiation leg.
+        </p>
+<pre class="block">Gate (_phase_b_initiation_no_followthrough):
+  previous_phase == "B"
+  previous_b_sub_status.startswith("initiation_watch")
+  phase_b_initiation_source_anchor_was_run == True
+
+DAG:
+  phase = C
+  phase_sub_status = "pullback.no_followthrough"
+  phase_c_origin_node = f"B.{previous_b_sub_status}"
+  origin: B.initiation_watch failed — source ITR anchor run through</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>C.pullback.after_inducement <span class="where">Archived</span></summary>
+      <div class="body">
+        <p>
+          Re-entry from a rejected B initiation. The opposing HTF reaction rejected the initiation attempt — treated as an inducement sweep, not a continuation.
+        </p>
+<pre class="block">Gate (_phase_b_initiation_rejected):
+  previous_phase == "B"
+  previous_b_sub_status.startswith("initiation_watch")
+  htf_opposing_reaction_rejects == True
+  OR initiation anchor lost
+
+DAG:
+  phase = C
+  phase_sub_status = "pullback.after_inducement"
+  phase_c_origin_node = f"B.{previous_b_sub_status}"
+  origin: B.initiation_watch rejected — opposing HTF reaction treated as inducement</pre>
+      </div>
+    </details>
+
   </main>
 </div>
 

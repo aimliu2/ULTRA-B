@@ -149,6 +149,33 @@ class PhaseCshadow:
 
 
 @dataclass
+class PhaseBShadow:
+    """Internal Phase B sub-node memory for B.watch.
+
+    Carries commitment pointers only. Layer 3 EC snapshot is the source for
+    zone levels, orderflow direction, and prices. Layer 5 resolves IDs.
+    """
+    entered_at: str | None = None
+    htf_sd_zone_tapped: bool = False
+    htf_sd_zone_id: str | None = None
+    htf_sd_zone_tapped_at: str | None = None
+    ltf_sd_zone_tapped: bool = False
+    ltf_sd_zone_id: str | None = None
+    liquidity_pool_run: bool = False
+    liquidity_pool_id: str | None = None
+
+    def reset(self) -> None:
+        self.entered_at = None
+        self.htf_sd_zone_tapped = False
+        self.htf_sd_zone_id = None
+        self.htf_sd_zone_tapped_at = None
+        self.ltf_sd_zone_tapped = False
+        self.ltf_sd_zone_id = None
+        self.liquidity_pool_run = False
+        self.liquidity_pool_id = None
+
+
+@dataclass
 class ShadowThesis:
     """Root Layer 4 memory component with phase-owned ledgers.
 
@@ -158,13 +185,15 @@ class ShadowThesis:
     phase_e  — Phase E expansion sub-node ledger (PhaseEShadow).
     phase_d  — Phase D watch/speculation sub-node ledger (PhaseDShadow).
     phase_c  — Phase C pullback/weaken sub-node ledger (PhaseCshadow).
-    B-phase fields (status, selected_poi_*…) — commitment memory for
-    Phase B shallow-reclaim tracking. reset() clears only these fields;
-    phase_e/phase_d/phase_c have their own reset via their .reset() methods.
+    phase_b  — Phase B watch sub-node ledger (PhaseBShadow). Pointer-only.
+    B-phase flat fields (status, selected_poi_*…) — legacy shallow-reclaim
+    commitment fields, kept for dead-code methods. reset() clears only these;
+    phase_e/phase_d/phase_c/phase_b have their own .reset() methods.
     """
     phase_e: PhaseEShadow = field(default_factory=PhaseEShadow)
     phase_d: PhaseDShadow = field(default_factory=PhaseDShadow)
     phase_c: PhaseCshadow = field(default_factory=PhaseCshadow)
+    phase_b: PhaseBShadow = field(default_factory=PhaseBShadow)
     status: str | None = None
     opened_at: str | None = None
     selected_poi_id: str | None = None
@@ -439,7 +468,9 @@ class HypothesisClassifier:
                             )
                             return self._commit(hyp)
 
-                    # C.pullback → C.pullback_weaken: pro-HTF MSS breaks pullback LH
+                    # C.pullback → C.pullback_weaken OR B.watch: pro-HTF SC breaks pullback LH
+                    # Depth gate at 51%: depth >= 51% → B.watch (discount zone reached);
+                    #                   depth <  51% → C.pullback_weaken (still in premium)
                     if current_c_sub in {"pullback", None} and ltf:
                         pro_break_c = "up" if direction == "long" else "down"
                         last_sc_c = ltf.get("last_sc") or {}
@@ -450,35 +481,44 @@ class HypothesisClassifier:
                             and str(last_sc_c_at) > str(_c_entered_floor)
                             and last_sc_c.get("breakDirection") == pro_break_c
                         ):
-                            c_shadow.weaken_at = str(last_sc_c_at)
-                            hyp = self._phase_c(
-                                direction,
-                                None,
-                                "watching",
-                                cursor_time,
-                                {
-                                    **debug,
-                                    "phase_c_origin_node": c_shadow.origin_node,
-                                    "phase_c_weakened": True,
-                                },
-                                phase_sub_status="pullback_weaken",
-                            )
-                            return self._commit(hyp)
+                            depth_raw = debug.get("phase_e_context_ltf_pullback_depth_pct")
+                            try:
+                                depth = float(depth_raw) if depth_raw is not None else None
+                            except (TypeError, ValueError):
+                                depth = None
+                            if depth is not None and depth >= 51.0:
+                                b_shadow = self.state.shadow_thesis.phase_b
+                                b_shadow.entered_at = cursor_time
+                                hyp = self._phase_b_watch(
+                                    direction,
+                                    cursor_time,
+                                    {
+                                        **debug,
+                                        "phase_b_origin_node": f"C.{c_shadow.origin_node or 'pullback'}",
+                                        "phase_b_entry_depth_pct": depth,
+                                    },
+                                )
+                                return self._commit(hyp)
+                            else:
+                                c_shadow.weaken_at = str(last_sc_c_at)
+                                hyp = self._phase_c(
+                                    direction,
+                                    None,
+                                    "watching",
+                                    cursor_time,
+                                    {
+                                        **debug,
+                                        "phase_c_origin_node": c_shadow.origin_node,
+                                        "phase_c_weakened": True,
+                                    },
+                                    phase_sub_status="pullback_weaken",
+                                )
+                                return self._commit(hyp)
 
                     phase_c = self._phase_c_setup(snapshot, ltf, direction)
-                    phase_b = self._phase_b_setup(snapshot, htf, ltf, direction)
                     phase_d_from_c = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
                     debug.update(phase_c)
-                    debug.update(phase_b)
                     debug.update(phase_d_from_c)
-                    if phase_b["phase_b_ready"]:
-                        hyp = self._phase_b(direction, phase_b["phase_b_selected_poi"], cursor_time, debug)
-                        return self._commit(hyp)
-                    phase_b_initiation = self._phase_b_initiation_setup(snapshot, direction)
-                    debug.update(phase_b_initiation)
-                    if phase_b_initiation["phase_b_initiation_ready"]:
-                        hyp = self._phase_b_initiation_watch(direction, cursor_time, debug)
-                        return self._commit(hyp)
                     if phase_d_from_c["phase_d_liquidity_ready"]:
                         phase_d_sub_status = self._phase_d_sub_status(phase_d_from_c)
                         hyp = self._phase_d(
@@ -654,210 +694,53 @@ class HypothesisClassifier:
                     return self._commit(hyp)
 
             if self.state.previous_phase == "B":
-                previous_b_sub_status = (
-                    self.state.current_hypothesis.phase_sub_status
-                    if self.state.current_hypothesis
-                    and self.state.current_hypothesis.phase == "B"
-                    else None
+                b_shadow = self.state.shadow_thesis.phase_b
+                self._update_phase_b_watch_shadow(snapshot, debug)
+                debug.update(self._phase_b_watch_shadow_debug())
+
+                # B.watch → E.seeking (new HTF extreme)
+                _, e_ctx_b = _ec_candidate(snapshot, "phase_e_context")
+                _new_htf_extreme_b = bool(
+                    debug.get("phase_e_context_new_htf_extreme")
+                    or e_ctx_b.get("new_htf_extreme")
                 )
-                if previous_b_sub_status and previous_b_sub_status.startswith("initiation_watch"):
-                    phase_c = self._phase_c_setup(snapshot, ltf, direction)
-                    phase_d = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
-                    phase_b_initiation = self._phase_b_initiation_setup(snapshot, direction)
-                    debug.update(phase_c)
-                    debug.update(phase_d)
-                    debug.update(phase_b_initiation)
-                    debug["phase_b_initiation_counter_itr_grab_seen"] = (
-                        self._phase_b_initiation_counter_itr_grab_seen(phase_b_initiation)
-                    )
-                    debug["phase_b_initiation_failure_evidence_seen"] = (
-                        self._phase_b_initiation_failure_evidence_seen(phase_c, phase_d)
-                    )
-                    debug["phase_b_initiation_source_anchor_run_seen"] = (
-                        self._phase_b_initiation_source_anchor_run_seen(phase_b_initiation)
-                    )
-                    if self._phase_b_initiation_no_followthrough(previous_b_sub_status, phase_b_initiation):
-                        debug.update(
-                            {
-                                "phase_c_origin_node": (
-                                    f"B.{previous_b_sub_status}"
-                                    if previous_b_sub_status
-                                    else "B.initiation_watch"
-                                ),
-                                "phase_c_sub_status": "pullback.no_followthrough",
-                                "phase_c_selection_reason": "b_initiation_watch_source_itr_anchor_was_run",
-                            }
-                        )
-                        status: HypothesisStatus = "armed" if phase_c["phase_c_selected_poi"] else "watching"
-                        hyp = self._phase_c(
-                            direction,
-                            phase_c["phase_c_selected_poi"],
-                            status,
-                            cursor_time,
-                            debug,
-                            phase_sub_status="pullback.no_followthrough",
-                        )
-                    elif self._phase_b_initiation_failed_to_c(previous_b_sub_status, phase_c, phase_d):
-                        debug.update(
-                            {
-                                "phase_c_origin_node": (
-                                    f"B.{previous_b_sub_status}"
-                                    if previous_b_sub_status
-                                    else "B.initiation_watch"
-                                ),
-                                "phase_c_sub_status": "pullback.no_followthrough",
-                                "phase_c_selection_reason": "b_initiation_watch_decision_failed_with_ltf_counter_confirmation",
-                            }
-                        )
-                        status: HypothesisStatus = "armed" if phase_c["phase_c_selected_poi"] else "watching"
-                        hyp = self._phase_c(
-                            direction,
-                            phase_c["phase_c_selected_poi"],
-                            status,
-                            cursor_time,
-                            debug,
-                            phase_sub_status="pullback.no_followthrough",
-                        )
-                    elif self._phase_b_initiation_rejected(previous_b_sub_status, phase_c, phase_d):
-                        debug.update(
-                            {
-                                "phase_c_origin_node": "B.initiation_watch",
-                                "phase_c_sub_status": "pullback.after_inducement",
-                                "phase_c_selection_reason": "b_initiation_watch_rejected_by_htf_reaction_and_ltf_counter_flow",
-                            }
-                        )
-                        status: HypothesisStatus = "armed" if phase_c["phase_c_selected_poi"] else "watching"
-                        hyp = self._phase_c(
-                            direction,
-                            phase_c["phase_c_selected_poi"],
-                            status,
-                            cursor_time,
-                            debug,
-                            phase_sub_status="pullback.after_inducement",
-                        )
-                    elif debug.get("new_htf_extreme"):
-                        hyp = self._phase_e(
-                            direction,
-                            cursor_time,
-                            {
-                                **debug,
-                                "phase_b_initiation_resolved_to_e": True,
-                                "phase_b_initiation_resolution_reason": "new_htf_extreme_after_initiation_watch",
-                            },
-                            ltf,
-                        )
-                    else:
-                        next_b_sub_status = self._phase_b_initiation_next_sub_status(
-                            previous_b_sub_status,
-                            phase_b_initiation,
-                            phase_c,
-                            phase_d,
-                        )
-                        hyp = self._carry_current_hypothesis(
-                            cursor_time,
-                            {
-                                **debug,
-                                "phase_b_initiation_held": True,
-                                "phase_b_held_reason": "initiation_watch_waiting_for_market_to_reveal_branch",
-                                "phase_b_initiation_previous_sub_status": previous_b_sub_status,
-                                "phase_b_initiation_next_sub_status": next_b_sub_status,
-                            },
-                            phase_sub_status=next_b_sub_status,
-                        )
+                if _new_htf_extreme_b:
+                    hyp = self._phase_e(direction, cursor_time, debug, ltf)
                     return self._commit(hyp)
 
-                if previous_b_sub_status and previous_b_sub_status.startswith("shallow_reclaim"):
-                    phase_d = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
-                    phase_b = self._phase_b_setup(snapshot, htf, ltf, direction)
-                    phase_b_shadow = self._phase_b_shallow_shadow_facts(
-                        snapshot,
+                # B.watch → C.pullback (counter MSS fires — freshness-guarded)
+                _mss_b = e_ctx_b.get("ltf_counter_orderflow_mss_watch", False)
+                _mss_b_started = e_ctx_b.get("ltf_counter_orderflow_started_at")
+                _b_entered_floor = b_shadow.entered_at or ""
+                if (
+                    _mss_b
+                    and _mss_b_started
+                    and str(_mss_b_started) > str(_b_entered_floor)
+                ):
+                    c_shadow = self.state.shadow_thesis.phase_c
+                    c_shadow.origin_node = "B.watch_failed"
+                    c_shadow.entered_at = _mss_b_started
+                    hyp = self._phase_c(
                         direction,
+                        None,
+                        "watching",
                         cursor_time,
-                        phase_d,
+                        {**debug, "phase_b_failed_to_c": True},
+                        phase_sub_status="pullback",
                     )
-                    debug.update(
-                        {
-                            **phase_d,
-                            **phase_b,
-                            **phase_b_shadow,
-                            "phase_b_shallow_reclaim_blocks_phase_a": True,
-                            "phase_b_shallow_reclaim_held": True,
-                        }
-                    )
-                    if debug.get("new_htf_extreme"):
-                        hyp = self._phase_e(direction, cursor_time, debug, ltf)
-                    elif phase_d["phase_d_ready"] and (
-                        phase_d["htf_opposing_sd_reaction"]
-                        or phase_d["phase_d_liquidity_ready"]
-                    ):
-                        phase_d_sub_status = (
-                            self._phase_d_sub_status(phase_d)
-                            if phase_d["phase_d_liquidity_ready"]
-                            else "htf_zone_reclaim_test"
-                        )
-                        hyp = self._phase_d(
-                            direction,
-                            cursor_time,
-                            {
-                                **debug,
-                                "phase_d_sub_status": phase_d_sub_status,
-                                "phase_d_origin_node": f"B.shallow_reclaim.{phase_b_shadow['phase_b_shadow_status']}",
-                                "phase_d_selection_reason": (
-                                    self._phase_d_selection_reason(phase_d)
-                                    if phase_d["phase_d_liquidity_ready"]
-                                    else "htf_opposing_zone_reclaim_after_weakened_shallow_b"
-                                    if phase_b_shadow["phase_b_shadow_status"] == "weakened"
-                                    else "htf_opposing_zone_reclaim_after_shallow_b"
-                                ),
-                            },
-                            phase_sub_status=phase_d_sub_status,
-                        )
-                    else:
-                        hyp = self._carry_current_hypothesis(
-                            cursor_time,
-                            {
-                                **debug,
-                                "phase_b_held_reason": "shallow_reclaim_does_not_unlock_phase_a_budget",
-                            },
-                            phase_sub_status=phase_b_shadow["phase_b_shadow_phase_sub_status"],
-                        )
                     return self._commit(hyp)
 
-                # TEMP disabled — Phase A reads legacy flat fields; EC candidate not yet written
-                # phase_a = self._phase_a_setup(snapshot, htf, ltf, direction)
-                # debug.update(phase_a)
-                # if phase_a["phase_a_ready"]:
-                #     hyp = self._phase_a(direction, phase_a["phase_a_selected_poi"], cursor_time, debug)
-                #     return self._commit(hyp)
+                hyp = self._carry_current_hypothesis(cursor_time, debug)
+                return self._commit(hyp)
 
-            phase_b_dag_blocked = self._phase_b_blocked_by_dag(direction)
-            phase_b = self._phase_b_setup(snapshot, htf, ltf, direction)
-            if phase_b_dag_blocked:
-                phase_b = {
-                    **phase_b,
+            # DAG guard: direct E→B is blocked; B entry requires C.pullback depth gate
+            if self._phase_b_blocked_by_dag(direction):
+                debug.update({
+                    "phase_b_candidate": True,
                     "phase_b_ready": False,
                     "phase_b_blocked_by_dag": True,
                     "phase_b_dag_blocked_reason": "direct_e_to_b_requires_c_origin",
-                }
-            debug.update(phase_b)
-            # TEMP disabled for review — B/A disabled
-            # if phase_b["phase_b_ready"]:
-            #     hyp = self._phase_b(direction, phase_b["phase_b_selected_poi"], cursor_time, debug)
-            #     return self._commit(hyp)
-
-            phase_b_initiation = self._phase_b_initiation_setup(snapshot, direction)
-            if phase_b_dag_blocked:
-                phase_b_initiation = {
-                    **phase_b_initiation,
-                    "phase_b_initiation_ready": False,
-                    "phase_b_initiation_blocked_by_dag": True,
-                    "phase_b_initiation_dag_blocked_reason": "direct_e_to_b_requires_c_origin",
-                }
-            debug.update(phase_b_initiation)
-            # TEMP disabled for review — B.initiation disabled
-            # if phase_b_initiation["phase_b_initiation_ready"]:
-            #     hyp = self._phase_b_initiation_watch(direction, cursor_time, debug)
-            #     return self._commit(hyp)
+                })
 
             if phase == "open" or (
                 phase == "pullback_confirmed"
@@ -1841,6 +1724,7 @@ class HypothesisClassifier:
         self.state.shadow_thesis.phase_c.reset()
 
     def _reset_phase_b_shadow(self) -> None:
+        self.state.shadow_thesis.phase_b.reset()
         self.state.shadow_thesis.reset()
 
     def _open_phase_b_shallow_shadow(
@@ -2031,44 +1915,40 @@ class HypothesisClassifier:
             selected_node = "E.seeking"
             selection_reason = "phase_e_shadow_initialized"
         elif pd_expanding:
-            if previous_node == "E.HTF_reaction":
+            if s.htf_reaction_seen:
                 s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or "ran_zone"
             selected_node = "E.seeking"
             selection_reason = "htf_pd_expanded"
         elif previous_node == "E.seeking":
             if ltf_probe_at_htf_opposing_zone:
-                selected_node = "E.HTF_reaction"
-                selection_reason = "ltf_probe_entered_htf_opposing_zone_during_expansion"
+                # E.HTF_reaction folded into shadow: record zone probe without sub-status change
+                if not s.htf_reaction_seen:
+                    s.htf_reaction_seen = True
+                    s.htf_reaction_zone_id = debug.get(
+                        "phase_e_context_ltf_probe_htf_opposing_zone_id"
+                    )
+                    s.htf_reaction_entered_at = debug.get("current_htf_bar_time")
+                if ltf_counter_orderflow_mss_watch:
+                    selected_node = "E.pullback_developing"
+                    selection_reason = "ltf_counter_orderflow_mss_during_htf_zone_probe"
+                    s.htf_reaction_exit_reason = "mss_fired"
+                else:
+                    selected_node = "E.stalling"
+                    selection_reason = "htf_pd_stopped_expanding"
             else:
                 selected_node = "E.stalling"
                 selection_reason = "htf_pd_stopped_expanding"
-        elif previous_node == "E.HTF_reaction":
-            if ltf_counter_orderflow_mss_watch:
-                selected_node = "E.pullback_developing"
-                selection_reason = "ltf_counter_orderflow_mss_after_htf_reaction"
-                s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or "mss_fired"
-            elif ltf_probe_at_htf_opposing_zone:
-                selected_node = "E.HTF_reaction"
-                selection_reason = "phase_e_htf_reaction_holding_in_zone"
-            else:
-                selected_node = "E.stalling"
-                selection_reason = "left_htf_opposing_zone_without_mss"
-                s.htf_reaction_exit_reason = s.htf_reaction_exit_reason or "stalled"
         elif previous_node == "E.stalling":
             if ltf_counter_orderflow_mss_watch:
                 selected_node = "E.pullback_developing"
                 selection_reason = "ltf_counter_orderflow_mss_after_e_stalling"
+                if s.htf_reaction_seen and not s.htf_reaction_exit_reason:
+                    s.htf_reaction_exit_reason = "mss_fired"
             else:
                 selected_node = "E.stalling"
         elif previous_node == "E.pullback_developing":
             selected_node = "E.pullback_developing"
 
-        # Journal write — on every entry (first or re-entry) into E.HTF_reaction
-        if selected_node == "E.HTF_reaction" and previous_node != "E.HTF_reaction":
-            s.htf_reaction_seen = True
-            s.htf_reaction_zone_id = debug.get("phase_e_context_ltf_probe_htf_opposing_zone_id")
-            s.htf_reaction_entered_at = debug.get("current_htf_bar_time")
-            s.htf_reaction_exit_reason = None
         if selected_node == "E.pullback_developing" and previous_node != "E.pullback_developing":
             s.source_orderflow_leg_id = debug.get("phase_e_context_ltf_counter_orderflow_leg_id")
             s.source_orderflow_started_at = debug.get("phase_e_context_ltf_counter_orderflow_started_at")
@@ -2353,6 +2233,69 @@ class HypothesisClassifier:
                 "phase_b_confidence": "low",
             },
         )
+
+    def _phase_b_watch(
+        self,
+        direction: Direction,
+        ts: str | None,
+        debug: dict[str, Any],
+    ) -> Hypothesis:
+        bullish = direction == "long"
+        return Hypothesis(
+            hypothesis_id=self.state.hypothesis_id,
+            status="watching",
+            phase="B",
+            direction=direction,
+            swing_alignment="pro_swing",
+            internal_alignment="counter_internal",
+            poi_id=None,
+            poi_type=None,
+            reason=(
+                "Bullish B.watch: price reached discount zone; depth gate fired from C.pullback"
+                if bullish
+                else "Bearish B.watch: price reached premium zone; depth gate fired from C.pullback"
+            ),
+            required_evidence=["ltf_pro_sd_confirmation", "entry_protocol_permission"],
+            invalidation="Counter MSS fires (B failed; pullback resumed) or new HTF extreme",
+            target_policy="htf_pd_level",
+            fallback_target_policy="fixed_rr",
+            entry_policy="wait",
+            created_at=self.state.current_hypothesis.created_at if self.state.current_hypothesis else ts,
+            updated_at=ts,
+            phase_sub_status="watch",
+            debug_facts=debug,
+        )
+
+    def _update_phase_b_watch_shadow(
+        self, snapshot: dict[str, Any], debug: dict[str, Any]
+    ) -> None:
+        s = self.state.shadow_thesis.phase_b
+        _, b_facts = _ec_candidate(snapshot, "htf_b_phase_setup")
+        if (b_facts.get("htf_pro_sd_tapped") or b_facts.get("htf_pro_sd_resolved")) and not s.htf_sd_zone_tapped:
+            s.htf_sd_zone_tapped = True
+            s.htf_sd_zone_id = b_facts.get("htf_last_resolved_zone_id")
+            s.htf_sd_zone_tapped_at = debug.get("cursor_time")
+        ltf_zones = b_facts.get("ltf_pro_sd_zone_ids") or []
+        if ltf_zones and not s.ltf_sd_zone_tapped:
+            s.ltf_sd_zone_tapped = True
+            s.ltf_sd_zone_id = ltf_zones[0] if isinstance(ltf_zones, list) else ltf_zones
+        pool_id = debug.get("htf_itr_grab_reclaim_pool_id")
+        if pool_id and not s.liquidity_pool_run:
+            s.liquidity_pool_run = True
+            s.liquidity_pool_id = pool_id
+
+    def _phase_b_watch_shadow_debug(self) -> dict[str, Any]:
+        s = self.state.shadow_thesis.phase_b
+        return {
+            "phase_b_shadow_entered_at": s.entered_at,
+            "phase_b_shadow_htf_sd_zone_tapped": s.htf_sd_zone_tapped,
+            "phase_b_shadow_htf_sd_zone_id": s.htf_sd_zone_id,
+            "phase_b_shadow_htf_sd_zone_tapped_at": s.htf_sd_zone_tapped_at,
+            "phase_b_shadow_ltf_sd_zone_tapped": s.ltf_sd_zone_tapped,
+            "phase_b_shadow_ltf_sd_zone_id": s.ltf_sd_zone_id,
+            "phase_b_shadow_liquidity_pool_run": s.liquidity_pool_run,
+            "phase_b_shadow_liquidity_pool_id": s.liquidity_pool_id,
+        }
 
     def _phase_a(
         self,

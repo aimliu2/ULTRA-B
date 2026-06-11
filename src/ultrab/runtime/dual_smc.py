@@ -177,7 +177,6 @@ class DualSmcRuntime:
         self.lower_structure = None
         self.higher_structure = None
         self.lower_orderflow = None
-        self.higher_orderflow = None
         self.liquidity = None
         self.evidence_compiler: EvidenceCompiler | None = None
         self.hypothesis_classifier: HypothesisClassifier | None = None
@@ -197,7 +196,6 @@ class DualSmcRuntime:
         self.lower_structure = None
         self.higher_structure = None
         self.lower_orderflow = None
-        self.higher_orderflow = None
         self.liquidity = None
         self.evidence_compiler = None
         self._partial_higher = None
@@ -245,12 +243,7 @@ class DualSmcRuntime:
             if self.lower_orderflow
             else {}
         )
-        higher_orderflow = (
-            self.higher_orderflow.snapshot(higher_structure, evaluated_at=self.current_time_iso())
-            if self.higher_orderflow
-            else {}
-        )
-        orderflow = lower_orderflow or higher_orderflow
+        orderflow = lower_orderflow
         liquidity = self.liquidity.snapshot() if self.liquidity else {}
         structure_display = _structure_dual_display(_structure_config(self.replay_config))
         projected_structure = higher_structure if structure_display in {"projected", "dual"} else None
@@ -282,7 +275,6 @@ class DualSmcRuntime:
             "liquidity": liquidity,
             "orderflow": orderflow,
             "lower_orderflow": lower_orderflow,
-            "higher_orderflow": higher_orderflow,
             "structure": primary_structure,
             "done": self.current_lower_index >= self.lower_end_index,
         }
@@ -314,7 +306,7 @@ class DualSmcRuntime:
             structure=higher_structure,
             zones=[z for z in payload["zones"] if z.get("timeframe") == self.higher_label],
             liquidity=liquidity,
-            orderflow=higher_orderflow,
+            orderflow={},
             last_resolved_zone=higher_last_resolved_zone,
         )
         payload["context_snapshot"] = Fusion.fuse_dual(
@@ -435,7 +427,6 @@ class DualSmcRuntime:
         self.lower_structure = None
         self.higher_structure = None
         self.lower_orderflow = OrderflowContext(_orderflow_config(self.replay_config), timeframe=self.lower_label)
-        self.higher_orderflow = OrderflowContext(_orderflow_config(self.replay_config), timeframe=self.higher_label)
         self.liquidity = None
         self.evidence_compiler = EvidenceCompiler()
         self.hypothesis_classifier = HypothesisClassifier()
