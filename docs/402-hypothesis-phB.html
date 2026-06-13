@@ -350,10 +350,11 @@
       <div class="tldr" id="tldr">
         <b>TL;DR</b> — Phase B is a single node: <code>B.watch</code>. It fires when a pro-HTF
         macro ChoCh (<code>last_sc</code>) fires while in C.pullback AND the pullback depth has
-        reached the discount zone (≥ 51%). Shadow carries pointer-only fields (IDs, booleans,
-        timestamps). Exits are D-symmetric: counter MSS → C.pullback (freshness-guarded),
-        new HTF extreme → E.seeking. Direct E → B is DAG-blocked; B entry requires C.pullback
-        depth gate.
+        reached the discount zone (≥ 51%). At entry, <code>commitment_extreme_level</code> is
+        locked to <code>ltf_struct.range_low</code> (long) / <code>range_high</code> (short) — the
+        commitment extreme of the pullback. Exits (priority order): new HTF extreme → E.seeking; pro-HTF BoS
+        → A.watch; commitment extreme breached → C.pullback; counter MSS → C.pullback.
+        Direct E → B is DAG-blocked; B entry requires C.pullback depth gate.
       </div>
       <a class="panel-link" href="./402-hypothesis-phC.html">→ Phase C — Counter Pullback</a>
       <a class="panel-link" href="./402-hypothesis-phD.html">→ Phase D — Watch</a>
@@ -433,27 +434,59 @@ if (last_sc_c_at
       C → B boundary, not pre-filtered by the EC candidate.
     </div>
 
+    <h3 id="reentry-ceiling">Re-entry signal — <code>A.watch_weaken_invalidated</code> origin at extreme</h3>
+    <p>When C.pullback was entered from A.watch_weaken (prior B and A both failed), the DAG still
+    enters B.watch at depth ≥ 51%. It does NOT redirect to E.seeking. Instead, when depth ≥ 90%
+    at that origin, <code>b_shadow.at_extreme_entry</code> is set to <code>True</code>. Layer 5
+    reads this flag and raises the entry bar (e.g. requires <code>htf_sd_zone_tapped</code> or
+    <code>liquidity_pool_run</code> before permitting entry).</p>
+    <pre class="block"><span class="cm"># Only when c_shadow.origin_node == "A.watch_weaken_invalidated"</span>
+depth &gt;= 90%  →  B.watch  <span class="hl">b_shadow.at_extreme_entry = True</span>   <span class="cm"># Layer 5 signal</span>
+depth &lt; 90%   →  B.watch  b_shadow.at_extreme_entry = False  <span class="cm"># normal</span></pre>
+
+    <div class="rule-block">
+      The DAG never suppresses B.watch based on depth alone. <code>at_extreme_entry</code> is a
+      Layer 5 advisory signal — the DAG always enters B.watch when the depth gate fires, regardless
+      of origin. First-pass B entries (origin != <code>"A.watch_weaken_invalidated"</code>) always
+      have <code>at_extreme_entry = False</code>.
+    </div>
+
     <!-- ── 02 Shadow ─────────────────────────────────────────────────────── -->
     <h2 id="shadow"><span class="sec-num">02</span> Shadow — PhaseBShadow</h2>
     <p>B.watch carries commitment pointers only. Layer 3 EC snapshot is the authoritative source
     for zone levels, orderflow direction, and prices. Layer 5 resolves IDs from the EC snapshot at
     decision time. Shadow fields are never zone levels or prices — only IDs, booleans, and
-    timestamps.</p>
+    timestamps. One exception applies: see <code>commitment_extreme_level</code> below.</p>
 
     <h3>PhaseBShadow fields</h3>
-    <pre class="block">entered_at               str | None   <span class="cm"># cursor_time of C → B transition (freshness floor)</span>
-htf_sd_zone_tapped       bool         <span class="cm"># True once HTF pro-SD was tapped/resolved</span>
-htf_sd_zone_id           str | None   <span class="cm"># pointer — Layer 5 resolves level via EC</span>
-htf_sd_zone_tapped_at    str | None   <span class="cm"># cursor_time of first tap</span>
-ltf_sd_zone_tapped       bool         <span class="cm"># True once a LTF pro-SD zone appears</span>
-ltf_sd_zone_id           str | None   <span class="cm"># pointer — first zone_id from ltf_pro_sd_zone_ids</span>
-liquidity_pool_run       bool         <span class="cm"># True once HTF ITR liquidity pool ran</span>
-liquidity_pool_id        str | None   <span class="cm"># pointer — htf_itr_grab_reclaim_pool_id</span></pre>
+    <pre class="block">entered_at                    str | None   <span class="cm"># cursor_time of C → B transition (freshness floor)</span>
+htf_sd_zone_tapped            bool         <span class="cm"># True once HTF pro-SD was tapped/resolved</span>
+htf_sd_zone_id                str | None   <span class="cm"># pointer — Layer 5 resolves level via EC</span>
+htf_sd_zone_tapped_at         str | None   <span class="cm"># cursor_time of first tap</span>
+ltf_sd_zone_tapped            bool         <span class="cm"># True once a LTF pro-SD zone appears</span>
+ltf_sd_zone_id                str | None   <span class="cm"># pointer — first zone_id from ltf_pro_sd_zone_ids</span>
+liquidity_pool_run            bool         <span class="cm"># True once HTF ITR liquidity pool ran</span>
+liquidity_pool_id             str | None   <span class="cm"># pointer — htf_itr_grab_reclaim_pool_id</span>
+commitment_extreme_level      float | None <span class="cm"># ltf_struct.range_low (long) / range_high (short)</span>
+                                           <span class="cm"># captured at C → B entry bar — invariant exception</span>
+commitment_extreme_event_id   str | None   <span class="cm"># last_sc.event_id (the pro SC that opened B) — Layer 5 provenance</span>
+at_extreme_entry              bool         <span class="cm"># True when origin=="A.watch_weaken_invalidated" AND depth>=90%</span>
+                                           <span class="cm"># Layer 5 advisory — DAG does not block B on this flag</span></pre>
 
-    <p><code>entered_at</code> is set on the transition bar (C block) and serves as the freshness
-    floor for the B.watch → C.pullback exit guard. The zone and liquidity fields are updated each
+    <p><code>entered_at</code> is set on the C → B transition bar and serves as the freshness
+    floor for the B.watch → C.pullback MSS exit guard. The zone and liquidity fields are updated each
     bar by <code>_update_phase_b_watch_shadow()</code>, which reads from <code>htf_b_phase_setup</code>
     EC facts.</p>
+
+    <p><code>commitment_extreme_level</code> is set once at the C → B entry bar from
+    <code>ltf_struct.range_low</code> (long) or <code>ltf_struct.range_high</code> (short) at that
+    exact moment. This captures the direction-relative pullback commitment extreme at the moment B.watch opens. It is never updated
+    afterward. This is a <b>permitted exception</b> to the pointer-only invariant:
+    <code>ltf_struct.range_low/range_high</code> ratchets on every new structural SC and will not retain B's
+    original commitment extreme across B's lifetime. The committed value is a fixed historical reference used as
+    the B.watch invalidation level — if price breaches it, B.watch exits to C.pullback
+    (<code>origin_node = "B.watch_commitment_extreme_breached"</code>). Phase A also reads this value via
+    <code>b_shadow.commitment_extreme_level</code> for A.watch_weaken invalidation.</p>
 
     <details open>
       <summary>Shadow update per bar <span class="where">hypothesis.py:2269–2285</span></summary>
@@ -491,8 +524,8 @@ liquidity_pool_id        str | None   <span class="cm"># pointer — htf_itr_gra
 
     <!-- ── 03 B.watch State Machine ──────────────────────────────────────── -->
     <h2 id="state-machine"><span class="sec-num">03</span> B.watch State Machine</h2>
-    <p>B.watch is a single-node state. Each bar the classifier checks for two exit conditions in
-    priority order. Both exits mirror the D.watch exit logic exactly (D-symmetric design).</p>
+    <p>B.watch is a single-node state. Each bar the classifier checks three exit conditions in
+    priority order.</p>
 
     <h3>Exit 1 — E.seeking (new HTF extreme)</h3>
     <p>When a new HTF extreme appears, the reclaim thesis is invalidated and the cycle resets to
@@ -501,14 +534,36 @@ liquidity_pool_id        str | None   <span class="cm"># pointer — htf_itr_gra
   OR e_ctx.get("new_htf_extreme") == True
 → E.seeking   <span class="cm"># HTF continuation resumes; B.watch invalidated</span></pre>
 
-    <h3>Exit 2 — C.pullback (counter MSS, freshness-guarded)</h3>
+    <h3>Exit 2 — A.watch (pro-HTF BoS, freshness-guarded)</h3>
+    <p>When a pro-HTF structural SC fires after B.watch opened, price has escaped the B zone in
+    the pro direction — the pro attempt is progressing. <code>commitment_extreme_level</code> was
+    already locked at B.watch entry; it is carried forward unchanged.</p>
+    <pre class="block"><span class="hl">last_sc.breakDirection == pro-HTF direction</span>   <span class="cm"># pro BoS (SC01/SC02)</span>
+AND <span class="hl">last_sc.eventTimestamp &gt; b_shadow.entered_at</span>   <span class="cm"># freshness guard</span>
+→ A.watch
+  a_shadow.entered_at = cursor_time
+  <span class="cm"># b_shadow.commitment_extreme_level already set at B.watch entry — not changed here</span></pre>
+
+    <h3>Exit 3 — C.pullback (commitment extreme breached)</h3>
+    <p>When the LTF structural range extreme breaches the commitment extreme recorded at B.watch entry,
+    price has invalidated the reclaim attempt — the pullback is extending past B's
+    invalidation level. Priority is higher than the MSS check.</p>
+    <pre class="block"><span class="hl">ltf_struct.range_low &lt; b_shadow.commitment_extreme_level</span>   <span class="cm"># long</span>
+<span class="hl">ltf_struct.range_high &gt; b_shadow.commitment_extreme_level</span>  <span class="cm"># short</span>
+→ C.pullback
+  c_shadow.origin_node = <span class="hl">"B.watch_commitment_extreme_breached"</span>
+  c_shadow.entered_at  = cursor_time
+  debug["phase_b_commitment_extreme_breached"] = True
+  debug["phase_b_commitment_extreme_level"]  = b_shadow.commitment_extreme_level</pre>
+
+    <h3>Exit 4 — C.pullback (counter MSS, freshness-guarded)</h3>
     <p>When a counter orderflow MSS fires on a leg that started after B.watch opened, the pro
     reclaim attempt failed — price broke structure against the bounce. This mirrors D.watch →
     C.pullback exactly.</p>
     <pre class="block"><span class="hl">ltf_counter_orderflow_mss_watch == True</span>
 AND <span class="hl">ltf_counter_orderflow_started_at &gt; b_shadow.entered_at</span>   <span class="cm"># freshness guard</span>
 → C.pullback
-  c_shadow.origin_node = "B.watch_failed"
+  c_shadow.origin_node = <span class="hl">"B.watch_mss_failed"</span>
   c_shadow.entered_at  = ltf_counter_orderflow_started_at</pre>
 
     <details open>
@@ -520,8 +575,9 @@ AND <span class="hl">ltf_counter_orderflow_started_at &gt; b_shadow.entered_at</
         (the cursor_time of the C → B transition bar). An MSS that started on the same bar as
         B.watch entry — or before — is stale and blocked.</p>
         <pre class="block"><span class="cm"># Probe observation (2026-02-03, EURUSD 15m/4h):</span>
-<span class="cm">#   B.watch entered at 03:45; mss_started=03:45 on bars 1–18 → blocked</span>
-<span class="cm">#   Fresh mss_started=10:30 appears; B.watch → C.pullback fires at 11:45</span></pre>
+<span class="cm">#   B.watch entered at 03:45; commitment_extreme=1.17756 locked at entry</span>
+<span class="cm">#   mss_started=03:45 on bars 1–18 → blocked by freshness guard</span>
+<span class="cm">#   Fresh mss_started=10:30 appears; B.watch → C.pullback (B.watch_mss_failed) fires at 11:45</span></pre>
       </div>
     </details>
 
@@ -580,13 +636,17 @@ if (last_sc_c_at
         depth = None
 
     if depth is not None and <span class="hl">depth &gt;= 51.0</span>:
-        <span class="cm"># → B.watch</span>
+        <span class="cm"># → B.watch — lock commitment extreme at entry</span>
         b_shadow = self.state.shadow_thesis.phase_b
         b_shadow.entered_at = cursor_time
+        <span class="hl">_commitment_extreme_raw = (ltf.get("range_low") if direction == "long" else ltf.get("range_high")) if ltf else None
+        b_shadow.commitment_extreme_level    = float(_commitment_extreme_raw) if _commitment_extreme_raw is not None else None
+        b_shadow.commitment_extreme_event_id = _sc_event_id(last_sc_c)</span>
         hyp = self.<span class="hl">_phase_b_watch</span>(direction, cursor_time, {
             **debug,
-            "phase_b_origin_node":    f"C.{c_shadow.origin_node or 'pullback'}",
-            "phase_b_entry_depth_pct": depth,
+            "phase_b_origin_node":              f"C.{c_shadow.origin_node or 'pullback'}",
+            "phase_b_entry_depth_pct":           depth,
+            <span class="hl2">"phase_b_commitment_extreme_level"</span>:  b_shadow.commitment_extreme_level,
         })
         return self._commit(hyp)
     else:
@@ -595,7 +655,7 @@ if (last_sc_c_at
         hyp = self._phase_c(direction, None, "watching", cursor_time,
             {**debug, "phase_c_weakened": True}, phase_sub_status="pullback_weaken")
         return self._commit(hyp)</pre>
-      <pre data-tab="algo-b-sm"><span class="cm"># hypothesis.py:696–734 (previous_phase == "B" block)</span>
+      <pre data-tab="algo-b-sm"><span class="cm"># hypothesis.py:810–900 (previous_phase == "B" block)</span>
 
 b_shadow = self.state.shadow_thesis.phase_b
 self.<span class="hl">_update_phase_b_watch_shadow</span>(snapshot, debug)
@@ -611,21 +671,60 @@ if _new_htf_extreme_b:
     hyp = self._phase_e(direction, cursor_time, debug, ltf)
     return self._commit(hyp)
 
+_b_floor = b_shadow.entered_at or ""
+
+<span class="cm"># B.watch → A.watch (pro-HTF BoS, freshness-guarded)</span>
+<span class="cm"># commitment_extreme_level already locked at C→B entry — not reassigned here</span>
+pro_break_b  = "up" if direction == "long" else "down"
+last_sc_b    = (ltf.get("last_sc") or {}) if ltf else {}
+last_sc_b_at = last_sc_b.get("eventTimestamp")
+if (last_sc_b_at
+        and str(last_sc_b_at) &gt; str(_b_floor)
+        and last_sc_b.get("breakDirection") == pro_break_b):
+    a_shadow = self.state.shadow_thesis.phase_a
+    a_shadow.entered_at = cursor_time
+    hyp = self._phase_a_watch(direction, cursor_time, {
+        **debug,
+        "phase_a_origin_node":             "B.watch",
+        "phase_b_commitment_extreme_level": b_shadow.commitment_extreme_level,
+    })
+    return self._commit(hyp)
+
+<span class="cm"># B.watch → C.pullback (commitment extreme breached)</span>
+<span class="hl">_b_commitment_extreme = b_shadow.commitment_extreme_level
+if _b_commitment_extreme is not None and ltf:
+    _cur_ext = ltf.get("range_low") if direction == "long" else ltf.get("range_high")
+    if _cur_ext is not None:
+        _commitment_extreme_breached = (
+            float(_cur_ext) &lt; _b_commitment_extreme if direction == "long"
+            else float(_cur_ext) &gt; _b_commitment_extreme
+        )
+        if _commitment_extreme_breached:
+            c_shadow = self.state.shadow_thesis.phase_c
+            c_shadow.origin_node = "B.watch_commitment_extreme_breached"
+            c_shadow.entered_at  = cursor_time
+            hyp = self._phase_c(direction, None, "watching", cursor_time,
+                {**debug, "phase_b_commitment_extreme_breached": True,
+                          "phase_b_commitment_extreme_level":  _b_commitment_extreme},
+                phase_sub_status="pullback")
+            return self._commit(hyp)</span>
+
 <span class="cm"># B.watch → C.pullback (counter MSS — freshness-guarded)</span>
 _mss_b       = e_ctx_b.get(<span class="hl2">"ltf_counter_orderflow_mss_watch"</span>, False)
 _mss_started = e_ctx_b.get("ltf_counter_orderflow_started_at")
-_b_floor     = b_shadow.entered_at or ""
 
 if (_mss_b and _mss_started
         and str(_mss_started) &gt; str(_b_floor)):     <span class="cm"># freshness guard</span>
     c_shadow = self.state.shadow_thesis.phase_c
-    c_shadow.origin_node = "B.watch_failed"
+    c_shadow.origin_node = <span class="hl">"B.watch_mss_failed"</span>
     c_shadow.entered_at  = _mss_started
     hyp = self._phase_c(direction, None, "watching", cursor_time,
         {**debug, "phase_b_failed_to_c": True}, phase_sub_status="pullback")
     return self._commit(hyp)
 
-<span class="cm"># hold</span>
+<span class="cm"># hold — propagate locked commitment extreme to debug for UI visibility</span>
+if b_shadow.commitment_extreme_level is not None:
+    debug[<span class="hl2">"phase_b_commitment_extreme_level"</span>] = b_shadow.commitment_extreme_level
 hyp = self._carry_current_hypothesis(cursor_time, debug)
 return self._commit(hyp)</pre>
       <pre data-tab="algo-shadow"><span class="cm"># hypothesis.py:2237–2298 — emit + shadow methods</span>
@@ -716,10 +815,30 @@ def _phase_b_watch_shadow_debug(self) -&gt; dict:
 
     <div class="issue-grid">
       <div class="issue-card">
-        <div class="issue-label">Next Milestone</div>
-        <p><b>Phase A EC candidate not written.</b> <code>_phase_a_setup()</code> is disabled and
-        B → A path is commented out. Phase A is blocked until the A EC candidate is authored.
-        After Phase B is validated through replay, A is the next DAG node.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>_b_entered_floor</code> referenced before assignment.</b>
+        <code>_b_entered_floor = b_shadow.entered_at or ""</code> was defined after the B→A
+        check that reads it, causing <code>UnboundLocalError</code> on the first bar B.watch
+        is active. Fixed by hoisting the assignment above the B→A block.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>B → A state machine wired.</b> <code>B.watch + pro-HTF last_sc (freshness-guarded) → A.watch</code>.
+        <code>a_shadow.entered_at</code> stamped. <code>commitment_extreme_level</code> locked at
+        C→B entry (not at B→A — see commitment extreme card below). Replay-validated EURUSD 15m/4h:
+        B→A fires 2026-02-03T08:30, A.watch_weaken 11:45, weaken→C 12:00.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>commitment extreme locked at B.watch entry.</b> <code>b_shadow.commitment_extreme_level</code>
+        was previously set at the B→A transition bar (wrong — the B→A level is not B's entry commitment extreme).
+        Now captured at C→B entry from <code>ltf_struct.range_low/range_high</code>. Persists
+        in <code>debug_facts</code> on all carry bars. New exit added: commitment extreme breach
+        (<code>ltf.range_low &lt; commitment_extreme_level</code> for long) → C.pullback
+        with <code>origin_node="B.watch_commitment_extreme_breached"</code>, checked before counter MSS.
+        Replay confirmed: commitment_extreme=1.17756 locked at 2026-02-03T03:45 EURUSD 15m/4h.</p>
       </div>
 
       <div class="issue-card">

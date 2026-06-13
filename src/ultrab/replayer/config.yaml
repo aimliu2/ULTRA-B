@@ -7,7 +7,7 @@ data:
   # root: move to .env file
   symbol: EURUSD
   timeframe: 1d
-  start_time: "2026-01-27T22:00:00Z" # or specific time i.e.  "2024-05-14T00:00:00Z"
+  start_time: "2026-01-28T00:00:00Z" # or specific time i.e.  "2024-05-14T00:00:00Z" set to "2026-02-02T00:00:00Z" to test self relocation
   window_bars: 500  # attention span in bars, for replay and structure detection
   mode: dual
   dual_combo: 15m_4h
@@ -214,3 +214,5 @@ replay:
     enabled: true
     first_slice: phase_e_d
     reaction_confirmation: close_through_previous_htf_bar
+    phase_a:
+      objective_progress_threshold: 0.90

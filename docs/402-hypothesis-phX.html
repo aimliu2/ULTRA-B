@@ -1,0 +1,599 @@
+<!-- source: src/ultrab/core/smc/hypothesis.py
+     focus:  _none(), _phase_x(), _phase_a_finale(), none_sub_status values
+     related: docs/402-hypothesis-phA.html, docs/401-hypothesis-DAG.html
+     design: none → X sub-status unification (planned) -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis Phase X &amp; none — thesis.over</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) {
+    body { padding: 36px 18px 96px; }
+    .page { grid-template-columns: 1fr; }
+    nav { display: none; }
+  }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+  .hl  { color: var(--accent);  font-weight: 700; }
+  .hl2 { color: var(--accent2); font-weight: 700; }
+  .cm  { color: var(--text-dim); font-style: italic; }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  table {
+    border-collapse: collapse;
+    font-size: 13px;
+    max-width: 700px;
+    margin: 14px 0;
+    width: 100%;
+  }
+  th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    border-bottom: 1.5px solid var(--border);
+    padding: 6px 12px 6px 0;
+  }
+  td {
+    padding: 7px 12px 7px 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    line-height: 1.55;
+  }
+  tr:last-child td { border-bottom: none; }
+  td code { font-size: 12px; }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#overview">Overview</a>
+    <a href="#none-sites">none — emit sites</a>
+    <a href="#phase-x">Phase X — thesis.over</a>
+    <a href="#unification">Completed unification</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/hypothesis.py</code>
+      <code>docs/402-hypothesis-phA.html</code>
+      <code>docs/401-hypothesis-DAG.html</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis · Phase X / none</div>
+      <h1>Hypothesis Phase X &amp; none — thesis.over</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — <code>phase="none"</code> has been eliminated. All silence states now
+        emit <code>phase="X"</code> with a <code>phase_sub_status</code>:
+        <code>X.warm_up</code> (no HTF structure), <code>X.no_direction</code> (neutral bias),
+        <code>X.none</code> (unclassified gap), <code>X.thesis_over</code> (post-cycle terminal).
+        The <code>_none()</code> method and <code>none_sub_status</code> field are deleted.
+        <code>X.thesis_over</code> is the only sub-status with <code>entry_policy="skip"</code>
+        — it fires after <code>_phase_a_finale()</code> confirms the configured Phase A
+        objective-progress maturity threshold was reached.
+      </div>
+      <a class="panel-link" href="./402-hypothesis-phA.html">→ Phase A — A.watch</a>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ DAG diagram</a>
+    </header>
+
+    <!-- ── 00 Overview ──────────────────────────────────────────────────── -->
+    <h2 id="overview"><span class="sec-num">00</span> Overview</h2>
+    <p>The hypothesis DAG now uses one phase value for "not actively trading":
+    <code>phase="X"</code>. The old literal <code>"none"</code> is gone; intent is carried by
+    <code>phase_sub_status</code>. Pre-cycle silence, neutral bias, unclassified fallthrough,
+    and post-cycle terminal state all share the same surface behaviour — direction is
+    <code>"none"</code>, status is <code>"watching"</code> — but remain distinct by sub-status
+    and debug facts.</p>
+
+    <pre class="block"><span class="cm"># Pre-cycle / unclassified silence</span>
+	warmup / no HTF structure      →  X.warm_up
+	HTF bias neutral               →  X.no_direction
+	unclassified fallthrough       →  X.none
+
+	<span class="cm"># Active cycle</span>
+	E → D → C → B → A
+
+	<span class="cm"># Post-cycle terminal</span>
+	A.watch + _phase_a_finale()    →  <span class="hl">X</span>  (X.thesis_over)
+  entry_policy: "skip"
+  required_evidence: ["phase_a_thesis_matured"]
+  invalidation: new Phase E resets the P/D range episode</pre>
+
+    <div class="rule-block">
+      <code>X.warm_up</code> and <code>X.no_direction</code> are expected wait states.
+      <code>X.none</code> is different: it means the HTF bias is directional but no DAG block
+      claimed the bar. It now emits compact blocked-transition debug so replay can show why
+      the fallthrough happened.
+    </div>
+
+    <!-- ── 01 X sub-status emit sites ───────────────────────────────────── -->
+    <h2 id="none-sites"><span class="sec-num">01</span> Phase X — Current Emit Sites</h2>
+    <p><code>_none()</code> is deleted. <code>none_sub_status</code> field removed from
+    <code>Hypothesis</code>. All 4 former <code>_none()</code> call sites now call
+    <code>_phase_x(phase_sub_status=...)</code>. The <code>Phase</code> literal no longer
+    contains <code>"none"</code>.</p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>phase_sub_status</th>
+          <th>Trigger condition</th>
+          <th>entry_policy</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>X.warm_up</code></td>
+          <td>HTF snapshot absent, no closed HTF bar seen yet, or classifier state not ready.
+              Maps from: <code>warmup_waiting_for_first_closed_htf</code>,
+              <code>waiting_for_htf_structure</code>, <code>waiting_for_hypothesis_state</code>.</td>
+          <td><code>"wait"</code></td>
+        </tr>
+        <tr>
+          <td><code>X.no_direction</code></td>
+          <td>HTF structure present but <code>bias == "neutral"</code> or
+              <code>direction == "none"</code>. Maps from: <code>htf_neutral</code>.</td>
+          <td><code>"wait"</code></td>
+        </tr>
+        <tr>
+          <td><code>X.none</code></td>
+          <td>HTF bias is directional but no phase block claimed the bar — gap / fallthrough.
+              Maps from: <code>htf_resolve_unclassified</code>. Emits
+              <code>blocked_transition_reason</code>, <code>blocked_transition_context</code>,
+              and a compact <code>blocked_phase_candidates</code> map.</td>
+          <td><code>"wait"</code></td>
+        </tr>
+        <tr>
+          <td><code>X.thesis_over</code></td>
+          <td>A-phase finale confirmed: objective progress reached the configured maturity
+              threshold (<code>phase_a_thesis_matured</code>). Post-cycle terminal; budget spent.</td>
+          <td><code>"skip"</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <details open>
+      <summary>_phase_x() factory (current) <span class="where">hypothesis.py — _phase_x</span></summary>
+      <div class="body">
+        <pre class="block">def _phase_x(self, phase_sub_status, reason, required_evidence, invalidation,
+             ts, debug, range_reason=None) -&gt; Hypothesis:
+    extra = {
+        "range_reason":   range_reason,
+        "budget_policy":  <span class="hl2">"preserve_spent_budget"</span>,
+    } if range_reason is not None else {}
+    return Hypothesis(
+        phase=<span class="hl">"X"</span>,
+        status="watching",
+        direction="none",
+        entry_policy=<span class="hl">"skip"</span> if phase_sub_status == "X.thesis_over" else <span class="hl2">"wait"</span>,
+        target_policy="none",
+        phase_sub_status=phase_sub_status,
+        required_evidence=required_evidence,
+        invalidation=invalidation,
+        debug_facts={**debug, **extra},
+    )</pre>
+        <p>Only <code>X.thesis_over</code> gets <code>entry_policy="skip"</code> and the
+        <code>budget_policy</code> extra key. All other sub-statuses get <code>"wait"</code>.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      <code>X.none</code> (<code>htf_resolve_unclassified</code>) is a gap, not a design intent. It fires when the
+      DAG has a directional HTF bias but none of the E/D/C/B/A blocks claimed the bar. It
+      should not be treated as equivalent to warmup or thesis.over. It now emits a single
+      <code>blocked_transition_reason</code> plus a small context/candidate map; this is not an
+      exhaustive error-code system.
+    </div>
+
+    <details open>
+      <summary>X.none fallthrough debug <span class="where">hypothesis.py — _x_none_debug</span></summary>
+      <div class="body">
+        <pre class="block">debug_facts = {
+  "blocked_transition_reason": "directional_bias_but_no_phase_claimed",
+  "blocked_transition_context": {
+    "htf_phase": "pullback_confirmed",
+    "previous_phase": None,
+    "active_phase_e_direction": "none",
+  },
+  "blocked_phase_candidates": {
+    "DAG": "pullback_confirmed_without_active_phase_context",
+    "E":   "pullback_confirmed_hold_requires_previous_phase_E",
+    "B":   "requires_previous_phase_C_depth_gate",
+    "A":   "requires_previous_phase_B_fresh_pro_bos",
+  },
+}</pre>
+        <p>The candidate map is intentionally small. It records nearby DAG blockers that explain
+        the fallthrough, such as missing active phase context, direct E→B blocking, or A requiring
+        B origin. It should stay readable in replay, not become a complete matrix of every possible
+        failed gate.</p>
+      </div>
+    </details>
+
+    <!-- ── 02 Phase X ───────────────────────────────────────────────────── -->
+    <h2 id="phase-x"><span class="sec-num">02</span> Phase X — thesis.over</h2>
+    <p>Phase X is the terminal DAG node. It fires after <code>_phase_a_finale()</code> confirms
+    the Phase A objective progress reached the configured maturity threshold. The full
+    E→D→C→B→A cycle is mature; no fresh trades should be assumed near the HTF P/D objective.
+    Phase X holds until a fresh HTF structural epoch or new Phase E seeking state resets the
+    P/D range episode.</p>
+
+    <h3>Entry gate — _phase_a_finale()</h3>
+    <p><code>_phase_a_finale()</code> computes direction-neutral objective progress from the
+    current HTF bar and the active HTF P/D range. The default threshold is configured in
+    <code>replay.hypothesis.phase_a.objective_progress_threshold</code> as <code>0.90</code>.
+    On the maturity bar the DAG transitions <code>A.watch → X.thesis_over</code>.</p>
+
+    <pre class="block"><span class="cm"># Phase A objective maturity facts</span>
+phase_a_objective_progress_pct        float   <span class="cm"># measured journey progress, e.g. 90.0</span>
+phase_a_objective_progress_threshold  float   <span class="cm"># config ratio, default 0.90</span>
+phase_a_objective_progress_threshold_pct float <span class="cm"># threshold as percent, default 90.0</span>
+phase_a_thesis_matured                bool    <span class="cm"># True when progress reaches threshold</span>
+
+<span class="cm"># Exact-touch EC facts are still emitted when price actually reaches the objective:</span>
+phase_a_finale_touched        bool    <span class="cm"># True when HTF bar reached objective price</span>
+phase_a_finale_closed_beyond  bool    <span class="cm"># True when HTF bar closed past objective</span>
+phase_a_finale_rule           str     <span class="cm"># "bullish_phase_a_close_above_htf_pd_objective" etc.</span>
+phase_a_finale_objective      float   <span class="cm"># the price level (EC emits a price, not a zone_id)</span></pre>
+
+    <details>
+      <summary>Dispatch sketch <span class="where">hypothesis.py — A block</span></summary>
+      <div class="body">
+        <pre class="block">finale = self._phase_a_finale(snapshot, direction, htf, current_bar)
+debug.update(finale)
+if finale.get(<span class="hl2">"phase_a_thesis_matured"</span>):
+    return self._phase_x(
+        phase_sub_status=<span class="hl">"X.thesis_over"</span>,
+        required_evidence=["phase_a_thesis_matured"],
+        range_reason="phase_a_thesis_matured",
+    )</pre>
+        <p>The A block checks maturity before weaken/recovery exits. Exact objective touch
+        remains visible through <code>phase_a_finale_touched</code>, but it is not required
+        for thesis-over.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      <code>phase_a_thesis_matured</code> is the DAG trigger. <code>phase_a_finale_touched</code>
+      is exact-touch evidence and <code>phase_a_shadow_objective_touched</code> is the sticky
+      shadow flag for Layer 5 quality logic.
+    </div>
+
+    <!-- ── 03 Completed migration ───────────────────────────────────────── -->
+    <h2 id="unification"><span class="sec-num">03</span> none → X Migration — Completed</h2>
+    <p>Steps 1–6, the X.none fallthrough diagnostic, and the X.thesis_over rewire are done. <code>phase="none"</code> is eliminated.
+    The DAG cycle is now a closed loop: every bar emits <code>phase="X"</code> or one of
+    A/B/C/D/E. Cold-start self-location is tracked in
+    <code>MEMORY.md</code>.</p>
+
+    <pre class="block"><span class="cm"># Completed steps</span>
+✅ Step 1  _phase_x() factory accepts phase_sub_status; branches entry_policy
+✅ Step 2  All 4 _none() call sites replaced with _phase_x(phase_sub_status=...)
+✅ Step 3  _none() method deleted; none_sub_status field removed from Hypothesis
+✅ Step 4  Phase literal: Literal["A","B","C","D","E","X"]  (no "none")
+✅ Step 5a X.none emits blocked_transition_reason/context/candidates
+✅ Step 5b A.watch emits X.thesis_over on phase_a_thesis_matured
+✅ Step 6  Consumer audit: tests + UI updated (8 assertions + 3 UI refs)
+
+<span class="cm"># Remaining handoff</span>
+⬜ Cold-start self-location is tracked in MEMORY.md</pre>
+
+    <div class="rule-block">
+      The critical distinction is preserved: <code>X.thesis_over</code> is post-cycle
+      (<code>entry_policy="skip"</code>, budget spent). All other <code>X.*</code> sub-statuses
+      use <code>"wait"</code>. The factory branches on <code>phase_sub_status</code>.
+    </div>
+
+    <!-- ── 04 Open Issues ───────────────────────────────────────────────── -->
+    <h2 id="issues"><span class="sec-num">04</span> Open Issues</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>_phase_a_finale()</code> + Phase X wired.</b>
+        The A block checks objective maturity before weaken/recovery exits and emits
+        <code>X.thesis_over</code> when <code>phase_a_thesis_matured</code> is true.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>htf_resolve_unclassified</code> is no longer silent.</b>
+        When HTF bias is directional but no phase block claims the bar, <code>X.none</code>
+        emits <code>blocked_transition_reason</code>, <code>blocked_transition_context</code>,
+        and compact <code>blocked_phase_candidates</code> debug facts for replay.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>none → X unification migration (Steps 1–4, 6) done.</b>
+        <code>_none()</code> deleted, <code>none_sub_status</code> removed, all 4 call sites
+        replaced with <code>_phase_x(phase_sub_status=...)</code>, <code>Phase</code> literal
+        updated, consumers (8 test assertions + 3 UI refs) audited. Test suite: 133 passed,
+        31 skipped.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>entry_policy</code> split resolved.</b> <code>_phase_x()</code> factory
+        branches on <code>phase_sub_status</code>: <code>"skip"</code> for
+        <code>X.thesis_over</code>, <code>"wait"</code> for all others. No factory split
+        needed.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Shadow consumed-event ledger for D liquidity expiry.</b>
+        When <code>X.thesis_over</code> fires, the D.watch <code>consumed_leg_id</code> and
+        associated liquidity events should be retired. Currently no expiry mechanism exists —
+        the ledger persists until epoch reset only.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  var headings = document.querySelectorAll('h2[id], h3[id]');
+  var navLinks = document.querySelectorAll('nav a[href^="#"]');
+  var io = new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) {
+      if (e.isIntersecting) {
+        navLinks.forEach(function(a) { a.classList.remove('active'); });
+        var link = document.querySelector('nav a[href="#' + e.target.id + '"]');
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '0px 0px -60% 0px' });
+  headings.forEach(function(h) { io.observe(h); });
+</script>
+</body>
+</html>

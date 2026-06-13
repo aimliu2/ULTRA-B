@@ -5,7 +5,7 @@ from typing import Any, Literal
 from uuid import uuid4
 
 
-Phase = Literal["A", "B", "C", "D", "E", "range", "none"]
+Phase = Literal["A", "B", "C", "D", "E", "X"]
 Direction = Literal["long", "short", "none"]
 HypothesisStatus = Literal["watching", "armed", "invalidated", "fired", "missed"]
 EntryPolicy = Literal["limit", "mp_after_confirmation", "hybrid", "wait", "skip"]
@@ -30,7 +30,6 @@ class Hypothesis:
     created_at: str | None
     updated_at: str | None
     phase_sub_status: str | None = None
-    none_sub_status: str | None = None
     debug_facts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -52,7 +51,6 @@ class Hypothesis:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "phase_sub_status": self.phase_sub_status,
-            "none_sub_status": self.none_sub_status,
             "debug_facts": self.debug_facts,
         }
 
@@ -163,6 +161,9 @@ class PhaseBShadow:
     ltf_sd_zone_id: str | None = None
     liquidity_pool_run: bool = False
     liquidity_pool_id: str | None = None
+    commitment_extreme_level: float | None = None
+    commitment_extreme_event_id: str | None = None
+    at_extreme_entry: bool = False
 
     def reset(self) -> None:
         self.entered_at = None
@@ -173,6 +174,34 @@ class PhaseBShadow:
         self.ltf_sd_zone_id = None
         self.liquidity_pool_run = False
         self.liquidity_pool_id = None
+        self.commitment_extreme_level = None
+        self.commitment_extreme_event_id = None
+        self.at_extreme_entry = False
+
+
+@dataclass
+class PhaseAShadow:
+    """Internal Phase A sub-node memory for A.watch.
+
+    Carries commitment pointers only per shadow invariant.
+    Exception: commitment_extreme_level is read from b_shadow (fixed at B entry).
+    """
+    entered_at: str | None = None
+    pro_attempt_weaken: bool = False
+    pro_attempt_weaken_at: str | None = None
+    pro_extreme_at_weaken: float | None = None
+    recover_at: str | None = None
+    phase_a_objective_touched: bool = False
+    phase_a_objective_touched_at: str | None = None
+
+    def reset(self) -> None:
+        self.entered_at = None
+        self.pro_attempt_weaken = False
+        self.pro_attempt_weaken_at = None
+        self.pro_extreme_at_weaken = None
+        self.recover_at = None
+        self.phase_a_objective_touched = False
+        self.phase_a_objective_touched_at = None
 
 
 @dataclass
@@ -186,6 +215,7 @@ class ShadowThesis:
     phase_d  — Phase D watch/speculation sub-node ledger (PhaseDShadow).
     phase_c  — Phase C pullback/weaken sub-node ledger (PhaseCshadow).
     phase_b  — Phase B watch sub-node ledger (PhaseBShadow). Pointer-only.
+    phase_a  — Phase A watch sub-node ledger (PhaseAShadow). Pointer-only.
     B-phase flat fields (status, selected_poi_*…) — legacy shallow-reclaim
     commitment fields, kept for dead-code methods. reset() clears only these;
     phase_e/phase_d/phase_c/phase_b have their own .reset() methods.
@@ -194,6 +224,7 @@ class ShadowThesis:
     phase_d: PhaseDShadow = field(default_factory=PhaseDShadow)
     phase_c: PhaseCshadow = field(default_factory=PhaseCshadow)
     phase_b: PhaseBShadow = field(default_factory=PhaseBShadow)
+    phase_a: PhaseAShadow = field(default_factory=PhaseAShadow)
     status: str | None = None
     opened_at: str | None = None
     selected_poi_id: str | None = None
@@ -219,7 +250,7 @@ class ShadowThesis:
 class HypothesisClassifierState:
     hypothesis_id: str = field(default_factory=lambda: uuid4().hex)
     phase_episode_id: str = field(default_factory=lambda: uuid4().hex)
-    previous_phase: Phase = "none"
+    previous_phase: Phase = "X"
     htf_pd_epoch_id: str | None = None
     active_phase_e_direction: Direction = "none"
     shadow_thesis: ShadowThesis = field(default_factory=ShadowThesis)
@@ -355,6 +386,20 @@ class HypothesisClassifier:
         self.config = config or {}
         self.state = HypothesisClassifierState()
 
+    def _phase_a_objective_progress_threshold(self) -> float:
+        phase_a_cfg = self.config.get("phase_a") if isinstance(self.config.get("phase_a"), dict) else {}
+        raw_threshold = phase_a_cfg.get(
+            "objective_progress_threshold",
+            self.config.get("phase_a_objective_progress_threshold", 0.90),
+        )
+        try:
+            threshold = float(raw_threshold)
+        except (TypeError, ValueError):
+            return 0.90
+        if 0.0 < threshold <= 1.0:
+            return threshold
+        return 0.90
+
     def classify(self, snapshot: dict[str, Any]) -> Hypothesis:
         htf = snapshot.get("higher_structure") or snapshot.get("structure")
         ltf = snapshot.get("lower_structure")
@@ -371,6 +416,7 @@ class HypothesisClassifier:
             self._reset_phase_d_shadow()
             self._reset_phase_c_shadow()
             self._reset_phase_b_shadow()
+            self._reset_phase_a_shadow()
 
         debug = {
             "mode": snapshot.get("mode", "single"),
@@ -388,16 +434,13 @@ class HypothesisClassifier:
         }
 
         if not htf:
-            hyp = self._none(
-                "waiting_for_htf_structure",
-                ["htf_structure"],
-                "HTF structure snapshot becomes available",
-                cursor_time,
-                debug,
-                none_sub_status=(
-                    "warmup_waiting_for_first_closed_htf"
-                    if waiting_for_first_closed_htf else "waiting_for_htf_structure"
-                ),
+            hyp = self._phase_x(
+                phase_sub_status="X.warm_up",
+                reason="waiting_for_htf_structure",
+                required_evidence=["htf_structure"],
+                invalidation="HTF structure snapshot becomes available",
+                ts=cursor_time,
+                debug=debug,
             )
             return self._commit(hyp)
 
@@ -409,20 +452,127 @@ class HypothesisClassifier:
             reaction = self._phase_e_reaction(snapshot, direction, current_bar, previous_bar)
             debug.update(reaction)
 
-            if self.state.previous_phase == "A":
+            if self.state.previous_phase == "A" and self.state.active_phase_e_direction == direction:
+                a_shadow = self.state.shadow_thesis.phase_a
+                b_shadow = self.state.shadow_thesis.phase_b
+                self._update_phase_a_shadow(snapshot, debug)
+                debug.update(self._phase_a_watch_shadow_debug())
+
+                _cand_a, e_ctx_a = _ec_candidate(snapshot, "phase_e_context")
+                current_c_sub_a = (
+                    self.state.current_hypothesis.phase_sub_status
+                    if self.state.current_hypothesis
+                    else None
+                )
+
+                # A.watch / A.watch_weaken → E.seeking (new HTF extreme)
+                _new_htf_extreme_a = bool(
+                    debug.get("phase_e_context_new_htf_extreme")
+                    or e_ctx_a.get("new_htf_extreme")
+                )
+                if _new_htf_extreme_a:
+                    hyp = self._phase_e(direction, cursor_time, debug, ltf)
+                    return self._commit(hyp)
+
                 finale = self._phase_a_finale(snapshot, direction, htf, current_bar)
                 debug.update(finale)
-                if finale["phase_a_finale_touched"]:
-                    if finale["phase_a_finale_closed_beyond"]:
-                        hyp = self._phase_e(direction, cursor_time, debug, ltf)
-                    else:
-                        hyp = self._range(
-                            "Phase A reached the HTF P/D objective but failed to close beyond it",
-                            "failed_phase_a_finale",
-                            cursor_time,
-                            debug,
-                        )
+                if finale.get("phase_a_thesis_matured"):
+                    hyp = self._phase_x(
+                        phase_sub_status="X.thesis_over",
+                        reason=(
+                            "Phase A objective progress reached maturity threshold; "
+                            "thesis budget is spent"
+                        ),
+                        required_evidence=["phase_a_thesis_matured"],
+                        invalidation="Fresh HTF structural epoch or new Phase E seeking state",
+                        ts=cursor_time,
+                        debug=debug,
+                        range_reason="phase_a_thesis_matured",
+                    )
                     return self._commit(hyp)
+
+                _mss_a = e_ctx_a.get("ltf_counter_orderflow_mss_watch", False)
+                _mss_started_a = e_ctx_a.get("ltf_counter_orderflow_started_at")
+                _a_floor = a_shadow.entered_at or ""
+                _b_level = b_shadow.commitment_extreme_level
+
+                if current_c_sub_a == "watch":
+                    # A.watch → A.watch_weaken (counter-HTF MSS breaks pro orderflow)
+                    if _mss_a and _mss_started_a and str(_mss_started_a) > str(_a_floor):
+                        a_shadow.pro_attempt_weaken = True
+                        a_shadow.pro_attempt_weaken_at = cursor_time
+                        _pro_extreme_raw = (
+                            ltf.get("range_high") if direction == "long"
+                            else ltf.get("range_low")
+                        ) if ltf else None
+                        a_shadow.pro_extreme_at_weaken = (
+                            float(_pro_extreme_raw) if _pro_extreme_raw is not None else None
+                        )
+                        hyp = self._phase_a_watch(
+                            direction, cursor_time, debug, phase_sub_status="watch_weaken"
+                        )
+                        return self._commit(hyp)
+
+                elif current_c_sub_a == "watch_weaken":
+                    # A.watch_weaken → C.pullback (B commitment extreme breached — B+A invalidated)
+                    # current_price lives in candidate["location_context"], NOT in debug_facts
+                    if _b_level is not None:
+                        _loc = (_cand_a.get("location_context") or {})
+                        _cur_price_raw = _loc.get("current_price")
+                        if _cur_price_raw is not None:
+                            try:
+                                _cur_price = float(_cur_price_raw)
+                                _commitment_extreme_breached = (
+                                    _cur_price < float(_b_level) if direction == "long"
+                                    else _cur_price > float(_b_level)
+                                )
+                            except (TypeError, ValueError):
+                                _commitment_extreme_breached = False
+                            if _commitment_extreme_breached:
+                                c_shadow = self.state.shadow_thesis.phase_c
+                                c_shadow.origin_node = "A.watch_weaken_invalidated"
+                                c_shadow.entered_at = cursor_time
+                                hyp = self._phase_c(
+                                    direction, None, "watching", cursor_time,
+                                    {**debug, "phase_a_invalidated": True},
+                                    phase_sub_status="pullback",
+                                )
+                                return self._commit(hyp)
+
+                    # A.watch_weaken → A.watch (pro-HTF SC recovery + pro extreme advance)
+                    # Recovery requires the pro-side LTF range extreme to have advanced past the
+                    # level locked at weaken time. Prevents oscillation in ranging markets
+                    # where micro pro SCs fire without genuine structural progress.
+                    pro_break_a = "up" if direction == "long" else "down"
+                    _last_sc_a = (ltf.get("last_sc") or {}) if ltf else {}
+                    _last_sc_a_at = _last_sc_a.get("eventTimestamp")
+                    _weaken_floor = a_shadow.pro_attempt_weaken_at or _a_floor
+                    _pro_extreme_floor = a_shadow.pro_extreme_at_weaken
+                    _pro_extreme_advance_gate = True
+                    if _pro_extreme_floor is not None and ltf:
+                        _cur_pro_extreme_raw = ltf.get("range_high") if direction == "long" else ltf.get("range_low")
+                        if _cur_pro_extreme_raw is not None:
+                            try:
+                                _pro_extreme_advance_gate = (
+                                    float(_cur_pro_extreme_raw) > _pro_extreme_floor if direction == "long"
+                                    else float(_cur_pro_extreme_raw) < _pro_extreme_floor
+                                )
+                            except (TypeError, ValueError):
+                                _pro_extreme_advance_gate = False
+                    if (
+                        _last_sc_a_at
+                        and str(_last_sc_a_at) > str(_weaken_floor)
+                        and _last_sc_a.get("breakDirection") == pro_break_a
+                        and _pro_extreme_advance_gate
+                    ):
+                        a_shadow.recover_at = cursor_time
+                        hyp = self._phase_a_watch(
+                            direction, cursor_time, debug, phase_sub_status="watch"
+                        )
+                        return self._commit(hyp)
+
+                hyp = self._carry_current_hypothesis(cursor_time, debug)
+                return self._commit(hyp)
 
             if self.state.previous_phase == "C" and self.state.active_phase_e_direction == direction:
                 if debug.get("reaction_failed"):
@@ -489,6 +639,20 @@ class HypothesisClassifier:
                             if depth is not None and depth >= 51.0:
                                 b_shadow = self.state.shadow_thesis.phase_b
                                 b_shadow.entered_at = cursor_time
+                                b_shadow.at_extreme_entry = (
+                                    c_shadow.origin_node == "A.watch_weaken_invalidated"
+                                    and depth >= 90.0
+                                )
+                                _commitment_extreme_raw = (
+                                    ltf.get("range_low") if direction == "long"
+                                    else ltf.get("range_high")
+                                ) if ltf else None
+                                b_shadow.commitment_extreme_level = (
+                                    float(_commitment_extreme_raw)
+                                    if _commitment_extreme_raw is not None
+                                    else None
+                                )
+                                b_shadow.commitment_extreme_event_id = _sc_event_id(last_sc_c)
                                 hyp = self._phase_b_watch(
                                     direction,
                                     cursor_time,
@@ -496,6 +660,8 @@ class HypothesisClassifier:
                                         **debug,
                                         "phase_b_origin_node": f"C.{c_shadow.origin_node or 'pullback'}",
                                         "phase_b_entry_depth_pct": depth,
+                                        "phase_b_at_extreme_entry": b_shadow.at_extreme_entry,
+                                        "phase_b_commitment_extreme_level": b_shadow.commitment_extreme_level,
                                     },
                                 )
                                 return self._commit(hyp)
@@ -578,7 +744,7 @@ class HypothesisClassifier:
                 _, e_ctx_facts = _ec_candidate(snapshot, "phase_e_context")
 
                 if d_shadow.node == "D.watch":
-                    # Counter MSS breaks LL: pro-attempt definitively failed → C.pullback
+                    # Fresh counter MSS: pro attempt failed → C.pullback.
                     _mss_watch_dw = e_ctx_facts.get("ltf_counter_orderflow_mss_watch", False)
                     _mss_leg_dw = e_ctx_facts.get("ltf_counter_orderflow_leg_id")
                     if _mss_watch_dw and _mss_leg_dw and _mss_leg_dw != d_shadow.consumed_leg_id:
@@ -708,17 +874,66 @@ class HypothesisClassifier:
                     hyp = self._phase_e(direction, cursor_time, debug, ltf)
                     return self._commit(hyp)
 
+                _b_entered_floor = b_shadow.entered_at or ""
+
+                # B.watch → A.watch (pro-HTF BoS fires — price escaped B zone in pro direction)
+                pro_break_b = "up" if direction == "long" else "down"
+                last_sc_b = (ltf.get("last_sc") or {}) if ltf else {}
+                last_sc_b_at = last_sc_b.get("eventTimestamp")
+                if (
+                    last_sc_b_at
+                    and str(last_sc_b_at) > str(_b_entered_floor)
+                    and last_sc_b.get("breakDirection") == pro_break_b
+                ):
+                    a_shadow = self.state.shadow_thesis.phase_a
+                    a_shadow.entered_at = cursor_time
+                    hyp = self._phase_a_watch(
+                        direction, cursor_time,
+                        {
+                            **debug,
+                            "phase_a_origin_node": "B.watch",
+                            "phase_b_commitment_extreme_level": b_shadow.commitment_extreme_level,
+                        },
+                    )
+                    return self._commit(hyp)
+
+                # B.watch → C.pullback (B commitment extreme breached)
+                _b_commitment_extreme = b_shadow.commitment_extreme_level
+                if _b_commitment_extreme is not None and ltf:
+                    _cur_extreme_raw = ltf.get("range_low") if direction == "long" else ltf.get("range_high")
+                    if _cur_extreme_raw is not None:
+                        try:
+                            _commitment_extreme_breached = (
+                                float(_cur_extreme_raw) < _b_commitment_extreme if direction == "long"
+                                else float(_cur_extreme_raw) > _b_commitment_extreme
+                            )
+                        except (TypeError, ValueError):
+                            _commitment_extreme_breached = False
+                        if _commitment_extreme_breached:
+                            c_shadow = self.state.shadow_thesis.phase_c
+                            c_shadow.origin_node = "B.watch_commitment_extreme_breached"
+                            c_shadow.entered_at = cursor_time
+                            hyp = self._phase_c(
+                                direction, None, "watching", cursor_time,
+                                {
+                                    **debug,
+                                    "phase_b_commitment_extreme_breached": True,
+                                    "phase_b_commitment_extreme_level": _b_commitment_extreme,
+                                },
+                                phase_sub_status="pullback",
+                            )
+                            return self._commit(hyp)
+
                 # B.watch → C.pullback (counter MSS fires — freshness-guarded)
                 _mss_b = e_ctx_b.get("ltf_counter_orderflow_mss_watch", False)
                 _mss_b_started = e_ctx_b.get("ltf_counter_orderflow_started_at")
-                _b_entered_floor = b_shadow.entered_at or ""
                 if (
                     _mss_b
                     and _mss_b_started
                     and str(_mss_b_started) > str(_b_entered_floor)
                 ):
                     c_shadow = self.state.shadow_thesis.phase_c
-                    c_shadow.origin_node = "B.watch_failed"
+                    c_shadow.origin_node = "B.watch_mss_failed"
                     c_shadow.entered_at = _mss_b_started
                     hyp = self._phase_c(
                         direction,
@@ -730,6 +945,8 @@ class HypothesisClassifier:
                     )
                     return self._commit(hyp)
 
+                if b_shadow.commitment_extreme_level is not None:
+                    debug["phase_b_commitment_extreme_level"] = b_shadow.commitment_extreme_level
                 hyp = self._carry_current_hypothesis(cursor_time, debug)
                 return self._commit(hyp)
 
@@ -751,29 +968,66 @@ class HypothesisClassifier:
                 hyp = self._phase_e(direction, cursor_time, debug, ltf)
                 return self._commit(hyp)
 
+        if (
+            self.state.previous_phase == "X"
+            and self.state.current_hypothesis
+            and self.state.current_hypothesis.phase_sub_status == "X.thesis_over"
+        ):
+            debug["phase_x_hold_reason"] = "thesis_over_waiting_for_new_phase_e"
+            hyp = self._carry_current_hypothesis(cursor_time, debug)
+            return self._commit(hyp)
+
         if bias == "neutral" or direction == "none":
-            hyp = self._none(
-                "HTF bias is neutral; no directional hypothesis",
-                ["directional_htf_bias"],
-                "HTF bias becomes directional",
-                cursor_time,
-                debug,
-                none_sub_status=(
-                    "warmup_waiting_for_first_closed_htf"
-                    if waiting_for_first_closed_htf else "htf_neutral"
-                ),
+            hyp = self._phase_x(
+                phase_sub_status=("X.warm_up" if waiting_for_first_closed_htf else "X.no_direction"),
+                reason="HTF bias is neutral; no directional hypothesis",
+                required_evidence=["directional_htf_bias"],
+                invalidation="HTF bias becomes directional",
+                ts=cursor_time,
+                debug=debug,
             )
             return self._commit(hyp)
 
-        hyp = self._none(
-            "E/D/C/B classifier slice found no tradable hypothesis; waiting for A classifier",
-            ["phase_a_classifier"],
-            "Next classifier slice defines this pullback/continuation state",
-            cursor_time,
-            debug,
-            none_sub_status="htf_resolve_unclassified",
+        debug = self._x_none_debug(debug, phase)
+        hyp = self._phase_x(
+            phase_sub_status="X.none",
+            reason="E/D/C/B classifier slice found no tradable hypothesis; waiting for A classifier",
+            required_evidence=["phase_a_classifier"],
+            invalidation="Next classifier slice defines this pullback/continuation state",
+            ts=cursor_time,
+            debug=debug,
         )
         return self._commit(hyp)
+
+    def _x_none_debug(self, debug: dict[str, Any], htf_phase: str | None) -> dict[str, Any]:
+        """Explain a directional fallthrough without turning every DAG gate into error codes."""
+        previous_phase = self.state.previous_phase
+        blocked_candidates: dict[str, str] = {}
+
+        if htf_phase == "pullback_confirmed" and previous_phase not in {"E", "D", "C", "B", "A"}:
+            blocked_candidates["DAG"] = "pullback_confirmed_without_active_phase_context"
+            blocked_candidates["E"] = "pullback_confirmed_hold_requires_previous_phase_E"
+
+        if debug.get("phase_b_blocked_by_dag"):
+            blocked_candidates["B"] = str(
+                debug.get("phase_b_dag_blocked_reason") or "blocked_by_dag"
+            )
+        elif previous_phase != "C":
+            blocked_candidates["B"] = "requires_previous_phase_C_depth_gate"
+
+        if previous_phase != "B":
+            blocked_candidates["A"] = "requires_previous_phase_B_fresh_pro_bos"
+
+        return {
+            **debug,
+            "blocked_transition_reason": "directional_bias_but_no_phase_claimed",
+            "blocked_transition_context": {
+                "htf_phase": htf_phase,
+                "previous_phase": previous_phase,
+                "active_phase_e_direction": self.state.active_phase_e_direction,
+            },
+            "blocked_phase_candidates": blocked_candidates,
+        }
 
     def _phase_d_setup(
         self,
@@ -1514,13 +1768,53 @@ class HypothesisClassifier:
         current_bar: dict[str, Any] | None,
     ) -> dict[str, Any]:
         objective = htf.get("range_high") if direction == "long" else htf.get("range_low")
+        threshold = self._phase_a_objective_progress_threshold()
         facts = {
             "phase_a_finale_touched": False,
             "phase_a_finale_closed_beyond": False,
             "phase_a_finale_direction": direction,
             "phase_a_finale_objective": objective,
             "phase_a_finale_rule": None,
+            "phase_a_objective_progress_threshold": threshold,
+            "phase_a_objective_progress_threshold_pct": threshold * 100.0,
+            "phase_a_objective_progress_pct": None,
+            "phase_a_thesis_matured": False,
+            "phase_a_thesis_maturity_rule": "objective_progress_reaches_configured_threshold",
         }
+        range_high_raw = htf.get("range_high")
+        range_low_raw = htf.get("range_low")
+        bar_high_raw = current_bar.get("high") if current_bar else None
+        bar_low_raw = current_bar.get("low") if current_bar else None
+        try:
+            range_high = float(range_high_raw)
+            range_low = float(range_low_raw)
+            bar_high = float(bar_high_raw)
+            bar_low = float(bar_low_raw)
+            span = range_high - range_low
+        except (TypeError, ValueError):
+            span = 0.0
+            bar_high = bar_low = range_high = range_low = 0.0
+
+        if span > 0.0:
+            raw_progress = (
+                (bar_high - range_low) / span
+                if direction == "long"
+                else (range_high - bar_low) / span
+            )
+            progress = max(0.0, min(1.0, raw_progress))
+            facts.update(
+                {
+                    "phase_a_objective_progress_pct": progress * 100.0,
+                    "phase_a_objective_progress_raw_pct": raw_progress * 100.0,
+                    "phase_a_thesis_matured": progress + 1e-12 >= threshold,
+                    "phase_a_finale_bar_high": bar_high,
+                    "phase_a_finale_bar_low": bar_low,
+                    "phase_a_finale_bar_close": current_bar.get("close") if current_bar else None,
+                }
+            )
+        else:
+            facts["phase_a_objective_progress_blocked_reason"] = "missing_or_invalid_htf_range"
+
         objective_candidate, objective_facts = _ec_candidate(snapshot, "htf_pd_objective")
         if objective_candidate.get("status") == "ready":
             facts.update(
@@ -2295,6 +2589,66 @@ class HypothesisClassifier:
             "phase_b_shadow_ltf_sd_zone_id": s.ltf_sd_zone_id,
             "phase_b_shadow_liquidity_pool_run": s.liquidity_pool_run,
             "phase_b_shadow_liquidity_pool_id": s.liquidity_pool_id,
+            "phase_b_shadow_commitment_extreme_level": s.commitment_extreme_level,
+            "phase_b_shadow_commitment_extreme_event_id": s.commitment_extreme_event_id,
+            "phase_b_shadow_at_extreme_entry": s.at_extreme_entry,
+        }
+
+    def _reset_phase_a_shadow(self) -> None:
+        self.state.shadow_thesis.phase_a.reset()
+
+    def _phase_a_watch(
+        self,
+        direction: Direction,
+        ts: str | None,
+        debug: dict[str, Any],
+        phase_sub_status: str = "watch",
+    ) -> Hypothesis:
+        bullish = direction == "long"
+        return Hypothesis(
+            hypothesis_id=self.state.hypothesis_id,
+            status="watching",
+            phase="A",
+            phase_sub_status=phase_sub_status,
+            direction=direction,
+            swing_alignment="pro_swing",
+            internal_alignment="pro_internal",
+            poi_id=None,
+            poi_type=None,
+            reason=(
+                "Bullish A.watch: pro-HTF BoS fired from B zone; watching for HTF objective"
+                if bullish
+                else "Bearish A.watch: pro-HTF BoS fired from B zone; watching for HTF objective"
+            ),
+            required_evidence=["entry_protocol_permission"],
+            invalidation="Counter MSS breaches B commitment extreme → C.pullback; new HTF extreme → E.seeking",
+            target_policy="htf_pd_level",
+            fallback_target_policy="fixed_rr",
+            entry_policy="wait",
+            created_at=self.state.current_hypothesis.created_at if self.state.current_hypothesis else ts,
+            updated_at=ts,
+            debug_facts=debug,
+        )
+
+    def _update_phase_a_shadow(
+        self, snapshot: dict[str, Any], debug: dict[str, Any]
+    ) -> None:
+        s = self.state.shadow_thesis.phase_a
+        _, a_facts = _ec_candidate(snapshot, "htf_pd_objective")
+        if a_facts.get("phase_a_finale_touched") and not s.phase_a_objective_touched:
+            s.phase_a_objective_touched = True
+            s.phase_a_objective_touched_at = debug.get("cursor_time")
+
+    def _phase_a_watch_shadow_debug(self) -> dict[str, Any]:
+        s = self.state.shadow_thesis.phase_a
+        return {
+            "phase_a_shadow_entered_at": s.entered_at,
+            "phase_a_shadow_pro_attempt_weaken": s.pro_attempt_weaken,
+            "phase_a_shadow_pro_attempt_weaken_at": s.pro_attempt_weaken_at,
+            "phase_a_shadow_pro_extreme_at_weaken": s.pro_extreme_at_weaken,
+            "phase_a_shadow_recover_at": s.recover_at,
+            "phase_a_shadow_objective_touched": s.phase_a_objective_touched,
+            "phase_a_shadow_objective_touched_at": s.phase_a_objective_touched_at,
         }
 
     def _phase_a(
@@ -2338,13 +2692,13 @@ class HypothesisClassifier:
     ) -> Hypothesis:
         current = self.state.current_hypothesis
         if current is None:
-            return self._none(
-                "waiting_for_hypothesis_state",
-                ["current_hypothesis"],
-                "A hypothesis exists before it can be carried forward",
-                ts,
-                debug,
-                none_sub_status="waiting_for_hypothesis_state",
+            return self._phase_x(
+                phase_sub_status="X.warm_up",
+                reason="waiting_for_hypothesis_state",
+                required_evidence=["current_hypothesis"],
+                invalidation="A hypothesis exists before it can be carried forward",
+                ts=ts,
+                debug=debug,
             )
         return Hypothesis(
             hypothesis_id=current.hypothesis_id,
@@ -2364,24 +2718,26 @@ class HypothesisClassifier:
             created_at=current.created_at,
             updated_at=ts,
             phase_sub_status=phase_sub_status if phase_sub_status is not None else current.phase_sub_status,
-            none_sub_status=current.none_sub_status,
             debug_facts=debug,
         )
 
-    def _none(
+    def _phase_x(
         self,
+        phase_sub_status: str,
         reason: str,
         required_evidence: list[str],
         invalidation: str,
         ts: str | None,
         debug: dict[str, Any],
-        none_sub_status: str | None = None,
+        range_reason: str | None = None,
     ) -> Hypothesis:
-        debug = {**debug, "none_sub_status": none_sub_status} if none_sub_status else debug
+        extra: dict[str, Any] = {}
+        if range_reason is not None:
+            extra = {"range_reason": range_reason, "budget_policy": "preserve_spent_budget"}
         return Hypothesis(
             hypothesis_id=self.state.hypothesis_id,
             status="watching",
-            phase="none",
+            phase="X",
             direction="none",
             swing_alignment="none",
             internal_alignment="none",
@@ -2392,42 +2748,11 @@ class HypothesisClassifier:
             invalidation=invalidation,
             target_policy="none",
             fallback_target_policy=None,
-            entry_policy="wait",
+            entry_policy="skip" if phase_sub_status == "X.thesis_over" else "wait",
             created_at=self.state.current_hypothesis.created_at if self.state.current_hypothesis else ts,
             updated_at=ts,
-            none_sub_status=none_sub_status,
-            debug_facts=debug,
-        )
-
-    def _range(
-        self,
-        reason: str,
-        range_reason: str,
-        ts: str | None,
-        debug: dict[str, Any],
-    ) -> Hypothesis:
-        return Hypothesis(
-            hypothesis_id=self.state.hypothesis_id,
-            status="watching",
-            phase="range",
-            direction="none",
-            swing_alignment="none",
-            internal_alignment="none",
-            poi_id=None,
-            poi_type=None,
-            reason=reason,
-            required_evidence=["fresh_htf_structural_epoch"],
-            invalidation="Fresh HTF structural epoch or new Phase E resets the P/D range episode",
-            target_policy="none",
-            fallback_target_policy=None,
-            entry_policy="skip",
-            created_at=self.state.current_hypothesis.created_at if self.state.current_hypothesis else ts,
-            updated_at=ts,
-            debug_facts={
-                **debug,
-                "range_reason": range_reason,
-                "budget_policy": "preserve_spent_budget",
-            },
+            phase_sub_status=phase_sub_status,
+            debug_facts={**debug, **extra},
         )
 
     def _commit(self, hypothesis: Hypothesis) -> Hypothesis:

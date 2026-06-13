@@ -429,7 +429,7 @@ class DualSmcRuntime:
         self.lower_orderflow = OrderflowContext(_orderflow_config(self.replay_config), timeframe=self.lower_label)
         self.liquidity = None
         self.evidence_compiler = EvidenceCompiler()
-        self.hypothesis_classifier = HypothesisClassifier()
+        self.hypothesis_classifier = HypothesisClassifier(self.replay_config.get("hypothesis", {}))
         if not self.event_log_enabled:
             return
 

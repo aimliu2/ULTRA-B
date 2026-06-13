@@ -1,0 +1,893 @@
+<!-- source: src/ultrab/core/smc/hypothesis.py (Phase A state machine — A.watch model)
+     algo:   _phase_a_watch, _update_phase_a_shadow, _phase_a_watch_shadow_debug
+     algo:   PhaseAShadow
+     ref:    docs/402-hypothesis-phB.html, docs/401-hypothesis-DAG.html
+     authored: 2026-06-12 — A.watch + A.watch_weaken lean model (old _phase_a_setup archived) -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>402 · Hypothesis Phase A — A.watch</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 760px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  .hl  { color: var(--accent); font-weight: 700; }
+  .hl2 { color: var(--accent2); font-weight: 700; }
+  .cm  { color: var(--text-dim); font-style: italic; }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#overview">Overview</a>
+    <a href="#entry-gate">Entry Gate</a>
+    <a href="#shadow">Shadow (PhaseAShadow)</a>
+    <a href="#state-machine">A.watch State Machine</a>
+    <a href="#dag-block">DAG Block (B → A)</a>
+    <a href="#algo">Algorithm</a>
+    <a href="#old-model">Old Model (archived)</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>core/smc/hypothesis.py</code>
+      <code>docs/402-hypothesis-phB.html</code>
+      <code>docs/401-hypothesis-DAG.html</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · Hypothesis · Phase A</div>
+      <h1>Hypothesis Phase A — A.watch</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — Phase A is the <b>pro-attempt finale</b>: the node where the HTF thesis
+        either confirms or fails. Two states: <code>A.watch</code> (active pro attempt) and
+        <code>A.watch_weaken</code> (counter orderflow MSS weakens the pro attempt).
+        <code>A.watch</code> exits: new HTF extreme → E.seeking; counter MSS →
+        <code>A.watch_weaken</code>. <code>A.watch_weaken</code> exits: B commitment extreme breached
+        → C.pullback (<code>A.watch_weaken_invalidated</code>); pro SC + new pro-side extreme
+        (<b>pro extreme advance gate</b>) → recovery. The pro extreme advance gate blocks oscillation in ranging markets: recovery
+        requires the pro-side LTF range extreme to have advanced past the level locked at
+        weaken time. <code>pro_attempt_weaken</code> is sticky — Layer 5 raises the entry bar.
+      </div>
+      <a class="panel-link" href="./402-hypothesis-phB.html">→ Phase B — B.watch</a>
+      <a class="panel-link" href="./402-hypothesis-phC.html">→ Phase C — Counter Pullback</a>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ DAG diagram</a>
+    </header>
+
+    <!-- ── 00 Overview ──────────────────────────────────────────────────── -->
+    <h2 id="overview"><span class="sec-num">00</span> Overview</h2>
+    <p>Phase A is the final node in the hypothesis DAG chain. It opens when B.watch receives a
+    pro-HTF BoS (Break of Structure in the pro-HTF direction), indicating price has escaped the
+    B zone and the pro side is attempting to drive toward the HTF P/D objective. Unlike C (which
+    tracks the counter pullback) and B (which watches for the pro reclaim initiation), Phase A
+    is purely about whether the pro-HTF attempt has enough structural conviction to confirm.</p>
+
+    <pre class="block">DAG position:
+
+E.seeking → E.stalling → E.pullback_developing
+  → D.watch
+    → <span class="hl2">C.pullback</span>              ← counter MSS confirmed; pullback leg active
+        depth &lt; 51%: → C.pullback_weaken
+        depth ≥ 51%: → B.watch           ← pro-HTF SC; discount zone reached
+          → C.pullback   ← counter MSS (reclaim failed)
+          → <span class="hl">A.watch</span>      ← pro-HTF BoS after B; finale
+              → A.watch_weaken  ← counter SC fires within A zone
+              → B.watch         ← counter MSS (pro attempt failed)
+              → E.seeking       ← new HTF extreme</pre>
+
+    <div class="rule-block">
+      Phase A is not a pullback depth node. The pullback depth gate lives at the C → B boundary
+      (≥ 51%). No additional depth condition applies at B → A. The trigger is purely structural:
+      a pro-HTF BoS after B.watch has been active.
+    </div>
+
+    <!-- ── 01 Entry Gate ─────────────────────────────────────────────────── -->
+    <h2 id="entry-gate"><span class="sec-num">01</span> Entry Gate — B → A</h2>
+    <p>A.watch opens from the B block (<code>previous_phase == "B"</code>,
+    <code>phase_sub_status == "watch"</code>) when a pro-HTF BoS fires on a fresh leg after
+    B.watch opened. The gate reads from <code>phase_e_context</code> facts — no additional
+    EC candidate is required for the DAG transition itself. The <code>htf_pd_objective</code>
+    EC candidate is available to Layer 5 for entry permission decisions but is not a DAG gate.</p>
+
+    <h3>Gate conditions</h3>
+    <pre class="block"><span class="hl">previous_phase == "B"</span>  AND  <span class="hl">phase_sub_status == "watch"</span>
+<span class="hl">last_sc.breakDirection == pro-HTF direction</span>     <span class="cm"># pro BoS (SC01/SC02 or macro level)</span>
+<span class="hl">last_sc.eventTimestamp &gt; b_shadow.entered_at</span>     <span class="cm"># freshness: BoS after B.watch opened</span></pre>
+
+    <p>There is no depth gate at this boundary. The 51% depth condition was already satisfied
+    when C → B fired. B → A is triggered by the structural signal alone — price escaping the B
+    zone in the pro-HTF direction.</p>
+
+    <div class="rule-block">
+      Unlike C → B (which has an explicit depth gate), B → A has no depth precondition. Depth
+      was already screened at C → B. The pro-HTF BoS freshness check (after <code>b_shadow.entered_at</code>)
+      is the only gate — preventing a stale BoS that predates B.watch from firing A entry.
+    </div>
+
+    <details open>
+      <summary>Entry logic <span class="where">hypothesis.py:678–691 (B block)</span></summary>
+      <div class="body">
+        <pre class="block"><span class="cm"># In B block — after shadow update and HTF extreme check</span>
+pro_break_b  = "up" if direction == "long" else "down"
+last_sc_b    = (ltf.get(<span class="hl2">"last_sc"</span>) or {}) if ltf else {}
+last_sc_b_at = last_sc_b.get("eventTimestamp")
+_b_floor     = b_shadow.entered_at or ""
+
+if (last_sc_b_at
+        and str(last_sc_b_at) &gt; str(_b_floor)
+        and last_sc_b.get(<span class="hl">"breakDirection"</span>) == pro_break_b):
+    a_shadow = self.state.shadow_thesis.phase_a
+    a_shadow.entered_at = cursor_time
+    <span class="cm"># commitment_extreme_level was locked at C→B entry; not set here</span>
+    hyp = self._phase_a_watch(direction, cursor_time, {
+        **debug,
+        <span class="hl2">"phase_a_origin_node"</span>: "B.watch",
+        <span class="hl2">"phase_b_commitment_extreme_level"</span>: b_shadow.commitment_extreme_level,
+    })
+    return self._commit(hyp)</pre>
+      </div>
+    </details>
+
+    <!-- ── 02 Shadow ─────────────────────────────────────────────────────── -->
+    <h2 id="shadow"><span class="sec-num">02</span> Shadow — PhaseAShadow</h2>
+    <p>A.watch carries commitment pointers only. Layer 3 EC snapshot is the authoritative source
+    for zone levels, orderflow direction, and prices. Layer 5 resolves IDs from the EC snapshot
+    at decision time. Shadow fields are never zone levels or prices — only IDs, booleans, and
+    timestamps.</p>
+
+    <h3>PhaseAShadow fields</h3>
+    <pre class="block">entered_at                   str | None   <span class="cm"># cursor_time of B → A transition (freshness floor)</span>
+pro_attempt_weaken           bool         <span class="cm"># True once A.watch_weaken fires (sticky)</span>
+pro_attempt_weaken_at        str | None   <span class="cm"># timestamp of first weaken event</span>
+pro_extreme_at_weaken        float | None <span class="cm"># range_high (long) / range_low (short) locked at weaken</span>
+                                          <span class="cm"># recovery waits for pro-side extreme advance</span>
+recover_at                   str | None   <span class="cm"># timestamp of weaken → watch recovery</span>
+phase_a_objective_touched    bool         <span class="cm"># True once HTF P/D objective price touched (sticky)</span>
+phase_a_objective_touched_at str | None   <span class="cm"># cursor_time of first exact objective touch</span></pre>
+
+    <p><code>entered_at</code> is set on the B → A transition bar and serves as the freshness
+    floor for the A.watch_weaken trigger guard. Objective touch fields are updated each bar by
+    <code>_update_phase_a_shadow()</code>, which reads from <code>htf_pd_objective</code>
+    EC facts.</p>
+
+    <p><code>pro_extreme_at_weaken</code> is captured at the moment <code>A.watch → A.watch_weaken</code>
+    fires, from <code>ltf.range_high</code> (long) or <code>ltf.range_low</code> (short) at that
+    exact bar. It is the pro extreme advance reference: recovery to <code>A.watch</code> is blocked until
+    <code>range_high &gt; pro_extreme_at_weaken</code> for long or
+    <code>range_low &lt; pro_extreme_at_weaken</code> for short, preventing oscillation in sideways
+    markets where micro pro SCs fire without genuine structural progress.</p>
+
+    <p><code>pro_attempt_weaken</code> is <b>sticky once set</b> — it is never reset within an
+    A.watch episode. It signals to Layer 5 that the pro attempt lost conviction at least once.
+    Layer 5 raises the entry bar accordingly: requires <code>phase_a_shadow_objective_touched == True</code>
+    or <code>b_shadow.liquidity_pool_run == True</code> (carried from B) before permitting entry.</p>
+
+    <div class="rule-block">
+      Shadow pointer fields accumulate monotonically — they are never cleared within an A.watch
+      episode. <code>pro_attempt_weaken</code> is sticky: once a counter SC fires within A zone,
+      the weaken flag stays set even after recovery. Layer 5 reads this as a permanent conviction
+      reduction for this A episode.
+    </div>
+
+    <details>
+      <summary>Shadow update sketch <span class="where">hypothesis.py — _update_phase_a_shadow</span></summary>
+      <div class="body">
+        <pre class="block">def _update_phase_a_shadow(self, snapshot, debug):
+    s = self.state.shadow_thesis.phase_a
+    _, a_facts = _ec_candidate(snapshot, <span class="hl2">"htf_pd_objective"</span>)
+
+    <span class="cm"># Exact HTF objective touch (sticky once set)</span>
+    if a_facts.get("phase_a_finale_touched") and not s.phase_a_objective_touched:
+        s.phase_a_objective_touched = True
+        s.phase_a_objective_touched_at = debug.get("cursor_time")</pre>
+      </div>
+    </details>
+
+    <!-- ── 03 A.watch State Machine ──────────────────────────────────────── -->
+    <h2 id="state-machine"><span class="sec-num">03</span> A.watch State Machine</h2>
+    <p>A.watch has two internal states: <code>A.watch</code> (active pro attempt) and
+    <code>A.watch_weaken</code> (counter structural move fired within A zone, conviction
+    reduced). The 2-state design mirrors C's <code>C.pullback</code> / <code>C.pullback_weaken</code>
+    exactly, but at the pro-attempt level.</p>
+
+    <h3>State: A.watch</h3>
+    <p>The active state. Each bar checks exit conditions in priority order.</p>
+
+    <pre class="block"><span class="cm"># Priority 1 — E.seeking (new HTF extreme)</span>
+<span class="hl">phase_e_context_new_htf_extreme == True</span>
+  OR e_ctx.get("new_htf_extreme") == True
+→ E.seeking   <span class="cm"># HTF continuation resumes; A.watch invalidated</span>
+
+<span class="cm"># Priority 2 — A.watch_weaken (counter-HTF MSS — pro orderflow broke)</span>
+<span class="hl">ltf_counter_orderflow_mss_watch == True</span>   <span class="cm"># MSS, NOT a structural SC</span>
+AND <span class="hl">ltf_counter_orderflow_started_at &gt; a_shadow.entered_at</span>
+→ A.watch_weaken
+  a_shadow.pro_attempt_weaken    = True    <span class="cm"># sticky</span>
+  a_shadow.pro_attempt_weaken_at = cursor_time
+
+<span class="cm"># Hold: neither exit fires → carry forward, update shadow</span></pre>
+
+    <div class="rule-block">
+      The A.watch_weaken trigger is an orderflow <b>MSS</b>, not a structural SC/ChoCh. An MSS
+      means the pro orderflow itself broke — a more significant signal than a structural correction.
+      A structural SC inside the B commitment range is not sufficient to weaken A.
+    </div>
+
+    <h3>State: A.watch_weaken</h3>
+    <p>Entered when a counter-HTF MSS fires within the A zone. The pro attempt lost orderflow
+    conviction but has not yet breached the B commitment extreme. Three exits in priority order.</p>
+
+    <pre class="block"><span class="cm"># Priority 1 — E.seeking (new HTF extreme, highest priority)</span>
+<span class="hl">phase_e_context_new_htf_extreme == True</span>
+→ E.seeking   <span class="cm"># unexpected HTF reversal; entire thesis invalidated</span>
+
+<span class="cm"># Priority 2 — C.pullback (B commitment extreme breached — B+A thesis invalidated)</span>
+<span class="hl">current_price &lt; b_shadow.commitment_extreme_level</span>   <span class="cm"># long setup</span>
+  OR <span class="hl">current_price &gt; b_shadow.commitment_extreme_level</span>   <span class="cm"># short setup</span>
+→ C.pullback
+  c_shadow.origin_node = <span class="hl2">"A.watch_weaken_invalidated"</span>   <span class="cm"># enables 90% ceiling at next C→B</span>
+
+<span class="cm"># Priority 3 — A.watch (recovery: pro-HTF SC BoS + pro extreme advance gate)</span>
+<span class="hl">last_sc.breakDirection == pro-HTF</span>   <span class="cm"># pro structural SC (same gate as B→A entry)</span>
+AND <span class="hl">last_sc.eventTimestamp &gt; a_shadow.pro_attempt_weaken_at</span>   <span class="cm"># freshness floor</span>
+AND <span class="hl">pro-side range extreme advanced past a_shadow.pro_extreme_at_weaken</span>
+→ A.watch
+  a_shadow.recover_at = cursor_time
+  <span class="cm"># pro_attempt_weaken stays True (sticky — Layer 5 reads conviction history)</span>
+  <span class="cm"># pro_extreme_at_weaken not updated — recovery reference remains from first weaken</span>
+
+<span class="cm"># Hold</span></pre>
+
+    <div class="callout">
+      <span class="ico">!</span>
+      <span><b>B commitment extreme</b> — <code>b_shadow.commitment_extreme_level</code> is
+      <code>ltf_struct.range_low</code> (long) / <code>range_high</code> (short) captured at the
+      <b>C→B entry bar</b> (not B→A). It cannot be queried live: <code>ltf_struct.range_low</code>
+      ratchets on every new structural SC and will not retain B's original commitment extreme.<br><br>
+      <b>Recovery uses a pro-HTF SC + pro extreme advance gate.</b> <code>ltf_counter_orderflow_mss_watch</code>
+      is a counter-HTF signal — using it for recovery would fire on more counter pressure, not pro
+      recovery. A pro-HTF <code>last_sc</code> BoS (same gate as B→A entry) is the correct signal.
+      Additionally the pro extreme advance gate must pass —
+      this prevents recovery when pro SCs fire within a sideways range with no genuine structural
+      advance. Freshness floor is <code>pro_attempt_weaken_at</code>.</span>
+    </div>
+
+    <div class="rule-block">
+      <code>pro_attempt_weaken</code> is sticky — it stays <code>True</code> even after recovery.
+      Layer 5 reads this flag and raises the entry bar: requires
+      <code>phase_a_shadow_objective_touched == True</code> or <code>b_shadow.liquidity_pool_run == True</code>
+      before permitting entry on a recovered A.watch.
+    </div>
+
+    <!-- ── 04 DAG Block ───────────────────────────────────────────────────── -->
+    <h2 id="dag-block"><span class="sec-num">04</span> DAG Block — B → A</h2>
+    <p>The B block checks for A entry after the HTF extreme check (highest priority) and before
+    the counter MSS exit. If a fresh pro-HTF BoS is detected, shadow is initialized and the A
+    block takes over from the next bar. The A block mirrors the B block structure exactly.</p>
+
+    <details open>
+      <summary>B block — A entry path <span class="where">hypothesis.py:680–691 (B block)</span></summary>
+      <div class="body">
+        <pre class="block"><span class="cm"># B block — called each bar when phase == "B"</span>
+b_shadow = self.state.shadow_thesis.phase_b
+self._update_phase_b_watch_shadow(snapshot, debug)
+debug.update(self._phase_b_watch_shadow_debug())
+
+<span class="cm"># Exit 1 — E.seeking (new HTF extreme)</span>
+_, e_ctx_b = _ec_candidate(snapshot, "phase_e_context")
+if bool(debug.get(<span class="hl2">"phase_e_context_new_htf_extreme"</span>) or e_ctx_b.get("new_htf_extreme")):
+    return self._commit(self._phase_e(direction, cursor_time, debug, ltf))
+
+<span class="cm"># Exit 2 — A.watch (pro-HTF BoS fires after B opened)</span>
+pro_break_b  = "up" if direction == "long" else "down"
+last_sc_b    = (ltf.get("last_sc") or {}) if ltf else {}
+last_sc_b_at = last_sc_b.get("eventTimestamp")
+
+if (last_sc_b_at
+        and str(last_sc_b_at) &gt; str(b_shadow.entered_at or "")
+        and last_sc_b.get(<span class="hl">"breakDirection"</span>) == pro_break_b):
+    <span class="cm"># commitment_extreme_level was locked at C→B entry bar — NOT here</span>
+    a_shadow = self.state.shadow_thesis.phase_a
+    a_shadow.entered_at = cursor_time
+    return self._commit(self._phase_a_watch(direction, cursor_time, {
+        **debug,
+        <span class="hl2">"phase_a_origin_node"</span>: "B.watch",
+        <span class="hl2">"phase_b_commitment_extreme_level"</span>: b_shadow.commitment_extreme_level,
+    }))
+
+<span class="cm"># Exit 3 — C.pullback (commitment extreme breach)</span>
+<span class="cm"># (checked before counter MSS — see 402-hypothesis-phB.html §03)</span>
+
+<span class="cm"># Exit 4 — C.pullback (counter MSS, freshness-guarded)</span>
+_mss_b       = e_ctx_b.get("ltf_counter_orderflow_mss_watch", False)
+_mss_started = e_ctx_b.get("ltf_counter_orderflow_started_at")
+if (_mss_b and _mss_started
+        and str(_mss_started) &gt; str(b_shadow.entered_at or "")):
+    c_shadow = self.state.shadow_thesis.phase_c
+    c_shadow.origin_node = <span class="hl">"B.watch_mss_failed"</span>
+    c_shadow.entered_at  = _mss_started
+    return self._commit(self._phase_c(direction, None, "watching", cursor_time,
+        {**debug, "phase_b_failed_to_c": True}, phase_sub_status="pullback"))
+
+return self._commit(self._carry_current_hypothesis(cursor_time, debug))</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>A block — exits and hold <span class="where">hypothesis.py:460–548 (A block)</span></summary>
+      <div class="body">
+        <pre class="block"><span class="cm"># A block — called each bar when phase == "A"</span>
+a_shadow = self.state.shadow_thesis.phase_a
+b_shadow = self.state.shadow_thesis.phase_b   <span class="cm"># carries commitment_extreme_level (locked at C→B entry)</span>
+self._update_phase_a_shadow(snapshot, debug)
+debug.update(self._phase_a_watch_shadow_debug())
+
+_, e_ctx_a = _ec_candidate(snapshot, "phase_e_context")
+<span class="cm"># current_price from location_context.current_price (inside candidate, not debug_facts)</span>
+_cand_a, _ = _ec_candidate(snapshot, "phase_e_context")
+_loc_a = (_cand_a.get("location_context") or {})
+
+<span class="cm"># Exit 1 — E.seeking (new HTF extreme, highest priority)</span>
+if bool(debug.get(<span class="hl2">"phase_e_context_new_htf_extreme"</span>) or e_ctx_a.get("new_htf_extreme")):
+    return self._commit(self._phase_e(direction, cursor_time, debug, ltf))
+
+_mss_a       = e_ctx_a.get("ltf_counter_orderflow_mss_watch", False)
+_mss_started_a = e_ctx_a.get("ltf_counter_orderflow_started_at")
+_a_floor     = a_shadow.entered_at or ""
+_b_level     = b_shadow.commitment_extreme_level   <span class="cm"># B's commitment extreme (locked at C→B entry)</span>
+current_c_sub_a = debug.get("phase_sub_status", "watch")
+
+if current_c_sub_a == "watch":
+    <span class="cm"># Weaken: counter-HTF MSS fires (pro orderflow broke)</span>
+    <span class="cm"># Lock pro-side extreme reference for recovery gate at same time</span>
+    if (_mss_a and _mss_started_a and str(_mss_started_a) &gt; str(_a_floor)):
+        a_shadow.pro_attempt_weaken    = True
+        a_shadow.pro_attempt_weaken_at = cursor_time
+        <span class="hl">_pro_extreme_raw = (ltf.get("range_high") if direction == "long" else ltf.get("range_low")) if ltf else None
+        a_shadow.pro_extreme_at_weaken = float(_pro_extreme_raw) if _pro_extreme_raw is not None else None</span>
+        return self._commit(self._phase_a_watch(direction, cursor_time, debug,
+            phase_sub_status="watch_weaken"))
+
+elif current_c_sub_a == "watch_weaken":
+    <span class="cm"># Exit 2 — C.pullback (B commitment extreme breached — B+A invalidated)</span>
+    _cur_price_raw = _loc_a.get("current_price")
+    if _b_level is not None and _cur_price_raw is not None:
+        _cur_price = float(_cur_price_raw)
+        commitment_extreme_breached = (
+            _cur_price &lt; float(_b_level) if direction == "long"
+            else _cur_price &gt; float(_b_level)
+        )
+        if commitment_extreme_breached:
+            c_shadow = self.state.shadow_thesis.phase_c
+            c_shadow.origin_node = <span class="hl2">"A.watch_weaken_invalidated"</span>
+            c_shadow.entered_at  = cursor_time
+            return self._commit(self._phase_c(direction, None, "watching", cursor_time,
+                {**debug, "phase_a_invalidated": True}, phase_sub_status="pullback"))
+
+    <span class="cm"># Recovery: pro-HTF SC BoS + pro extreme advance gate (no recovery if SC fires within same range)</span>
+    pro_break_a = "up" if direction == "long" else "down"
+    _last_sc_a = (ltf.get("last_sc") or {}) if ltf else {}
+    _last_sc_a_at = _last_sc_a.get("eventTimestamp")
+    _weaken_floor = a_shadow.pro_attempt_weaken_at or _a_floor
+    <span class="hl">_pro_extreme_floor = a_shadow.pro_extreme_at_weaken
+    _pro_extreme_advance_gate = True
+    if _pro_extreme_floor is not None and ltf:
+        _cur_pro_extreme_raw = ltf.get("range_high") if direction == "long" else ltf.get("range_low")
+        if _cur_pro_extreme_raw is not None:
+            _pro_extreme_advance_gate = (
+                float(_cur_pro_extreme_raw) &gt; _pro_extreme_floor if direction == "long"
+                else float(_cur_pro_extreme_raw) &lt; _pro_extreme_floor
+            )</span>
+    if (_last_sc_a_at and str(_last_sc_a_at) &gt; str(_weaken_floor)
+            and _last_sc_a.get("breakDirection") == pro_break_a
+            <span class="hl">and _pro_extreme_advance_gate</span>):
+        a_shadow.recover_at = cursor_time
+        return self._commit(self._phase_a_watch(direction, cursor_time, debug,
+            phase_sub_status="watch"))
+
+return self._commit(self._carry_current_hypothesis(cursor_time, debug))</pre>
+      </div>
+    </details>
+
+    <!-- ── 05 Algorithm ──────────────────────────────────────────────────── -->
+    <h2 id="algo"><span class="sec-num">05</span> Algorithm</h2>
+    <p>Live implementation. Mirrors the B block pattern. See <code>hypothesis.py:460–548</code> (A block) and <code>hypothesis.py:2500–2545</code> (emit + shadow methods).</p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-tab="emit">emit + shadow</button>
+        <button data-tab="shadow-update">shadow update</button>
+        <button data-tab="shadow-debug">shadow debug</button>
+      </div>
+      <pre data-tab="emit" class="on"><span class="cm"># hypothesis.py — _phase_a_watch emit method</span>
+
+def _phase_a_watch(
+    self,
+    direction: Direction,
+    ts: str,
+    debug: dict,
+    phase_sub_status: str = "watch",
+) -&gt; Hypothesis:
+    return Hypothesis(
+        phase=<span class="hl2">"A"</span>,
+        status=<span class="hl2">"watching"</span>,
+        phase_sub_status=<span class="hl2">phase_sub_status</span>,   <span class="cm"># "watch" | "watch_weaken"</span>
+        poi_id=None,
+        entry_policy="wait",
+        target_policy="htf_pd_objective",
+        direction=direction,
+        debug_facts=debug,
+    )</pre>
+      <pre data-tab="shadow-update"><span class="cm"># hypothesis.py — _update_phase_a_shadow</span>
+<span class="cm"># EC candidate "htf_pd_objective" emits phase_a_finale_touched / phase_a_finale_objective.</span>
+
+def _update_phase_a_shadow(
+    self,
+    snapshot: dict[str, Any],
+    debug: dict,
+) -&gt; None:
+    s = self.state.shadow_thesis.phase_a
+    _, a_facts = _ec_candidate(snapshot, <span class="hl2">"htf_pd_objective"</span>)
+
+    if (a_facts.get(<span class="hl2">"phase_a_finale_touched"</span>)
+            and not s.phase_a_objective_touched):
+        s.phase_a_objective_touched = True
+        s.phase_a_objective_touched_at = debug.get("cursor_time")</pre>
+      <pre data-tab="shadow-debug"><span class="cm"># hypothesis.py — _phase_a_watch_shadow_debug</span>
+
+def _phase_a_watch_shadow_debug(self) -&gt; dict:
+    s = self.state.shadow_thesis.phase_a
+    return {
+        <span class="hl2">"phase_a_shadow_entered_at"</span>:                s.entered_at,
+        <span class="hl2">"phase_a_shadow_pro_attempt_weaken"</span>:        s.pro_attempt_weaken,
+        <span class="hl2">"phase_a_shadow_pro_attempt_weaken_at"</span>:     s.pro_attempt_weaken_at,
+        <span class="hl2">"phase_a_shadow_pro_extreme_at_weaken"</span>:          s.pro_extreme_at_weaken,   <span class="cm"># pro extreme advance reference</span>
+        <span class="hl2">"phase_a_shadow_recover_at"</span>:                s.recover_at,
+        <span class="hl2">"phase_a_shadow_objective_touched"</span>:         s.phase_a_objective_touched,
+        <span class="hl2">"phase_a_shadow_objective_touched_at"</span>:      s.phase_a_objective_touched_at,
+    }</pre>
+    </div>
+
+    <!-- ── 06 Old Model (archived) ───────────────────────────────────────── -->
+    <h2 id="old-model"><span class="sec-num">06</span> Old Model — Archived</h2>
+    <p>The pre-rework Phase A code was disabled before completion. It read from the
+    <code>htf_pd_objective</code> EC candidate (internal pattern name <code>"n"</code>) and
+    had no sub-state machine. The B → A code path was commented out. All are superseded by
+    the A.watch model.</p>
+
+    <details>
+      <summary>_phase_a_setup (archived) <span class="where">hypothesis.py — dead, never completed</span></summary>
+      <div class="body">
+        <p><b>Entry</b>: <code>_phase_a_setup()</code> read from the <code>htf_pd_objective</code>
+        EC candidate (pattern name <code>"n"</code> in <code>evidence_compiler.py</code>). The EC
+        emitted directional event labels:</p>
+        <pre class="block">bullish_phase_a_close_above_n
+bullish_phase_a_touch_without_close_above_n
+bearish_phase_a_close_below_n
+bearish_phase_a_touch_without_close_below_n</pre>
+        <p>These labels distinguished a confirmed close through the objective zone from a touch
+        without close. The distinction was never consumed by the DAG — <code>_phase_a_setup()</code>
+        was stubbed out and never called.</p>
+        <p><b>B → A path</b>: commented out in <code>hypothesis.py</code>. No gate conditions
+        were defined. The entry trigger, freshness floor, and sub-state machine were all unspecified.</p>
+        <p><b>Sub-statuses</b>: none — Phase A was a single-state stub with no internal
+        transitions documented.</p>
+        <p><b>Why archived</b>: The A.watch model supersedes this with a complete 2-state machine
+        (watch / watch_weaken), explicit B → A gate conditions, D/B-symmetric exits, and a
+        pointer-only shadow (<code>PhaseAShadow</code>). The old EC event labels
+        (<code>close_above_n</code> / <code>touch_without_close</code>) are Layer 5 territory —
+        they inform entry quality, not DAG transitions.</p>
+      </div>
+    </details>
+
+    <!-- ── 07 Open Issues ─────────────────────────────────────────────────── -->
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues</h2>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>A.watch implementation wired.</b> <code>_phase_a_watch()</code>,
+        <code>_update_phase_a_shadow()</code>, <code>_phase_a_watch_shadow_debug()</code>,
+        and <code>_reset_phase_a_shadow()</code> added. <code>PhaseAShadow</code> added to
+        <code>ShadowThesis</code>. B block B→A exit wired with <code>commitment_extreme_level</code>
+        capture. Next: replay validation.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>A.watch → X.thesis_over</code> wired.</b> The A block calls
+        <code>_phase_a_finale()</code> before weaken/recovery exits and emits
+        <code>_phase_x(phase_sub_status="X.thesis_over")</code> when
+        <code>phase_a_thesis_matured == True</code>. Maturity is based on
+        <code>phase_a_objective_progress_pct</code> reaching the configured
+        <code>replay.hypothesis.phase_a.objective_progress_threshold</code>
+        (default <code>0.90</code>).</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Layer 5 A.watch entry permission not built.</b> Layer 5 will read
+        <code>phase_a_shadow.*</code> IDs, resolve the objective zone from EC snapshot, and
+        apply the raised bar logic when <code>pro_attempt_weaken == True</code>
+        (requires <code>phase_a_shadow_objective_touched</code> or carried
+        <code>b_shadow.liquidity_pool_run</code>). This is entirely Layer 5 territory — the DAG
+        shadow is the interface.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>B → A trigger replay-validated.</b> Gate (pro-HTF BoS after B.watch, freshness-guarded)
+        confirmed on EURUSD 15m/4h: B→A fires 2026-02-03T08:30, A.watch_weaken 11:45,
+        weaken→C (B+A invalidated) 12:00. commitment_extreme=1.17756 locked at C→B entry 03:45.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>pro extreme advance gate on A.watch_weaken → A.watch recovery.</b> <code>pro_extreme_at_weaken</code>
+        locked at weaken time from <code>ltf.range_high</code> (long) / <code>range_low</code> (short).
+        Recovery blocked until the pro-side extreme advances beyond <code>pro_extreme_at_weaken</code>. Prevents
+        oscillation in ranging markets (observed: Feb 11–19 sideways — now stays weaken the
+        full 8 days instead of cycling).</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>A.watch_weaken recovery direction resolved.</b> Recovery uses
+        <code>last_sc.breakDirection == pro-HTF</code> (same SC gate as B→A entry), not
+        <code>ltf_counter_orderflow_mss_watch</code>. The MSS signal is counter-HTF direction
+        and cannot represent pro recovery. Freshness floor is <code>pro_attempt_weaken_at</code>.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>A.watch re-entry after A → B failure.</b> If A.watch → B.watch (failed) and
+        B.watch then fires another pro-HTF BoS, A.watch opens again within the same epoch.
+        Shadow is reset only on epoch boundary — <code>pro_attempt_weaken</code> from the prior
+        A episode will carry over, keeping Layer 5 on elevated-bar mode for the re-entry.</p>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // Tab switching
+  document.querySelectorAll('[data-tabs]').forEach(function(tabs) {
+    var buttons = tabs.querySelectorAll('.tabbar button');
+    var panes   = tabs.querySelectorAll('pre[data-tab]');
+    buttons.forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var target = btn.dataset.tab;
+        buttons.forEach(function(b) { b.classList.remove('on'); });
+        panes.forEach(function(p)   { p.classList.remove('on'); });
+        btn.classList.add('on');
+        tabs.querySelector('pre[data-tab="' + target + '"]').classList.add('on');
+      });
+    });
+  });
+
+  // Nav active highlight on scroll
+  var headings = document.querySelectorAll('h2[id], h3[id]');
+  var navLinks = document.querySelectorAll('nav a[href^="#"]');
+  var io = new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) {
+      if (e.isIntersecting) {
+        navLinks.forEach(function(a) { a.classList.remove('active'); });
+        var link = document.querySelector('nav a[href="#' + e.target.id + '"]');
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '0px 0px -60% 0px' });
+  headings.forEach(function(h) { io.observe(h); });
+</script>
+</body>
+</html>

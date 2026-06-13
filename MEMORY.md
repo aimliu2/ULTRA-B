@@ -1,13 +1,15 @@
 # Project status
 
-## Current state — 2026-06-11
+## Current state — 2026-06-13
 
-**Phase D + C + B (lean model) complete. E.HTF_reaction folded. B.watch wired. Docs/contract updated.**
+**Phase D + C + B + A model complete. X.none unification done. A.watch → X.thesis_over wired. Next: validate all phases and cleanup, then cold-start self-location.**
 
 - Phase D: `D.watch`-only model. `D.speculation` removed from DAG (commit `10dff12`).
 - Phase C: 2-state model `C.pullback` / `C.pullback_weaken`. Replay validated. Docs archived.
-- Orderflow MSS gate fixed. `higher_orderflow` removed. Test suite: **129 passed, 31 skipped.**
-- All Phase D/C docs complete. Next: Phase B rework (legacy code exists, incomplete/messy).
+- Phase B: `B.watch` wired. `PhaseBShadow` with `commitment_extreme_level` locked at C→B entry. commitment-extreme breach exit (→C) added.
+- Phase A: `A.watch` / `A.watch_weaken` wired. pro extreme advance gate on recovery (blocks oscillation in ranging). `PhaseAShadow.pro_extreme_at_weaken`.
+- Phase X: `"none"` phase eliminated — all 4 call sites → `_phase_x()`. `none_sub_status` field removed. `X.warm_up`, `X.no_direction`, `X.none`, `X.thesis_over` sub-statuses live. `X.none` emits blocked-transition debug. `A.watch → X.thesis_over` fires on `phase_a_thesis_matured`.
+- Test suite: **133 passed, 31 skipped.** Next work order: validate all phases end-to-end, clean up stale docs/debug surfaces, then implement cold-start self-location.
 
 ---
 
@@ -135,17 +137,32 @@ pro_attempt_level
 - ✅ `docs/402-hypothesis-phB.html` — B.watch model (old model archived in §06)
 - ✅ Phase B rework: `B.watch` + `PhaseBShadow`, depth gate C→B at 51%, D-symmetric exits, E.HTF_reaction folded
 - ✅ `docs/401-hypothesis-DAG.html` — E.HTF_reaction removed, C_ind/C_no removed, B_watch node, depth gate edges
-- ✅ `docs/40x-hypothesis-migration.html` — Phase D + C closed
+- ✅ `docs/402-hypothesis-phX.html` — X sub-status taxonomy + X.none blocked-transition debug
 - ✅ `docs/501-entry.html` — Layer 5 iChoCh mechanics
+- ✅ A.watch → X.thesis_over wiring — `phase_a_objective_progress_pct` + `phase_a_thesis_matured`, configurable via `replay.hypothesis.phase_a.objective_progress_threshold`
 - ✅ `.claude/layer34-contract.md` — D.speculation removed, PhaseCshadow added
 - ✅ Replay validated: EURUSD 15m/4h — D.watch → C.pullback fires at 2026-01-29T12:45
 - ✅ Orderflow MSS gate fix — `probe_breaks_protected_anchor` decoupled from direction scorer; EC gate = `ltf_bias_counter AND probe_breaks_protected_anchor`; `higher_orderflow` deleted
 
 **In-flight / not started**
-- Phase B rework COMPLETE — `B.watch` implemented (depth gate from C.pullback, D-symmetric exits). `PhaseBShadow` added. `E.HTF_reaction` folded into shadow. `docs/402-hypothesis-phB.html` rewritten for B.watch model (old model archived in §06).
-- Phase A: `_phase_a_setup()` disabled, EC candidate not written. After B.
-- Cold-start self-location: post-warmup bar self-locates into best DAG node
-- Shadow consumed-event ledger for D liquidity expiry
+- **Next**: cold-start self-location:
+  - Big follow-up item; intentionally deferred until E/D/C/B/A and X.none were stable.
+  - Post-warmup bar should locate into the best current DAG node from EC evidence (E, D, C, B, or A).
+  - Do not force every session-start bar through `X.warm_up → E.seeking`.
+- Shadow consumed-event ledger for D liquidity expiry.
+
+---
+
+## Phase X sub-status taxonomy (planned)
+
+```
+X.warm_up       entry_policy="wait"  ← warmup_waiting_for_first_closed_htf, waiting_for_htf_structure
+X.no_direction  entry_policy="wait"  ← htf_neutral
+X.none          entry_policy="wait"  ← htf_resolve_unclassified (gap — emits blocked_transition_reason)
+X.thesis_over   entry_policy="skip"  ← phase_a_thesis_matured; budget spent
+```
+
+Spec: `docs/402-hypothesis-phX.html`.
 
 ---
 
@@ -165,7 +182,6 @@ pro_attempt_level
 - `C → B` transition condition is `ltf_pullback_depth_pct >= 50%` per DAG docs, but not enforced in the C block.
 - `htf_b_phase_setup` EC candidate may be stale relative to `last_sc`-only structural model.
 - Need user decision: target B model (how many states, entry gate from C, B → A trigger).
-- Cold-start self-location: post-warmup bar self-locates into best DAG node
 - `_phase_a_setup()` disabled — Phase A EC candidate not written
 - Shadow consumed-event ledger for D liquidity expiry
 
@@ -196,7 +212,6 @@ docs/401-hypothesis-DAG.html                DAG diagram (D.watch-only)
 docs/402-hypothesis-phD.html                Phase D spec
 docs/402-hypothesis-phC.html                Phase C spec
 docs/402-hypothesis-phE.html                Phase E spec
-docs/40x-hypothesis-migration.html          migration tracker
 docs/501-entry.html                         Layer 5 iChoCh entry mechanics
 .claude/layer34-contract.md                 EC→DAG interface spec (gitignored)
 .claude/layer34-guide.md                    architectural invariants (read-only)

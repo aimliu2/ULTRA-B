@@ -328,8 +328,9 @@
     <a href="#path-b">02 Path B — Macro SB</a>
     <a href="#quality">03 Quality Context</a>
     <a href="#phase-c">04 Phase C Entry</a>
-    <a href="#algo">05 Algorithm</a>
-    <a href="#issues">06 Open Issues</a>
+    <a href="#phase-b-a">05 Phase B / A Resources</a>
+    <a href="#algo">06 Algorithm</a>
+    <a href="#issues">07 Open Issues</a>
     <div class="files">
       <div class="label">Sources</div>
       <code>ln-notes/5entry-protocol/501-Entry-trigger.md</code>
@@ -558,7 +559,81 @@ C.pullback_weaken context:
       <code>C.pullback_weaken</code> does not mean the trade is invalid — it means the counter pullback had an internal pro-HTF bounce attempt. This is often the best entry zone: the pullback is continuing but showed strength, marking a refined POI level.
     </div>
 
-    <h2 id="algo"><span class="sec-num">05</span> Algorithm</h2>
+    <!-- ── 05 Phase B / A Layer 5 Signal Index ──────────────────────────── -->
+    <h2 id="phase-b-a"><span class="sec-num">05</span> Phase B / A — Layer 5 Signal Index</h2>
+    <p>Shadow fields and debug_facts keys available when <code>phase == "B"</code> or
+    <code>phase == "A"</code>. These are the primary Layer 5 resources for SL placement,
+    entry permission, and quality grading in the B→A chain.</p>
+
+    <h3>B.watch — key fields</h3>
+    <pre class="block"><span class="cm"># SL reference — B commitment extreme (locked at C→B entry bar)</span>
+<span class="hl">phase_b_shadow_commitment_extreme_level</span>   float | None
+  ← ltf_struct.range_low (long) / range_high (short) at the C→B entry bar (B.watch open)
+  ← captures the direction-relative pullback extreme at the moment B.watch opens; never updated afterward
+  ← primary SL reference for both B.watch entries and A.watch entries
+<span class="hl">phase_b_shadow_commitment_extreme_event_id</span>  str | None
+  ← last_sc.event_id at the B→A bar — Layer 5 provenance
+
+<span class="cm"># Entry advisory — extreme re-entry signal</span>
+<span class="hl">phase_b_shadow_at_extreme_entry</span>   bool
+  ← True when c_shadow.origin_node == "A.watch_weaken_invalidated" AND entry depth >= 90%
+  ← prior B+A both failed; Layer 5 must require htf_sd_zone_tapped OR liquidity_pool_run
+  ← DAG does NOT block B; this is a Layer 5 permission gate only
+
+<span class="cm"># Zone and liquidity taps (accumulated while in B.watch)</span>
+phase_b_shadow_htf_sd_zone_tapped       bool
+phase_b_shadow_htf_sd_zone_id           str | None   <span class="cm"># pointer — resolve via EC htf_b_phase_setup</span>
+phase_b_shadow_htf_sd_zone_tapped_at    str | None
+phase_b_shadow_ltf_sd_zone_tapped       bool
+phase_b_shadow_ltf_sd_zone_id           str | None
+phase_b_shadow_liquidity_pool_run       bool
+phase_b_shadow_liquidity_pool_id        str | None   <span class="cm"># pointer — htf_itr_grab_reclaim_pool_id</span>
+
+<span class="cm"># Origin context (in debug_facts at B entry bar)</span>
+phase_b_origin_node    str   <span class="cm"># "C.D.watch_mss" | "C.E.pullback_developing_no_pro" | "C.B.watch_failed"</span>
+phase_b_entry_depth_pct  float  <span class="cm"># depth pct at C→B transition (quality signal)</span></pre>
+
+    <h3>A.watch — key fields</h3>
+    <pre class="block"><span class="cm"># SL reference — same b_shadow level carried into A</span>
+<span class="hl">phase_b_shadow_commitment_extreme_level</span>   float | None
+  ← still the primary SL reference in A.watch (B commitment extreme = A invalidation level)
+  ← A.watch_weaken → C.pullback fires when current_price breaks this level
+
+<span class="cm"># Conviction history — sticky weaken flag</span>
+<span class="hl">phase_a_shadow_pro_attempt_weaken</span>   bool
+  ← True once A.watch_weaken fired (sticky; never reset within episode)
+  ← Layer 5 raises the entry bar: require phase_a_shadow_objective_touched OR liquidity_pool_run
+  ← a_shadow.recover_at being set does NOT clear this flag
+phase_a_shadow_pro_attempt_weaken_at  str | None  <span class="cm"># timestamp of first weaken event</span>
+<span class="hl">phase_a_shadow_pro_extreme_at_weaken</span>       float | None
+  ← ltf_struct.range_high (long) / range_low (short) locked at A.watch → A.watch_weaken
+  ← pro extreme advance gate: recovery requires range_high > this level (long) / range_low < this level (short)
+  ← prevents A.watch ↔ weaken oscillation in ranging markets; None = fallback (ltf unavailable)
+  ← Layer 5: if weaken is active and the pro-side extreme has not advanced, do not re-enter
+phase_a_shadow_recover_at             str | None  <span class="cm"># timestamp of weaken → watch recovery (if any)</span>
+
+<span class="cm"># HTF P/D objective zone tap</span>
+<span class="hl">phase_a_shadow_objective_touched</span>   bool
+  ← True once price touched the HTF P/D objective price (from htf_pd_objective EC candidate)
+  ← key permission condition when pro_attempt_weaken == True
+phase_a_shadow_objective_touched_at str | None</pre>
+
+    <div class="rule-block">
+      When <code>phase == "A"</code> and <code>pro_attempt_weaken == True</code>, Layer 5 must
+      not enter unless <code>phase_a_shadow_objective_touched == True</code> OR
+      <code>phase_b_shadow_liquidity_pool_run == True</code>. The pro attempt lost conviction —
+      the thesis still holds only if price tapped the objective or swept liquidity first.
+    </div>
+
+    <div class="callout">
+      <span class="ico">!</span>
+      <span><b>commitment_extreme_level is shared across B and A.</b> It is locked at the C→B
+      entry bar (the direction-relative pullback extreme at B.watch open) and lives in <code>PhaseBShadow</code>.
+      Layer 5 reads <code>phase_b_shadow_commitment_extreme_level</code> whether the current
+      phase is B or A — it is always in scope because B shadow survives the B→A transition.</span>
+    </div>
+
+    <h2 id="algo"><span class="sec-num">06</span> Algorithm</h2>
     <p>
       Layer 5 reads the DAG snapshot bar-by-bar. It tracks its own entry state (pending limit, filled attempts, budget) separately from the DAG. The DAG snapshot is the clock; Layer 5 applies permission rules on each bar.
     </p>
@@ -645,7 +720,7 @@ is_fresh = (
 sl = sb_level or choch_1_level  <span class="cm"># BOS floor first, pro-HTF ChoCh as fallback</span></pre>
     </div>
 
-    <h2 id="issues"><span class="sec-num">06</span> Open Issues</h2>
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues</h2>
     <div class="issue-grid">
       <div class="issue-card">
         <div class="issue-label">Next Milestone</div>
@@ -670,6 +745,10 @@ sl = sb_level or choch_1_level  <span class="cm"># BOS floor first, pro-HTF ChoC
       <div class="issue-card">
         <div class="issue-label">Archived · Moved</div>
         <p><b>pro_attempt_seen trigger changed from last_isc to last_sc.</b> Previously <code>D.watch</code> opened on SC06 iChoCh (primary) with SC01/SC02 as squeeze-edge-case fallback. After iChoCh → Layer 5 migration, <code>pro_attempt_seen</code> uses <code>last_sc</code> only. The squeeze edge case is no longer special — all D.watch opens use macro ChoCh.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>A.watch oscillation in ranging markets burns entry budget.</b> When the market drifts sideways inside a B episode, <code>A.watch ↔ A.watch_weaken</code> flips repeatedly — any micro counter MSS triggers weaken; any micro pro SC triggers recovery. Each A.watch bar looks like a valid entry. Layer 5 needs: (1) a hard entry cap per <code>phase_episode_id</code> (2–3 max); (2) after SL hit, require higher-quality confirmation (pro extreme advance, not just pro SC) before re-entry; (3) an episode staleness guard — if A.watch has been active N bars with no new pro-side extreme, treat as ranging and block new entries until a full reset (C.pullback or E.seeking). The DAG-side fix (pro extreme advance gate on A.watch_weaken → A.watch recovery) reduces the oscillation frequency but does not eliminate the need for Layer 5 budget control.</p>
       </div>
     </div>
   </main>

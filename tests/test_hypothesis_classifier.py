@@ -292,10 +292,9 @@ class HypothesisNoneCaseTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(hyp.phase, "none")
-        self.assertEqual(hyp.none_sub_status, "warmup_waiting_for_first_closed_htf")
-        self.assertEqual(hyp.debug_facts["none_sub_status"], "warmup_waiting_for_first_closed_htf")
-        self.assertEqual(hyp.to_dict()["none_sub_status"], "warmup_waiting_for_first_closed_htf")
+        self.assertEqual(hyp.phase, "X")
+        self.assertEqual(hyp.phase_sub_status, "X.warm_up")
+        self.assertEqual(hyp.to_dict()["phase_sub_status"], "X.warm_up")
 
     def test_first_closed_htf_none_is_not_marked_waiting_for_first_closed_htf(self):
         classifier = HypothesisClassifier()
@@ -322,8 +321,8 @@ class HypothesisNoneCaseTests(unittest.TestCase):
             }
         )
 
-        self.assertEqual(hyp.phase, "none")
-        self.assertEqual(hyp.none_sub_status, "htf_neutral")
+        self.assertEqual(hyp.phase, "X")
+        self.assertEqual(hyp.phase_sub_status, "X.no_direction")
 
 
 def classify_bullish_phase_c(classifier):
@@ -423,6 +422,25 @@ def classify_bearish_phase_a(classifier):
     )
 
 
+def seed_phase_a_watch(classifier, direction="long", ts="2024-01-01T12:00:00+00:00"):
+    event_code = "SC01" if direction == "long" else "SC02"
+    break_direction = "up" if direction == "long" else "down"
+    classifier.state.htf_pd_epoch_id = (
+        f"2024-01-01T00:00:00+00:00|{event_code}|{break_direction}|"
+        "2024-01-01T00:00:00+00:00"
+    )
+    classifier.state.active_phase_e_direction = direction
+    classifier.state.shadow_thesis.phase_a.entered_at = ts
+    classifier._commit(
+        classifier._phase_a_watch(
+            direction,
+            ts,
+            {"cursor_time": ts},
+            phase_sub_status="watch",
+        )
+    )
+
+
 class HypothesisClassifierTests(unittest.TestCase):
     def test_bullish_open_htf_classifies_phase_e(self):
         classifier = HypothesisClassifier()
@@ -498,7 +516,7 @@ class HypothesisClassifierTests(unittest.TestCase):
             hyp.debug_facts["phase_e_hold_reason"],
             "pullback_confirmed_without_explicit_exit",
         )
-        self.assertNotEqual(hyp.none_sub_status, "htf_resolve_unclassified")
+        self.assertNotEqual(hyp.phase_sub_status, "X.none")
 
     def test_phase_e_shadow_moves_from_seeking_to_stalling_to_pullback_developing(self):
         classifier = HypothesisClassifier()
@@ -1974,8 +1992,125 @@ class HypothesisClassifierTests(unittest.TestCase):
         )
 
         self.assertNotEqual(hyp.phase, "A")
-        self.assertEqual(hyp.phase, "none")
+        self.assertEqual(hyp.phase, "X")
+        self.assertEqual(hyp.phase_sub_status, "X.none")
         self.assertEqual(hyp.required_evidence, ["phase_a_classifier"])
+        self.assertEqual(
+            hyp.debug_facts["blocked_transition_reason"],
+            "directional_bias_but_no_phase_claimed",
+        )
+        self.assertEqual(
+            hyp.debug_facts["blocked_transition_context"]["htf_phase"],
+            "pullback_confirmed",
+        )
+        self.assertEqual(
+            hyp.debug_facts["blocked_phase_candidates"]["DAG"],
+            "pullback_confirmed_without_active_phase_context",
+        )
+        self.assertEqual(
+            hyp.debug_facts["blocked_phase_candidates"]["A"],
+            "requires_previous_phase_B_fresh_pro_bos",
+        )
+
+    def test_phase_a_bullish_objective_progress_below_threshold_stays_watch(self):
+        classifier = HypothesisClassifier()
+        seed_phase_a_watch(classifier, "long")
+
+        htf = structure("bullish", "pullback_confirmed", high=1.20, low=1.10)
+        hyp = classifier.classify(
+            dual_snapshot(
+                htf,
+                [
+                    {"time": "2024-01-01T12:00:00+00:00", "open": 1.15, "high": 1.18, "low": 1.14, "close": 1.17},
+                    {"time": "2024-01-01T16:00:00+00:00", "open": 1.17, "high": 1.189, "low": 1.16, "close": 1.18},
+                ],
+                ltf=structure("bullish", "open", high=1.189, low=1.16),
+            )
+        )
+
+        self.assertEqual(hyp.phase, "A")
+        self.assertEqual(hyp.phase_sub_status, "watch")
+        self.assertFalse(hyp.debug_facts["phase_a_thesis_matured"])
+        self.assertAlmostEqual(hyp.debug_facts["phase_a_objective_progress_pct"], 89.0)
+
+    def test_phase_a_bullish_objective_progress_threshold_emits_thesis_over(self):
+        classifier = HypothesisClassifier()
+        seed_phase_a_watch(classifier, "long")
+
+        htf = structure("bullish", "pullback_confirmed", high=1.20, low=1.10)
+        hyp = classifier.classify(
+            dual_snapshot(
+                htf,
+                [
+                    {"time": "2024-01-01T12:00:00+00:00", "open": 1.15, "high": 1.18, "low": 1.14, "close": 1.17},
+                    {"time": "2024-01-01T16:00:00+00:00", "open": 1.17, "high": 1.19, "low": 1.16, "close": 1.18},
+                ],
+                ltf=structure("bullish", "open", high=1.19, low=1.16),
+            )
+        )
+
+        self.assertEqual(hyp.phase, "X")
+        self.assertEqual(hyp.phase_sub_status, "X.thesis_over")
+        self.assertEqual(hyp.entry_policy, "skip")
+        self.assertTrue(hyp.debug_facts["phase_a_thesis_matured"])
+        self.assertEqual(hyp.debug_facts["range_reason"], "phase_a_thesis_matured")
+        self.assertAlmostEqual(hyp.debug_facts["phase_a_objective_progress_pct"], 90.0)
+
+        carried = classifier.classify(
+            dual_snapshot(
+                htf,
+                [
+                    {"time": "2024-01-01T16:00:00+00:00", "open": 1.17, "high": 1.19, "low": 1.16, "close": 1.18},
+                    {"time": "2024-01-01T20:00:00+00:00", "open": 1.18, "high": 1.188, "low": 1.17, "close": 1.18},
+                ],
+                ltf=structure("bullish", "open", high=1.188, low=1.17),
+            )
+        )
+        self.assertEqual(carried.phase, "X")
+        self.assertEqual(carried.phase_sub_status, "X.thesis_over")
+        self.assertEqual(carried.debug_facts["phase_x_hold_reason"], "thesis_over_waiting_for_new_phase_e")
+
+    def test_phase_a_bearish_objective_progress_threshold_emits_thesis_over(self):
+        classifier = HypothesisClassifier()
+        seed_phase_a_watch(classifier, "short")
+
+        htf = structure("bearish", "pullback_confirmed", high=1.20, low=1.10)
+        hyp = classifier.classify(
+            dual_snapshot(
+                htf,
+                [
+                    {"time": "2024-01-01T12:00:00+00:00", "open": 1.15, "high": 1.16, "low": 1.12, "close": 1.13},
+                    {"time": "2024-01-01T16:00:00+00:00", "open": 1.13, "high": 1.14, "low": 1.11, "close": 1.12},
+                ],
+                ltf=structure("bearish", "open", high=1.14, low=1.11),
+            )
+        )
+
+        self.assertEqual(hyp.phase, "X")
+        self.assertEqual(hyp.phase_sub_status, "X.thesis_over")
+        self.assertTrue(hyp.debug_facts["phase_a_thesis_matured"])
+        self.assertAlmostEqual(hyp.debug_facts["phase_a_objective_progress_pct"], 90.0)
+
+    def test_phase_a_objective_progress_threshold_is_configurable(self):
+        classifier = HypothesisClassifier({"phase_a": {"objective_progress_threshold": 0.95}})
+        seed_phase_a_watch(classifier, "long")
+
+        htf = structure("bullish", "pullback_confirmed", high=1.20, low=1.10)
+        hyp = classifier.classify(
+            dual_snapshot(
+                htf,
+                [
+                    {"time": "2024-01-01T12:00:00+00:00", "open": 1.15, "high": 1.18, "low": 1.14, "close": 1.17},
+                    {"time": "2024-01-01T16:00:00+00:00", "open": 1.17, "high": 1.19, "low": 1.16, "close": 1.18},
+                ],
+                ltf=structure("bullish", "open", high=1.19, low=1.16),
+            )
+        )
+
+        self.assertEqual(hyp.phase, "A")
+        self.assertFalse(hyp.debug_facts["phase_a_thesis_matured"])
+        self.assertAlmostEqual(hyp.debug_facts["phase_a_objective_progress_threshold"], 0.95)
+        self.assertAlmostEqual(hyp.debug_facts["phase_a_objective_progress_pct"], 90.0)
 
     @unittest.skip(PHASE_B_C_A_DISABLED_REASON)
     def test_phase_a_touch_without_close_beyond_objective_classifies_range(self):

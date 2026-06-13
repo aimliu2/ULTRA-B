@@ -1611,8 +1611,8 @@
           document.getElementById("hypothesisPanel").innerHTML =
             `<div class="ctx-empty">— waiting for classifier —</div>`;
         } else {
-          const phase = String(hyp.phase || "none").toLowerCase();
-          const phaseHtml = `<span class="hyp-phase ${phase}">${String(hyp.phase || "none").toUpperCase()}</span>`;
+          const phase = String(hyp.phase || "X").toLowerCase();
+          const phaseHtml = `<span class="hyp-phase ${phase}">${String(hyp.phase || "X").toUpperCase()}</span>`;
           const status = String(hyp.status || "watching").toLowerCase();
           const statusHtml = `<span class="hyp-status ${status}">${String(hyp.status || "watching").replaceAll("_", " ")}</span>`;
           const direction = String(hyp.direction || "none");
@@ -1621,7 +1621,7 @@
           const debug = hyp.debug_facts || {};
           const subStatusRaw = hyp.phase_sub_status || debug.phase_sub_status || "";
           const phaseDetail = subStatusRaw
-            ? `${String(hyp.phase || "none").toUpperCase()}.${String(subStatusRaw).replaceAll("_", " ")}`
+            ? `${String(hyp.phase || "X").toUpperCase()}.${String(subStatusRaw).replaceAll("_", " ")}`
             : "—";
           const activeExtreme = debug.active_phase_e_extreme_price != null
             ? Number(debug.active_phase_e_extreme_price).toFixed(prec)
