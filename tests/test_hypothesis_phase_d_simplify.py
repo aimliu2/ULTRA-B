@@ -124,6 +124,23 @@ def classify_with_auto_ec(classifier, snapshot):
     return classifier.classify(payload)
 
 
+def ec_candidate(pattern, direction="long", status="ready", debug_facts=None, location_context=None):
+    return {
+        "candidate_id": f"test:{pattern}:{direction}",
+        "pattern": pattern,
+        "status": status,
+        "direction": direction,
+        "timeframe": None,
+        "evidence_refs": [],
+        "source_object_refs": [],
+        "location_context": location_context or {},
+        "blocked_reasons": [],
+        "first_seen_at": None,
+        "ready_at": None,
+        "debug_facts": debug_facts or {},
+    }
+
+
 def mss_watch_orderflow(leg_id, started_at="2024-01-01T16:00:00+00:00"):
     return {
         "confirmed_direction": "bullish",
@@ -254,6 +271,39 @@ class PhaseDSimplifyTests(unittest.TestCase):
         self.assertEqual(still_e.phase, "E")
         self.assertEqual(still_e.phase_sub_status, "pullback_developing")
         self.assertFalse(classifier.state.shadow_thesis.phase_e.pro_attempt_seen)
+
+    def test_direction_mismatched_phase_e_context_does_not_move_d_watch_to_c(self):
+        classifier = HypothesisClassifier()
+        bars, watch = open_d_watch(classifier)
+        self.assertEqual(watch.phase, "D")
+        self.assertEqual(watch.phase_sub_status, "watch")
+
+        bars_5 = [
+            bars[-1],
+            {"time": "2024-01-02T00:00:00+00:00", "open": 1.117, "high": 1.118, "low": 1.106, "close": 1.108},
+        ]
+        payload = dual_snapshot(
+            structure("bullish"),
+            bars_5,
+            ltf=ltf_counter_structure_event(choch=True, ts="2024-01-02T00:00:00+00:00"),
+        )
+        payload["evidence_candidates"] = [
+            ec_candidate(
+                "phase_e_context",
+                direction="short",
+                debug_facts={
+                    "ltf_counter_orderflow_mss_watch": True,
+                    "ltf_counter_orderflow_leg_id": "OF:wrong-direction",
+                    "ltf_counter_orderflow_started_at": "2024-01-02T00:00:00+00:00",
+                },
+            )
+        ]
+
+        held = classifier.classify(payload)
+
+        self.assertEqual(held.phase, "D")
+        self.assertEqual(held.phase_sub_status, "watch")
+        self.assertIsNone(classifier.state.shadow_thesis.phase_c.origin_node)
 
 
 if __name__ == "__main__":

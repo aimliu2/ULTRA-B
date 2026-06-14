@@ -644,47 +644,70 @@ entry_policy = "hybrid" if (
 ) else "skip"</pre>
     </div>
 
-    <h2 id="issues"><span class="sec-num">07</span> Open Issues</h2>
+    <h2 id="issues"><span class="sec-num">07</span> Archived Implementation Ledger</h2>
     <p>
-      Issues for the 2-state model. Old 5-variant issues retired — see Archive block in section 02.
+      The Phase C 2-state model is implemented. These migration cards are retained as
+      archived proof points; old 5-variant issues remain in the archive block below.
     </p>
 
     <div class="issue-grid">
       <div class="issue-card">
-        <div class="issue-label">Implement</div>
-        <p><b>Change D.watch trigger to MSS (<code>last_sc</code>).</b> <code>pro_attempt_seen</code> currently reads <code>last_isc</code>. Change to <code>last_sc</code> so iChoCh stays Layer 5 territory. Affects <code>_update_phase_e_pullback_progress()</code> (~line 1956).</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>D.watch trigger moved to pro-HTF <code>last_sc</code>.</b>
+        <code>pro_attempt_seen</code> is set from the first pro-HTF macro ChoCh
+        (<code>last_sc</code>, SC01/SC02). iChoCh remains Layer 5 territory.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Implement · V2</div>
-        <p><b>D.watch + LL break → C.pullback.</b> Replace old <code>D.speculation → C.pullback</code> gate (~line 524–546) with: <code>D.watch + ltf_counter_orderflow_mss_watch == True → C.pullback</code>. <code>phase_c_origin_node = "D.watch_mss"</code>.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>D.watch + counter MSS → C.pullback.</b>
+        <code>D.watch</code> now exits directly to <code>C.pullback</code> when
+        <code>ltf_counter_orderflow_mss_watch</code> fires on a fresh leg.
+        <code>phase_c_origin_node = "D.watch_mss"</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Implement · V1</div>
-        <p><b>E.pullback_developing + no D + depth ≥ 51% → C.pullback.</b> Re-enable commented blocks at <code>hypothesis.py:594–638</code>. Single depth gate replaces old hard/slow split. <code>phase_c_origin_node = "E.pullback_developing_no_pro"</code>.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>E.pullback_developing + no D + depth ≥ 51% → C.pullback.</b>
+        The V1 depth path is wired. It requires <code>phase_d.node is None</code> and stamps
+        <code>phase_c_origin_node = "E.pullback_developing_no_pro"</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Implement</div>
-        <p><b>C.pullback_weaken sub-status.</b> Triggered when pro-HTF <code>last_sc</code> fires during <code>C.pullback</code> (LH broken by pro-HTF MSS). New method <code>_phase_c_weaken_check()</code> in <code>hypothesis.py</code>.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>C.pullback_weaken sub-status.</b>
+        <code>C.pullback</code> now weakens when a fresh pro-HTF <code>last_sc</code>
+        fires while depth is still below 51%.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Implement</div>
-        <p><b>C.pullback_weaken → C.pullback recovery.</b> Counter-HTF MSS re-fires in pullback direction (pro-attempt collapses). Recovery condition is a fresh counter MSS — NOT "LL confirmed" or "floor tested."</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>C.pullback_weaken → C.pullback recovery.</b>
+        Recovery is wired on a fresh counter orderflow MSS after <code>weaken_at</code>.
+        The recovery condition is not a floor test.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Implement</div>
-        <p><b>C → E.seeking on new HTF extreme.</b> Add missing exit to both <code>C.pullback</code> and <code>C.pullback_weaken</code>.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>C → E.seeking on new HTF extreme.</b>
+        Both <code>C.pullback</code> and <code>C.pullback_weaken</code> collapse to
+        <code>E.seeking</code> when the HTF continuation makes a new extreme.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Implement</div>
-        <p><b>Add <code>PhaseCshadow</code> dataclass.</b> Fields: <code>origin_node</code>, <code>weaken_at</code>, <code>recover_at</code>. Wire as <code>shadow_thesis.phase_c</code> alongside existing <code>phase_d</code>.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>PhaseCshadow dataclass added.</b>
+        <code>ShadowThesis.phase_c</code> now carries <code>origin_node</code>,
+        <code>entered_at</code>, <code>weaken_at</code>, and <code>recover_at</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Deferred · V4</div>
-        <p><b>C after B/A failure.</b> Design ambiguous. Guard in place: <code>previous_phase not in {"B", "A"}</code>. Decide during Phase B work.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>C after B/A failure.</b>
+        B failure returns to <code>C.pullback</code> with
+        <code>origin_node = "B.watch_mss_failed"</code> or
+        <code>"B.watch_commitment_extreme_breached"</code>. A failure returns with
+        <code>origin_node = "A.watch_weaken_invalidated"</code>.</p>
       </div>
       <div class="issue-card">
-        <div class="issue-label">Deferred · Next PR</div>
-        <p><b>D.speculation → Layer 5 migration.</b> After Phase C ships: drop <code>D.speculation</code> from DAG; move iChoCh entry timing to Layer 5. Remove <code>choch_2</code>, <code>speculation_entered_at</code> from <code>PhaseDShadow</code>.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>D.speculation → Layer 5 migration.</b>
+        <code>D.speculation</code> was removed from the DAG. iChoCh/SB entry timing moved
+        to Layer 5; <code>choch_2</code> and <code>speculation_entered_at</code> are gone
+        from <code>PhaseDShadow</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Resolved</div>

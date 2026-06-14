@@ -917,8 +917,8 @@ Exits from E.pullback_developing:
           Warm-state <code>pullback_confirmed</code> also holds Phase E when the previous
           Layer 4 phase is already E and no explicit D/C/B/C exit fires. The emitted debug
           includes <code>phase_e_hold_reason = "pullback_confirmed_without_explicit_exit"</code>.
-          Cold-start self-location from <code>none(warmup)</code> remains owned by the
-          <a href="./402-hypothesis-none.html">none phase note</a>.
+          Cold-start self-location from <code>X.warm_up</code> remains owned by the
+          <a href="./402-hypothesis-phX.html">Phase X note</a>.
         </p>
       </div>
     </details>
@@ -1106,18 +1106,15 @@ hypothesis:
 
     <div class="issue-grid">
       <div class="issue-card">
-        <div class="issue-label">In-Flight</div>
-        <p><b>E.HTF_reaction node — implementation pending.</b>
-        Design is settled. Three changes required:
-        (1) <code>evidence_compiler._compile_htf_expansion_context</code>: add
-        <code>ltf_probe_at_htf_opposing_zone</code> and <code>ltf_probe_htf_opposing_zone_id</code>
-        by scanning HTF opposing zones for <code>in_zone == true</code> when <code>new_htf_extreme</code>;
-        (2) <code>PhaseEShadow</code>: add journal fields (<code>htf_reaction_seen</code>,
-        <code>htf_reaction_zone_id</code>, <code>htf_reaction_entered_at</code>,
-        <code>htf_reaction_exit_reason</code>) + clear in <code>reset()</code>;
-        (3) <code>_phase_e_shadow_facts()</code>: insert E.HTF_reaction transitions and journal
-        write logic. Seven new tests to cover all node transitions and journal footprint
-        persistence.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>E.HTF_reaction folded into PhaseEShadow.</b>
+        The separate DAG node was retired. EC emits opposing-zone probe facts
+        (<code>ltf_probe_at_htf_opposing_zone</code>,
+        <code>ltf_probe_htf_opposing_zone_id</code>), and
+        <code>PhaseEShadow</code> journals <code>htf_reaction_seen</code>,
+        <code>htf_reaction_zone_id</code>, <code>htf_reaction_entered_at</code>, and
+        <code>htf_reaction_exit_reason</code>. E transitions through
+        <code>E.seeking → E.stalling → E.pullback_developing</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>

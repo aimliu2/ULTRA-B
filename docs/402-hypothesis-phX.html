@@ -1,7 +1,7 @@
 <!-- source: src/ultrab/core/smc/hypothesis.py
-     focus:  _none(), _phase_x(), _phase_a_finale(), none_sub_status values
+     focus:  _phase_x(), _x_none_debug(), _phase_a_finale(), warmup/cold-start X states
      related: docs/402-hypothesis-phA.html, docs/401-hypothesis-DAG.html
-     design: none → X sub-status unification (planned) -->
+     design: none → X sub-status unification (implemented) -->
 <!doctype html>
 <html lang="en">
 <head>
@@ -296,13 +296,16 @@
   <nav>
     <div class="label">On this page</div>
     <a href="#overview">Overview</a>
-    <a href="#none-sites">none — emit sites</a>
+    <a href="#none-sites">X emit sites</a>
     <a href="#phase-x">Phase X — thesis.over</a>
+    <a href="#warmup-cold-start">Warmup &amp; cold-start</a>
+    <a href="#boundary">Boundary contracts</a>
     <a href="#unification">Completed unification</a>
-    <a href="#issues">Open Issues</a>
+    <a href="#issues">Issues &amp; retired items</a>
     <div class="files">
       <div class="label">Sources</div>
       <code>core/smc/hypothesis.py</code>
+      <code>runtime/dual_smc.py</code>
       <code>docs/402-hypothesis-phA.html</code>
       <code>docs/401-hypothesis-DAG.html</code>
     </div>
@@ -508,8 +511,112 @@ if finale.get(<span class="hl2">"phase_a_thesis_matured"</span>):
       shadow flag for Layer 5 quality logic.
     </div>
 
-    <!-- ── 03 Completed migration ───────────────────────────────────────── -->
-    <h2 id="unification"><span class="sec-num">03</span> none → X Migration — Completed</h2>
+    <!-- ── 03 Warmup / cold-start ───────────────────────────────────────── -->
+    <h2 id="warmup-cold-start"><span class="sec-num">03</span> Warmup &amp; Cold-Start</h2>
+    <p>The legacy none note documented an important runtime fact that still applies:
+    warmup feeds Layer 3 engines, not the hypothesis classifier. Before replay starts,
+    <code>DualSmcRuntime</code> warms lower and higher structure, zone, orderflow, and
+    liquidity context. <code>HypothesisClassifier.classify()</code> is not called during
+    that history feed, so Layer 4 starts fresh at replay bar 0.</p>
+
+    <details open>
+      <summary>What warmup feeds <span class="where">dual_smc.py</span></summary>
+      <div class="body">
+        <p>The lower warmup loop feeds LTF structure and zone/orderflow engines from
+        <code>lower_start_index - warmup_bars</code> to the replay start. The higher warmup
+        loop feeds the HTF structure engine over its own independent HTF window. Liquidity
+        lower interactions are also warmed so ITR pools, grab states, and reclaim readiness
+        can exist before replay bar 0.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>What warmup does not feed <span class="where">Layer 4 boundary</span></summary>
+      <div class="body">
+        <p>The hypothesis classifier, Evidence Compiler, Fusion, Normalizer, and Interpreter
+        are not advanced by warmup bars. This is intentional: replay begins with a fully warmed
+        market context but a fresh Layer 4 state machine.</p>
+      </div>
+    </details>
+
+    <pre class="block"><span class="cm"># Current classify() silence paths</span>
+if not htf:
+    → X.warm_up
+
+if bias == "neutral" or direction == "none":
+    → X.warm_up       <span class="cm"># only while waiting_for_first_closed_htf</span>
+    → X.no_direction  <span class="cm"># normal neutral-bias wait state</span>
+
+if directional bias exists but no E/D/C/B/A block claims the bar:
+    → X.none          <span class="cm"># emits blocked_transition_reason/context/candidates</span></pre>
+
+    <h3>15m / 4H first-bar guard</h3>
+    <p><code>_waiting_for_first_closed_htf()</code> handles the small startup window where
+    only one closed HTF bar is visible to the classifier. In a normally warmed replay,
+    <code>warmup_bars: 200</code> is applied independently to both timeframes, so this guard
+    should rarely appear. If it does appear, it maps to <code>X.warm_up</code>, not to the
+    deleted <code>none_sub_status</code> field.</p>
+
+    <pre class="block">def _waiting_for_first_closed_htf(cursor_time, current_bar, previous_bar) -&gt; bool:
+    current_time = _bar_time(current_bar)
+    return bool(
+        cursor_time
+        and current_time
+        and previous_bar is None
+        and current_time &gt; cursor_time
+    )</pre>
+
+    <h3>Cold-start self-location</h3>
+    <p>The remaining design gap is not "none" itself. The gap is cold-start self-location:
+    Layer 3 may have enough warmed evidence to identify that replay bar 0 already belongs to
+    D, C, B, or A, but Layer 4 currently starts with no active phase history. The current
+    reliable path is to establish <code>E.seeking</code> first, then let later bars transition
+    through D/C/B/A. The target follow-up is a bounded self-location pass that chooses the best
+    current DAG node from EC evidence after warmup.</p>
+
+    <div class="rule-block">
+      Target rule: the first post-warmup classifier bar should self-locate into the best
+      current DAG node from evidence: E, D, C, B, or A. Until that is implemented,
+      <code>X.none</code> may expose startup gaps through blocked-transition debug.
+    </div>
+
+    <!-- ── 04 Boundary contracts ────────────────────────────────────────── -->
+    <h2 id="boundary"><span class="sec-num">04</span> Boundary Contracts During X States</h2>
+    <p>The old none note framed this as "none period" safety. The current contract is the same,
+    but the surface is now <code>phase="X"</code>.</p>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>EC silence is valid during wait states.</b> If HTF structure is missing or bias
+        resolves to <code>"none"</code>, Evidence Compiler can emit no candidates. The DAG reads
+        candidates through safe <code>.get()</code> lookups and emits <code>X.warm_up</code> or
+        <code>X.no_direction</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>DAG output schema is stable.</b> Runtime still emits a hypothesis object every bar.
+        The old schema difference was removed: wait/fallthrough output is now
+        <code>phase="X"</code> with <code>phase_sub_status</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Downstream consumers must not assume candidates are non-empty.</b>
+        <code>payload["evidence_candidates"]</code> may be an empty list during
+        <code>X.warm_up</code> or <code>X.no_direction</code>. Consumers should build a pattern
+        map and use <code>.get()</code>, not index <code>candidates[0]</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Sustained neutral bias after warmup.</b> If <code>X.no_direction</code> persists,
+        inspect <code>htf["bias"]</code> and the StructureEngine warmup context. Increase
+        <code>warmup_bars</code>, move the replay start to a post-break bar, or change the
+        instrument if the complete warmup has no directional break.</p>
+      </div>
+    </div>
+
+    <!-- ── 05 Completed migration ───────────────────────────────────────── -->
+    <h2 id="unification"><span class="sec-num">05</span> none → X Migration — Completed</h2>
     <p>Steps 1–6, the X.none fallthrough diagnostic, and the X.thesis_over rewire are done. <code>phase="none"</code> is eliminated.
     The DAG cycle is now a closed loop: every bar emits <code>phase="X"</code> or one of
     A/B/C/D/E. Cold-start self-location is tracked in
@@ -533,10 +640,28 @@ if finale.get(<span class="hl2">"phase_a_thesis_matured"</span>):
       use <code>"wait"</code>. The factory branches on <code>phase_sub_status</code>.
     </div>
 
-    <!-- ── 04 Open Issues ───────────────────────────────────────────────── -->
-    <h2 id="issues"><span class="sec-num">04</span> Open Issues</h2>
+    <!-- ── 06 Open Issues ───────────────────────────────────────────────── -->
+    <h2 id="issues"><span class="sec-num">06</span> Issues &amp; Retired Legacy Items</h2>
 
     <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Cold-start self-location.</b>
+        Post-warmup bar 0 should locate into the best current DAG node from EC evidence
+        instead of forcing every session start through <code>X.warm_up → E.seeking</code>.
+        Target candidates: E, D, C, B, or A.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Direction-sensitive EC fact reads audited.</b>
+        Layer 4 now uses a direction-checked EC read helper for direction-sensitive
+        candidates. Candidate facts are ignored unless
+        <code>candidate.direction == direction</code>, covering E/C/D/B/A gate and shadow
+        reads. Regression tests cover opposite-direction candidates for E, D→C, C setup,
+        B setup, and A objective reads.</p>
+      </div>
+
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
         <p><b><code>_phase_a_finale()</code> + Phase X wired.</b>
@@ -567,6 +692,64 @@ if finale.get(<span class="hl2">"phase_a_thesis_matured"</span>):
         branches on <code>phase_sub_status</code>: <code>"skip"</code> for
         <code>X.thesis_over</code>, <code>"wait"</code> for all others. No factory split
         needed.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Moved</div>
+        <p><b>Legacy none warmup note folded into this page.</b>
+        The useful warmup, boundary, fallback, and cold-start material now lives here with
+        current <code>X.*</code> terminology. The old page was removed to avoid stale
+        <code>_none()</code> and <code>none_sub_status</code> claims.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>phase_e_not_yet_started</code> no longer needed as a none subtype.</b>
+        The old issue existed because <code>htf_resolve_unclassified</code> was overloaded.
+        Current <code>X.none</code> carries <code>blocked_transition_reason</code>,
+        <code>blocked_transition_context</code>, and <code>blocked_phase_candidates</code>,
+        which is more useful than adding another deleted <code>none_sub_status</code> value.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b><code>warmup_waiting_for_first_closed_htf</code> branch ambiguity retired.</b>
+        Both former branches now collapse into <code>X.warm_up</code>. Consumers should read
+        <code>phase_sub_status</code> plus debug context, not the deleted
+        <code>none_sub_status</code> enum.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>One <code>warmup_bars</code> value spans different durations.</b>
+        The same configured integer warms each timeframe independently, so 200 LTF bars and
+        200 HTF bars cover different calendar spans. Reducing it must preserve liquidity ATR
+        readiness and enough pre-range structure for Layer 3.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Replay reset must reset Layer 4 state.</b>
+        Warmup intentionally does not call <code>classify()</code>. If a replay runtime is
+        reinitialized mid-session, the classifier state should be recreated or explicitly
+        reset so stale phase/shadow state does not carry into a new warmup.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Expose warmup health in payload.</b>
+        Runtime metadata includes warmup configuration and engine start context, but there is
+        still no single hypothesis-facing flag such as
+        <code>hypothesis_classifier_warmed</code>. A compact readiness/debug field would make
+        replay startup easier to inspect.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Do not pre-warm the hypothesis classifier from historical bars.</b>
+        Layer 4 phase transitions and shadow state are not safe to replay from arbitrary
+        mid-stream history without changing warmup semantics. Cold-start self-location is the
+        bounded replacement.</p>
       </div>
 
       <div class="issue-card">

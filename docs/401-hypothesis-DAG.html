@@ -345,7 +345,7 @@
 
 <header>
   <h1>401 · Hypothesis DAG — Layer 4</h1>
-  <p>Click any node to read the phase contract. Phase E/C/B use the lean model (E.HTF_reaction folded into shadow; C depth-gates B.watch). A is pre-rework. Solid edges = forward path · dashed = failure / cycle / reset.</p>
+  <p>Click any node to read the phase contract. Current implementation: E/D/C/B/A lean chain, A.watch/A.watch_weaken, and Phase X for wait/terminal states. Solid edges = forward path · dashed = failure / cycle / reset.</p>
 </header>
 
 <div class="epigraph">
@@ -404,14 +404,14 @@ flowchart LR
   %% ── Phase A ────────────────────────────────────────────────
   subgraph SG_A["A · Pro Continuation"]
     direction TB
-    A_cont["a1 · A.continuation"]
-    A_fin["a2 · A.finale_attempt"]
-    A_cont --> A_fin
+    A_watch["a1 · A.watch"]
+    A_weak["a2 · A.watch_weaken"]
+    A_watch <--> A_weak
   end
 
-  %% ── Terminal ────────────────────────────────────────────────
-  OVER["1 · thesis.over"]
-  NONE["2 · none"]
+  %% ── Phase X ────────────────────────────────────────────────
+  X_wait["x1 · X.warm_up / X.no_direction / X.none"]
+  X_over["x2 · X.thesis_over"]
 
   %% ── E → D ───────────────────────────────────────────────────
   E_pull --> D_watch
@@ -441,17 +441,19 @@ flowchart LR
   B_watch -.-> E_seek
 
   %% ── B → A ────────────────────────────────────────────────────
-  B_watch --> A_cont
+  B_watch --> A_watch
 
-  %% ── A failure → none (dashed) ────────────────────────────────
-  A_cont -.-> NONE
-  A_fin -.-> NONE
+  %% ── A invalidation / reset paths ─────────────────────────────
+  A_watch -.-> E_seek
+  A_weak -.-> E_seek
+  A_weak -.-> C_pull
 
-  %% ── A → thesis.over ──────────────────────────────────────────
-  A_fin --> OVER
+  %% ── A → X.thesis_over ────────────────────────────────────────
+  A_watch --> X_over
 
-  %% ── thesis.over → E (cycle) ──────────────────────────────────
-  OVER --> E_seek
+  %% ── X → E (cycle / startup) ──────────────────────────────────
+  X_over --> E_seek
+  X_wait --> E_seek
 
   %% ── click callbacks ──────────────────────────────────────────
   click E_seek nodeClick
@@ -461,8 +463,10 @@ flowchart LR
   click C_pull nodeClick
   click C_weak nodeClick
   click B_watch nodeClick
-  click OVER nodeClick
-  click NONE nodeClick
+  click A_watch nodeClick
+  click A_weak nodeClick
+  click X_over nodeClick
+  click X_wait nodeClick
 
   %% ── node styles ──────────────────────────────────────────────
   classDef phaseE fill:#E8E4DC,stroke:#B8B4AA,color:#141413
@@ -478,9 +482,9 @@ flowchart LR
   class D_watch phaseD
   class C_pull,C_weak phaseC
   class B_watch phaseB
-  class A_cont,A_fin tempClosed
-  class OVER terminal
-  class NONE noneNode
+  class A_watch,A_weak phaseA
+  class X_over terminal
+  class X_wait noneNode
 
   %% ── subgraph background tints ────────────────────────────────
   style SG_E fill:#EDEAE2,stroke:#C8C4BA,color:#141413
@@ -685,118 +689,118 @@ Shadow (PhaseBShadow — pointers only):
 <p><strong>Exits (D-symmetric):</strong></p>
 <ul>
   <li><strong>C.pullback</strong> (dashed) — counter MSS fires on a fresh leg after B.watch opened (pro attempt failed; pullback resumed). Freshness-guarded: <code>ltf_counter_orderflow_started_at > b_shadow.entered_at</code>.</li>
+  <li><strong>C.pullback</strong> (dashed) — B commitment extreme breached. This is checked before the counter-MSS failure path and sets <code>origin_node = "B.watch_commitment_extreme_breached"</code>.</li>
   <li><strong>E.seeking</strong> (dashed) — new HTF extreme invalidates the reclaim thesis</li>
-  <li><strong>A.continuation</strong> — LTF pro bias confirmed, Layer 5 permission obtained</li>
+  <li><strong>A.watch</strong> — fresh pro-HTF structural BoS fires after B.watch opened</li>
   <li>Hold — no signal; Layer 5 reads shadow facts for entry permission each bar</li>
 </ul>
 <div class="rule-block">B.watch is only reachable from C.pullback (not C.pullback_weaken). C.pullback_weaken → C.pullback re-entry + new pro-SC required. This keeps the depth gate path clean.</div>
 <a class="panel-link" href="./402-hypothesis-phB.html">→ 402 Phase B detail</a>`,
     },
 
-    A_cont: {
+    A_watch: {
       num:   "a1",
       tag:   "Phase A",
-      title: "A.continuation",
-      meta:  "Pro swing + pro internal — both HTF and LTF aligned",
-      body:  `<p><strong>A.continuation</strong> is the continuation phase after Phase B. Both HTF and LTF are aligned. Price is expanding in the HTF direction from a confirmed internal LTF POI.</p>
-<div class="code-block">Entry conditions:
+      title: "A.watch",
+      meta:  "Fresh pro-HTF BoS after B.watch — watching for objective maturity",
+      body:  `<p><strong>A.watch</strong> opens from B.watch when a fresh pro-HTF structural BoS fires after B opened. It is the final active node in the DAG cycle: the reclaim attempt escaped the B zone and now watches the HTF objective.</p>
+<div class="code-block">Entry gate (from B.watch):
   previous_phase == "B"
-  shadow episode_status = confirming | confirmed
-  LTF bias aligned with HTF bias
-  LTF P/D expanding with HTF direction
-  selected_poi is not None (from Phase B)</div>
-<p><strong>Sub-states:</strong></p>
-<ul>
-  <li><strong>A.approach</strong> — approaching POI, not yet triggered</li>
-  <li><strong>A.entry_live</strong> — in position</li>
-  <li><strong>A.finale_pending</strong> — target not yet reached</li>
-</ul>
+  last_sc.breakDirection == pro-HTF direction
+  last_sc.eventTimestamp > b_shadow.entered_at
+
+Shadow:
+  phase_a.entered_at = cursor_time
+  b_shadow.commitment_extreme_level is carried forward unchanged</div>
 <p><strong>Exits:</strong></p>
 <ul>
-  <li><strong>A.finale_attempt</strong> — position progressing toward target</li>
-  <li><strong>none</strong> (dashed) — LTF alignment lost before entry, or structural shift</li>
+  <li><strong>X.thesis_over</strong> — <code>phase_a_thesis_matured</code> reaches configured objective-progress threshold</li>
+  <li><strong>A.watch_weaken</strong> — fresh counter orderflow MSS breaks the pro attempt after A opened</li>
+  <li><strong>E.seeking</strong> (dashed) — new HTF extreme starts a fresh continuation context</li>
+  <li>Hold — no signal; Layer 5 reads A/B shadow facts for entry permission each bar</li>
 </ul>
-<a class="panel-link" href="./301-context.html">→ 301 Layer 3 context overview</a>`,
+<div class="rule-block">A.watch is not a separate finale subgraph. The finale check is a per-bar maturity calculation; when it fires, the DAG emits X.thesis_over directly.</div>
+<a class="panel-link" href="./402-hypothesis-phA.html">→ 402 Phase A detail</a>`,
     },
 
-    A_fin: {
+    A_weak: {
       num:   "a2",
       tag:   "Phase A",
-      title: "A.finale_attempt",
-      meta:  "Finale target approaching — waiting for close confirmation",
-      body:  `<p><strong>A.finale_attempt</strong> is the terminal sub-state of Phase A. The position is live and price is approaching the finale target.</p>
-<div class="code-block">Resolved by:
-  phase_a_finale_touched == true
-  AND phase_a_finale_closed_beyond == true
-  -> thesis.over
+      title: "A.watch_weaken",
+      meta:  "Counter MSS weakened A.watch — recover only with pro BoS + new pro extreme",
+      body:  `<p><strong>A.watch_weaken</strong> fires when a fresh counter orderflow MSS appears after A.watch opened. It does not immediately end the thesis; it records that the pro attempt weakened and waits for either recovery or hard invalidation.</p>
+<div class="code-block">Gate (from A.watch):
+  ltf_counter_orderflow_mss_watch == true
+  ltf_counter_orderflow_started_at > phase_a.entered_at
 
-Failed by:
-  invalidation level breached before finale
-  -> none (shadow episode marked failed)</div>
+Shadow stamped at weaken:
+  pro_attempt_weaken = true
+  pro_attempt_weaken_at = cursor_time
+  pro_extreme_at_weaken = current pro-side LTF range extreme
+
+Recovery → A.watch:
+  last_sc.breakDirection == pro-HTF direction
+  last_sc.eventTimestamp > pro_attempt_weaken_at
+  current pro-side extreme advanced past pro_extreme_at_weaken</div>
 <p><strong>Exits:</strong></p>
 <ul>
-  <li><strong>thesis.over</strong> — finale tapped and closed beyond</li>
-  <li><strong>none</strong> (dashed) — invalidation breached; shadow episode failed</li>
-</ul>`,
+  <li><strong>A.watch</strong> — pro recovery with extreme advance</li>
+  <li><strong>C.pullback</strong> (dashed) — B commitment extreme breached; sets <code>origin_node = "A.watch_weaken_invalidated"</code></li>
+  <li><strong>E.seeking</strong> (dashed) — new HTF extreme starts a fresh continuation context</li>
+</ul>
+<div class="rule-block">The pro-extreme advance gate blocks oscillation in ranging markets. A micro pro-SC is not enough to recover unless the pro-side range extreme advances.</div>
+<a class="panel-link" href="./402-hypothesis-phA.html">→ 402 Phase A detail</a>`,
     },
 
-    OVER: {
-      num:   "1",
-      tag:   "Terminal",
-      title: "thesis.over",
-      meta:  "Episode complete — A/B budget consumed, do not replenish",
-      body:  `<p><strong>thesis.over</strong> means the active thesis has reached its objective or liquidity resolution area. The episode is closed and the old A/B budget is done.</p>
-<div class="code-block">Sub-statuses:
-  thesis.over.pd_objective
-    HTF P/D objective reached
+    X_over: {
+      num:   "x2",
+      tag:   "Phase X",
+      title: "X.thesis_over",
+      meta:  "Post-cycle terminal — Phase A objective maturity reached",
+      body:  `<p><strong>X.thesis_over</strong> is emitted when A.watch reaches the configured objective-progress maturity threshold. It replaces the old raw <code>thesis.over</code> terminal label and is the only Phase X sub-status with <code>entry_policy="skip"</code>.</p>
+<div class="code-block">Gate (from A.watch / A.watch_weaken):
+  phase_a_objective_progress_pct >= configured threshold
+  phase_a_thesis_matured == true
 
-  thesis.over.eq_liquidity
-    HTF EQH/EQL liquidity pool resolved
-
-  thesis.over.trade_complete
-    Managed exit (TP / SL / time-based)
-
-  thesis.over.failed_finale
-    Invalidation hit (legacy: range.failed_a_finale)</div>
-<p><strong>Rules after thesis.over:</strong></p>
+Output:
+  phase = "X"
+  phase_sub_status = "X.thesis_over"
+  entry_policy = "skip"
+  range_reason = "phase_a_thesis_matured"
+  budget_policy = "preserve_spent_budget"</div>
+<p><strong>Rules after X.thesis_over:</strong></p>
 <ul>
   <li>Do not replenish A/B budget inside the same thesis</li>
-  <li>Do not create archived Phase D liquidity-test nodes from A</li>
-  <li>Wait for fresh E.seeking or a new structural epoch</li>
+  <li>Carry X.thesis_over while waiting for fresh Phase E context</li>
+  <li>Restart through E.seeking when the HTF structural context opens a new continuation leg</li>
 </ul>
-<div class="rule-block">thesis.over → E.seeking on the next bar. The cycle restarts. sideway / range should never be a hypothesis node — use thesis.over instead.</div>`,
+<div class="rule-block">X.thesis_over is post-cycle and budget-spent. It is not the same thing as X.none, which is an unclassified directional gap.</div>
+<a class="panel-link" href="./402-hypothesis-phX.html">→ 402 Phase X detail</a>`,
     },
 
-    NONE: {
-      num:   "2",
-      tag:   "Unresolved",
-      title: "none",
-      meta:  "No phase guard satisfied at this bar",
-      body:  `<p><strong>none</strong> is emitted when no edge guard fires from the current DAG node. It is not an error state. It is the honest label for an unresolved bar.</p>
-<p><strong>none_sub_status values:</strong></p>
-<div class="code-block">htf_resolve_unclassified
-  HTF structural resolution state is intermediate
+    X_wait: {
+      num:   "x1",
+      tag:   "Phase X",
+      title: "X.warm_up / X.no_direction / X.none",
+      meta:  "Wait states and unclassified fallthrough — phase='none' is deleted",
+      body:  `<p><strong>Phase X wait states</strong> replace the old raw <code>phase="none"</code> surface. The phase is always <code>"X"</code>; the reason is carried by <code>phase_sub_status</code>.</p>
+<div class="code-block">X.warm_up
+  No HTF structure yet, first closed HTF bar guard, or missing current hypothesis state.
 
-directional_context_unclassified
-  Alignment does not match any phase matrix entry
+X.no_direction
+  HTF structure exists but bias is neutral or direction resolves to "none".
 
-waiting_b_initiation
-  In E, b_initiation chain active, step 1 or 2 seen,
-  not yet ready
-
-waiting_phase_d_confirmation
-  D preconditions partially met, waiting one more bar
-
-b_shadow_suppressed
-  B re-entry blocked by recent failed shadow episode
-  Lifts when new EvidenceCandidate with different
-  first_seen_at is emitted
-
-epoch_reset
-  htf_pd_epoch_id changed; DAG reset bar</div>
-<p><strong>none_origin_phase</strong> is set to <code>previous_phase</code> from Layer 4 state. Known design debt — Evidence Compiler should eventually emit <code>last_ready_pattern</code> so Layer 4 does not need internal history for this field.</p>
-<div class="rule-block">Record none honestly. Measure it. Do not suppress it or roll it into the last active phase. The none count reveals which structural states the DAG cannot yet classify.</div>
-<a class="panel-link" href="./402-hypothesis-none.html">→ Open 402 none Phase &amp; Warmup Detail</a>`,
+X.none
+  HTF bias is directional, but no E/D/C/B/A block claimed the bar.
+  Emits blocked_transition_reason, blocked_transition_context,
+  and compact blocked_phase_candidates.</div>
+<p><strong>Startup / recovery:</strong></p>
+<ul>
+  <li><strong>E.seeking</strong> — when HTF phase is open and directional bias is available</li>
+  <li><strong>Hold X</strong> — while structure is absent, neutral, or still unclassified</li>
+</ul>
+<div class="rule-block">X.none is a gap signal, not a tradeable node. Cold-start self-location into D/C/B/A is still deferred; current startup reliably self-locates into E first.</div>
+<a class="panel-link" href="./402-hypothesis-phX.html">→ 402 Phase X detail</a>`,
     },
 
   };
@@ -909,11 +913,14 @@ epoch_reset
   const ROUTES = {
     E_seek: {
       out: ['E_stall'],
-      in:  [{ id:'OVER',    note:'cycle'   },
+      in:  [{ id:'X_over',  note:'cycle'   },
+            { id:'X_wait',  note:'startup' },
             { id:'D_watch', dashed:true, note:'failure' },
             { id:'C_pull',  dashed:true, note:'new HTF extreme' },
             { id:'E_pull',  dashed:true, note:'new HTF extreme' },
-            { id:'B_watch', dashed:true, note:'new HTF extreme' }],
+            { id:'B_watch', dashed:true, note:'new HTF extreme' },
+            { id:'A_watch', dashed:true, note:'new HTF extreme' },
+            { id:'A_weak',  dashed:true, note:'new HTF extreme' }],
     },
     E_stall: {
       out: ['E_pull'],
@@ -934,7 +941,8 @@ epoch_reset
             { id:'E_seek', dashed:true, note:'new HTF extreme' }],
       in:  ['D_watch', 'E_pull',
             { id:'C_weak', note:'recovery' },
-            { id:'B_watch', dashed:true, note:'counter MSS' }],
+            { id:'B_watch', dashed:true, note:'counter MSS / commitment breach' },
+            { id:'A_weak', dashed:true, note:'commitment breach' }],
     },
     C_weak: {
       out: [{ id:'C_pull', note:'recovery' },
@@ -942,26 +950,30 @@ epoch_reset
       in:  [{ id:'C_pull', note:'weaken depth<51%' }],
     },
     B_watch: {
-      out: ['A_cont',
+      out: ['A_watch',
             { id:'C_pull', dashed:true, note:'counter MSS' },
             { id:'E_seek', dashed:true, note:'new HTF extreme' }],
       in:  ['C_pull'],
     },
-    A_cont: {
-      out: ['A_fin', { id:'NONE', dashed:true, note:'failure' }],
+    A_watch: {
+      out: ['X_over',
+            'A_weak',
+            { id:'E_seek', dashed:true, note:'new HTF extreme' }],
       in:  ['B_watch'],
     },
-    A_fin: {
-      out: ['OVER', { id:'NONE', dashed:true, note:'failure' }],
-      in:  ['A_cont'],
+    A_weak: {
+      out: ['A_watch',
+            { id:'C_pull', dashed:true, note:'commitment breach' },
+            { id:'E_seek', dashed:true, note:'new HTF extreme' }],
+      in:  ['A_watch'],
     },
-    OVER: {
+    X_over: {
       out: [{ id:'E_seek', note:'cycle' }],
-      in:  ['A_fin'],
+      in:  ['A_watch'],
     },
-    NONE: {
-      out: [],
-      in:  [{ id:'A_cont', dashed:true }, { id:'A_fin', dashed:true }],
+    X_wait: {
+      out: [{ id:'E_seek', note:'startup' }],
+      in:  [],
     },
   };
 

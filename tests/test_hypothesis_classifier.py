@@ -120,6 +120,23 @@ def classify_with_auto_ec(classifier, snapshot):
     return classify_with_ec(classifier, ec, snapshot)
 
 
+def ec_candidate(pattern, direction="long", status="ready", debug_facts=None, location_context=None):
+    return {
+        "candidate_id": f"test:{pattern}:{direction}",
+        "pattern": pattern,
+        "status": status,
+        "direction": direction,
+        "timeframe": None,
+        "evidence_refs": [],
+        "source_object_refs": [],
+        "location_context": location_context or {},
+        "blocked_reasons": [],
+        "first_seen_at": None,
+        "ready_at": None,
+        "debug_facts": debug_facts or {},
+    }
+
+
 def sd_zone(zone_id, direction, timeframe, in_zone=False):
     return {
         "zone_id": zone_id,
@@ -577,6 +594,47 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertFalse(developing.debug_facts["phase_e_context_ltf_counter_orderflow_clean"])
         self.assertTrue(developing.debug_facts["phase_e_context_ltf_counter_orderflow_mss_watch"])
 
+    def test_direction_mismatched_phase_e_context_does_not_open_pullback_developing(self):
+        classifier = HypothesisClassifier()
+        classify_with_auto_ec(classifier,
+            dual_snapshot(
+                structure("bullish", "open", high=1.123, low=1.10),
+                [
+                    {"time": "2024-01-01T04:00:00+00:00", "open": 1.11, "high": 1.12, "low": 1.105, "close": 1.118},
+                    {"time": "2024-01-01T08:00:00+00:00", "open": 1.118, "high": 1.123, "low": 1.111, "close": 1.121},
+                ],
+            )
+        )
+
+        payload = dual_snapshot(
+            structure("bullish", "open", high=1.123, low=1.10),
+            [
+                {"time": "2024-01-01T08:00:00+00:00", "open": 1.118, "high": 1.123, "low": 1.111, "close": 1.121},
+                {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.113, "close": 1.118},
+            ],
+            ltf=structure("bearish", "open", high=1.120, low=1.109),
+        )
+        payload["evidence_candidates"] = [
+            ec_candidate(
+                "phase_e_context",
+                direction="short",
+                debug_facts={
+                    "htf_pd_stopped_expanding": True,
+                    "ltf_counter_orderflow_mss_watch": True,
+                    "ltf_counter_orderflow_leg_id": "OF:wrong-direction",
+                    "ltf_counter_orderflow_started_at": "2024-01-01T12:00:00+00:00",
+                    "ltf_probe_at_htf_opposing_zone": True,
+                },
+            )
+        ]
+
+        hyp = classifier.classify(payload)
+
+        self.assertEqual(hyp.phase, "E")
+        self.assertEqual(hyp.phase_sub_status, "stalling")
+        self.assertIsNone(classifier.state.shadow_thesis.phase_e.source_orderflow_leg_id)
+        self.assertNotIn("phase_e_context_status", hyp.debug_facts)
+
     def test_phase_e_failed_pro_attempt_without_clean_orderflow_stays_stalling(self):
         classifier = HypothesisClassifier()
         classify_with_auto_ec(classifier,
@@ -617,6 +675,108 @@ class HypothesisClassifierTests(unittest.TestCase):
         self.assertEqual(held.phase_sub_status, "stalling")
         self.assertEqual(held.debug_facts["phase_e_shadow_selection_reason"], "phase_e_shadow_held")
         self.assertIsNone(held.debug_facts["phase_e_shadow_source_attempt_id"])
+
+    def test_direction_mismatched_ltf_counter_story_is_ignored_by_phase_c_setup(self):
+        classifier = HypothesisClassifier({"allow_pullback_trade": True})
+        payload = dual_snapshot(
+            structure("bullish", "open", high=1.123, low=1.10),
+            [
+                {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.108, "close": 1.109},
+                {"time": "2024-01-01T16:00:00+00:00", "open": 1.109, "high": 1.120, "low": 1.107, "close": 1.118},
+            ],
+            ltf=structure("bearish", "open", high=1.119, low=1.108),
+        )
+        payload["evidence_candidates"] = [
+            ec_candidate(
+                "ltf_counter_story",
+                direction="short",
+                debug_facts={
+                    "selected_poi": sd_zone("SD-15m-supply", "supply", "15m", in_zone=True),
+                    "ltf_bias_counter_htf": True,
+                    "ltf_counter_pullback_confirmed": True,
+                },
+            )
+        ]
+
+        phase_c = classifier._phase_c_setup(payload, payload["lower_structure"], "long")
+
+        self.assertFalse(phase_c["phase_c_story_ready"])
+        self.assertFalse(phase_c["phase_c_ready"])
+        self.assertIsNone(phase_c["phase_c_selected_poi"])
+
+    def test_direction_mismatched_b_setup_is_ignored(self):
+        classifier = HypothesisClassifier()
+        classifier.state.previous_phase = "C"
+        payload = dual_snapshot(
+            structure("bullish", "pullback_confirmed", high=1.123, low=1.10),
+            [
+                {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.108, "close": 1.112},
+                {"time": "2024-01-01T16:00:00+00:00", "open": 1.112, "high": 1.118, "low": 1.109, "close": 1.116},
+            ],
+            ltf=structure("bullish", "open", high=1.118, low=1.109),
+        )
+        payload["evidence_candidates"] = [
+            ec_candidate(
+                "htf_b_phase_setup",
+                direction="short",
+                status="ready",
+                debug_facts={
+                    "strict_pd_half": True,
+                    "htf_pullback_context_ready": True,
+                    "ltf_turns_back_toward_htf": True,
+                    "htf_pro_sd_tapped": True,
+                    "selected_poi": sd_zone("SD-15m-demand", "demand", "15m", in_zone=True),
+                },
+                location_context={"htf_pd_value_pct": 40.0},
+            )
+        ]
+
+        phase_b = classifier._phase_b_setup(
+            payload, payload["higher_structure"], payload["lower_structure"], "long"
+        )
+
+        self.assertFalse(phase_b["phase_b_ready"])
+        self.assertFalse(phase_b["phase_b_candidate"])
+        self.assertIsNone(phase_b["phase_b_selected_poi"])
+
+    def test_direction_mismatched_phase_a_objective_is_ignored(self):
+        classifier = HypothesisClassifier()
+        htf = structure("bullish", "pullback_confirmed", high=1.20, low=1.10)
+        current_bar = {
+            "time": "2024-01-01T16:00:00+00:00",
+            "open": 1.14,
+            "high": 1.15,
+            "low": 1.13,
+            "close": 1.14,
+        }
+        payload = dual_snapshot(
+            htf,
+            [
+                {"time": "2024-01-01T12:00:00+00:00", "open": 1.13, "high": 1.14, "low": 1.12, "close": 1.13},
+                current_bar,
+            ],
+            ltf=structure("bullish", "open", high=1.15, low=1.13),
+        )
+        payload["evidence_candidates"] = [
+            ec_candidate(
+                "htf_pd_objective",
+                direction="short",
+                debug_facts={
+                    "phase_a_finale_touched": True,
+                    "phase_a_finale_closed_beyond": True,
+                    "phase_a_finale_direction": "short",
+                    "phase_a_finale_objective": 1.10,
+                    "phase_a_finale_rule": "wrong_direction_objective",
+                },
+            )
+        ]
+
+        finale = classifier._phase_a_finale(payload, "long", htf, current_bar)
+
+        self.assertFalse(finale["phase_a_finale_touched"])
+        self.assertFalse(finale["phase_a_finale_closed_beyond"])
+        self.assertEqual(finale["phase_a_finale_direction"], "long")
+        self.assertIsNone(finale["phase_a_finale_rule"])
 
     def test_phase_e_pullback_developing_holds_on_pro_continuation(self):
         classifier = HypothesisClassifier()

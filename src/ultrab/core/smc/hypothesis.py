@@ -360,9 +360,23 @@ def _ec_candidate(snapshot: dict[str, Any], pattern: str) -> tuple[dict[str, Any
     return candidate, debug_facts if isinstance(debug_facts, dict) else {}
 
 
-def _ec_b_initiation(snapshot: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Return (b_init_candidate, b_init_debug_facts) from evidence_candidates."""
-    return _ec_candidate(snapshot, "htf_b_initiation")
+def _ec_candidate_for_direction(
+    snapshot: dict[str, Any],
+    pattern: str,
+    direction: Direction,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    candidate, debug_facts = _ec_candidate(snapshot, pattern)
+    if not candidate or candidate.get("direction") != direction:
+        return {}, {}
+    return candidate, debug_facts
+
+
+def _ec_b_initiation_for_direction(
+    snapshot: dict[str, Any],
+    direction: Direction,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Return direction-matched B-initiation EC facts."""
+    return _ec_candidate_for_direction(snapshot, "htf_b_initiation", direction)
 
 
 def _waiting_for_first_closed_htf(
@@ -455,10 +469,10 @@ class HypothesisClassifier:
             if self.state.previous_phase == "A" and self.state.active_phase_e_direction == direction:
                 a_shadow = self.state.shadow_thesis.phase_a
                 b_shadow = self.state.shadow_thesis.phase_b
-                self._update_phase_a_shadow(snapshot, debug)
+                self._update_phase_a_shadow(snapshot, direction, debug)
                 debug.update(self._phase_a_watch_shadow_debug())
 
-                _cand_a, e_ctx_a = _ec_candidate(snapshot, "phase_e_context")
+                _cand_a, e_ctx_a = _ec_candidate_for_direction(snapshot, "phase_e_context", direction)
                 current_c_sub_a = (
                     self.state.current_hypothesis.phase_sub_status
                     if self.state.current_hypothesis
@@ -581,7 +595,9 @@ class HypothesisClassifier:
                     hyp = self._phase_e(direction, cursor_time, debug, ltf)
                     return self._commit(hyp)
                 if self.state.current_hypothesis:
-                    _, e_ctx_facts_c = _ec_candidate(snapshot, "phase_e_context")
+                    _, e_ctx_facts_c = _ec_candidate_for_direction(
+                        snapshot, "phase_e_context", direction
+                    )
                     c_shadow = self.state.shadow_thesis.phase_c
                     current_c_sub = self.state.current_hypothesis.phase_sub_status
 
@@ -741,7 +757,7 @@ class HypothesisClassifier:
 
             if self.state.previous_phase == "D" and self.state.active_phase_e_direction == direction:
                 d_shadow = self.state.shadow_thesis.phase_d
-                _, e_ctx_facts = _ec_candidate(snapshot, "phase_e_context")
+                _, e_ctx_facts = _ec_candidate_for_direction(snapshot, "phase_e_context", direction)
 
                 if d_shadow.node == "D.watch":
                     # Fresh counter MSS: pro attempt failed → C.pullback.
@@ -764,8 +780,12 @@ class HypothesisClassifier:
                         return self._commit(hyp)
 
                     # Accumulate quality metadata each bar while watching
-                    htf_react, _ = _ec_candidate(snapshot, "htf_counter_reaction")
-                    ltf_story, _ = _ec_candidate(snapshot, "ltf_counter_story")
+                    htf_react, _ = _ec_candidate_for_direction(
+                        snapshot, "htf_counter_reaction", direction
+                    )
+                    ltf_story, _ = _ec_candidate_for_direction(
+                        snapshot, "ltf_counter_story", direction
+                    )
                     d_shadow.pro_attempt = {
                         "htf_reaction_status": htf_react.get("status"),
                         "ltf_story_status": ltf_story.get("status"),
@@ -861,11 +881,11 @@ class HypothesisClassifier:
 
             if self.state.previous_phase == "B":
                 b_shadow = self.state.shadow_thesis.phase_b
-                self._update_phase_b_watch_shadow(snapshot, debug)
+                self._update_phase_b_watch_shadow(snapshot, direction, debug)
                 debug.update(self._phase_b_watch_shadow_debug())
 
                 # B.watch → E.seeking (new HTF extreme)
-                _, e_ctx_b = _ec_candidate(snapshot, "phase_e_context")
+                _, e_ctx_b = _ec_candidate_for_direction(snapshot, "phase_e_context", direction)
                 _new_htf_extreme_b = bool(
                     debug.get("phase_e_context_new_htf_extreme")
                     or e_ctx_b.get("new_htf_extreme")
@@ -1037,8 +1057,8 @@ class HypothesisClassifier:
         direction: Direction,
         current_bar: dict[str, Any] | None,
     ) -> dict[str, Any]:
-        _, facts = _ec_candidate(snapshot, "htf_counter_reaction")
-        _, choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
+        _, facts = _ec_candidate_for_direction(snapshot, "htf_counter_reaction", direction)
+        _, choch_facts = _ec_candidate_for_direction(snapshot, "ltf_counter_choch", direction)
         return {
             "phase_d_ready": False,
             "phase_d_trigger": None,
@@ -1314,7 +1334,7 @@ class HypothesisClassifier:
     ) -> dict[str, Any]:
         counter_zone_direction = "supply" if prior_direction == "long" else "demand"
         ltf_counter_break_direction = "down" if prior_direction == "long" else "up"
-        c_gate, facts = _ec_candidate(snapshot, "ltf_counter_story")
+        c_gate, facts = _ec_candidate_for_direction(snapshot, "ltf_counter_story", prior_direction)
         selected_poi = facts.get("selected_poi")
         story_ready = c_gate.get("status") == "ready"
         armed = bool(story_ready and selected_poi)
@@ -1346,7 +1366,7 @@ class HypothesisClassifier:
         direction: Direction,
     ) -> dict[str, Any]:
         liquidity = _liquidity_snapshot(snapshot)
-        b_init, b_initiation = _ec_b_initiation(snapshot)
+        b_init, b_initiation = _ec_b_initiation_for_direction(snapshot, direction)
         expected_direction = (
             "bullish"
             if direction == "long"
@@ -1556,7 +1576,7 @@ class HypothesisClassifier:
         direction: Direction,
     ) -> dict[str, Any]:
         pro_zone_direction = "demand" if direction == "long" else "supply"
-        b_gate, facts = _ec_candidate(snapshot, "htf_b_phase_setup")
+        b_gate, facts = _ec_candidate_for_direction(snapshot, "htf_b_phase_setup", direction)
         location = b_gate.get("location_context") or {}
         selected_poi = facts.get("selected_poi")
         htf_pd_value_pct = location.get("htf_pd_value_pct")
@@ -1815,7 +1835,9 @@ class HypothesisClassifier:
         else:
             facts["phase_a_objective_progress_blocked_reason"] = "missing_or_invalid_htf_range"
 
-        objective_candidate, objective_facts = _ec_candidate(snapshot, "htf_pd_objective")
+        objective_candidate, objective_facts = _ec_candidate_for_direction(
+            snapshot, "htf_pd_objective", direction
+        )
         if objective_candidate.get("status") == "ready":
             facts.update(
                 {
@@ -1847,7 +1869,9 @@ class HypothesisClassifier:
             "reaction_failed_rule": None,
         }
         # ChoCh stream is independent of phase_e_context — always read it first.
-        _choch_ec, choch_facts = _ec_candidate(snapshot, "ltf_counter_choch")
+        _choch_ec, choch_facts = _ec_candidate_for_direction(
+            snapshot, "ltf_counter_choch", direction
+        )
         facts.update(
             {
                 "phase_e_context_ltf_counter_choch_seen": bool(
@@ -1891,7 +1915,9 @@ class HypothesisClassifier:
                 ),
             }
         )
-        phase_e, phase_e_facts = _ec_candidate(snapshot, "phase_e_context")
+        phase_e, phase_e_facts = _ec_candidate_for_direction(
+            snapshot, "phase_e_context", direction
+        )
         if phase_e.get("status") == "ready":
             facts.update(
                 {
@@ -2561,10 +2587,10 @@ class HypothesisClassifier:
         )
 
     def _update_phase_b_watch_shadow(
-        self, snapshot: dict[str, Any], debug: dict[str, Any]
+        self, snapshot: dict[str, Any], direction: Direction, debug: dict[str, Any]
     ) -> None:
         s = self.state.shadow_thesis.phase_b
-        _, b_facts = _ec_candidate(snapshot, "htf_b_phase_setup")
+        _, b_facts = _ec_candidate_for_direction(snapshot, "htf_b_phase_setup", direction)
         if (b_facts.get("htf_pro_sd_tapped") or b_facts.get("htf_pro_sd_resolved")) and not s.htf_sd_zone_tapped:
             s.htf_sd_zone_tapped = True
             s.htf_sd_zone_id = b_facts.get("htf_last_resolved_zone_id")
@@ -2631,10 +2657,10 @@ class HypothesisClassifier:
         )
 
     def _update_phase_a_shadow(
-        self, snapshot: dict[str, Any], debug: dict[str, Any]
+        self, snapshot: dict[str, Any], direction: Direction, debug: dict[str, Any]
     ) -> None:
         s = self.state.shadow_thesis.phase_a
-        _, a_facts = _ec_candidate(snapshot, "htf_pd_objective")
+        _, a_facts = _ec_candidate_for_direction(snapshot, "htf_pd_objective", direction)
         if a_facts.get("phase_a_finale_touched") and not s.phase_a_objective_touched:
             s.phase_a_objective_touched = True
             s.phase_a_objective_touched_at = debug.get("cursor_time")

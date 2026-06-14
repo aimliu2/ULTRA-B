@@ -2,14 +2,21 @@
 
 ## Current state — 2026-06-13
 
-**Phase D + C + B + A model complete. X.none unification done. A.watch → X.thesis_over wired. Next: validate all phases and cleanup, then cold-start self-location.**
+**Phase D + C + B + A model complete. X.none unification done. A.watch → X.thesis_over wired. Direction-sensitive EC fact audit complete. Next real work: cold-start self-location, then remaining small runtime/debug open issues.**
 
 - Phase D: `D.watch`-only model. `D.speculation` removed from DAG (commit `10dff12`).
 - Phase C: 2-state model `C.pullback` / `C.pullback_weaken`. Replay validated. Docs archived.
 - Phase B: `B.watch` wired. `PhaseBShadow` with `commitment_extreme_level` locked at C→B entry. commitment-extreme breach exit (→C) added.
 - Phase A: `A.watch` / `A.watch_weaken` wired. pro extreme advance gate on recovery (blocks oscillation in ranging). `PhaseAShadow.pro_extreme_at_weaken`.
 - Phase X: `"none"` phase eliminated — all 4 call sites → `_phase_x()`. `none_sub_status` field removed. `X.warm_up`, `X.no_direction`, `X.none`, `X.thesis_over` sub-statuses live. `X.none` emits blocked-transition debug. `A.watch → X.thesis_over` fires on `phase_a_thesis_matured`.
-- Test suite: **133 passed, 31 skipped.** Next work order: validate all phases end-to-end, clean up stale docs/debug surfaces, then implement cold-start self-location.
+- Test suite: **138 passed, 31 skipped.** Targeted checks on 2026-06-14: `tests/test_headless_runtime_reuse.py` = 7 passed; `tests/test_hypothesis_classifier.py tests/test_hypothesis_phase_d_simplify.py` = 23 passed, 31 skipped.
+
+**Current open issue focus — 2026-06-14**
+- **Next Milestone**: cold-start self-location. Post-warmup bar 0 should locate into best current DAG node from EC evidence (E/D/C/B/A) instead of always establishing E first.
+- **Open audit**: `htf_b_phase_setup` key names used by `_update_phase_b_watch_shadow()` may be legacy. Verify EC emits `htf_last_resolved_zone_id` and `ltf_pro_sd_zone_ids` in the B.watch context.
+- **Next Milestone**: expose warmup health/readiness in replay payload for easier startup debugging.
+- **Edge Case**: D liquidity consumed-event ledger expiry after `X.thesis_over`; currently persists until epoch reset.
+- **Out of scope / Layer 5**: A.watch and B.watch entry permission engines are not built; DAG shadow surfaces are the interface.
 
 ---
 
@@ -140,6 +147,7 @@ pro_attempt_level
 - ✅ `docs/402-hypothesis-phX.html` — X sub-status taxonomy + X.none blocked-transition debug
 - ✅ `docs/501-entry.html` — Layer 5 iChoCh mechanics
 - ✅ A.watch → X.thesis_over wiring — `phase_a_objective_progress_pct` + `phase_a_thesis_matured`, configurable via `replay.hypothesis.phase_a.objective_progress_threshold`
+- ✅ Direction-sensitive EC fact audit — `_ec_candidate_for_direction()` added; E/C/D/B/A direction-sensitive candidate reads now require `candidate.direction == direction`; opposite-direction regression tests added.
 - ✅ `.claude/layer34-contract.md` — D.speculation removed, PhaseCshadow added
 - ✅ Replay validated: EURUSD 15m/4h — D.watch → C.pullback fires at 2026-01-29T12:45
 - ✅ Orderflow MSS gate fix — `probe_breaks_protected_anchor` decoupled from direction scorer; EC gate = `ltf_bias_counter AND probe_breaks_protected_anchor`; `higher_orderflow` deleted
