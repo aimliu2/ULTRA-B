@@ -246,6 +246,13 @@ def _structure_ichoch_seen(last_isc: dict[str, Any]) -> bool:
     return last_isc.get("structure_ichoch") is True
 
 
+def _structure_isb_seen(last_isc: dict[str, Any]) -> bool:
+    action = str(last_isc.get("eventAction") or "")
+    if action == "structure_isb":
+        return True
+    return last_isc.get("structure_isb") is True
+
+
 def _structure_event_id(last_sc: dict[str, Any]) -> str | None:
     explicit = last_sc.get("event_id") or last_sc.get("eventId")
     if explicit:
@@ -375,6 +382,26 @@ def _inside_range(price: Any, low: Any, high: Any) -> bool:
         return float(low) <= float(price) <= float(high)
     except (TypeError, ValueError):
         return False
+
+
+def _safe_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _timestamp_after(value: str | None, floor: str | None) -> bool:
+    if not value or not floor:
+        return False
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")) > datetime.fromisoformat(
+            floor.replace("Z", "+00:00")
+        )
+    except (TypeError, ValueError):
+        return value > floor
 
 
 def _compat_candidate(candidate: EvidenceCandidate, pattern: str) -> EvidenceCandidate:
@@ -1271,6 +1298,216 @@ class EvidenceCompiler:
     # 2.5.  LTF counter choch  (standalone structure choch stream)
     # ------------------------------------------------------------------
 
+    def _compile_internal_ichoch_isb_sequence(
+        self,
+        sequence: list[dict[str, Any]],
+        direction: Direction,
+    ) -> dict[str, Any]:
+        expected_counter_break = "down" if direction == "long" else "up"
+        pro_break = "up" if direction == "long" else "down"
+        trade_direction = "short" if direction == "long" else "long"
+
+        active_ichoch: dict[str, Any] | None = None
+        last_invalidated = False
+        last_invalid_reason: str | None = None
+        last_invalid_ichoch: dict[str, Any] | None = None
+        last_invalid_isb: dict[str, Any] | None = None
+
+        for event in sequence:
+            break_direction = event.get("breakDirection")
+            if _structure_ichoch_seen(event):
+                if break_direction == expected_counter_break:
+                    active_ichoch = event
+                    last_invalidated = False
+                    last_invalid_reason = None
+                    last_invalid_ichoch = None
+                    last_invalid_isb = None
+                elif active_ichoch is not None:
+                    last_invalidated = True
+                    last_invalid_reason = "opposite_ichoch_between"
+                    last_invalid_ichoch = active_ichoch
+                    last_invalid_isb = None
+                    active_ichoch = None
+                continue
+
+            if not (
+                active_ichoch is not None
+                and _structure_isb_seen(event)
+                and break_direction == pro_break
+            ):
+                continue
+
+            ichoch_at = active_ichoch.get("eventTimestamp")
+            isb_at = event.get("eventTimestamp")
+            if not _timestamp_after(isb_at, ichoch_at):
+                last_invalidated = True
+                last_invalid_reason = "isb_not_after_ichoch"
+                last_invalid_ichoch = active_ichoch
+                last_invalid_isb = event
+                active_ichoch = None
+                continue
+
+            ichoch_level = _safe_float(active_ichoch.get("levelPrice"))
+            isb_level = _safe_float(event.get("levelPrice"))
+            if ichoch_level is None or isb_level is None:
+                last_invalidated = True
+                last_invalid_reason = "missing_sequence_level"
+                last_invalid_ichoch = active_ichoch
+                last_invalid_isb = event
+                active_ichoch = None
+                continue
+
+            level_valid = (
+                isb_level >= ichoch_level
+                if trade_direction == "long"
+                else isb_level <= ichoch_level
+            )
+            if not level_valid:
+                last_invalidated = True
+                last_invalid_reason = "isb_level_not_beyond_ichoch"
+                last_invalid_ichoch = active_ichoch
+                last_invalid_isb = event
+                active_ichoch = None
+                continue
+
+            return {
+                "ltf_counter_ichoch_isb_sequence_seen": True,
+                "ltf_counter_sequence_trade_direction": trade_direction,
+                "ltf_counter_sequence_ichoch_event_at": ichoch_at,
+                "ltf_counter_sequence_ichoch_direction": active_ichoch.get("breakDirection"),
+                "ltf_counter_sequence_ichoch_level": ichoch_level,
+                "ltf_counter_sequence_ichoch_event_id": _structure_event_id(active_ichoch),
+                "ltf_counter_sequence_ichoch_source_level_id": _structure_source_level_id(active_ichoch),
+                "ltf_counter_sequence_isb_event_at": isb_at,
+                "ltf_counter_sequence_isb_direction": event.get("breakDirection"),
+                "ltf_counter_sequence_isb_level": isb_level,
+                "ltf_counter_sequence_isb_event_id": _structure_event_id(event),
+                "ltf_counter_sequence_isb_source_level_id": _structure_source_level_id(event),
+                "ltf_counter_sequence_source_store": "internal_structure_sequence",
+                "ltf_counter_sequence_invalidated": False,
+                "ltf_counter_sequence_invalid_reason": None,
+            }
+
+        return {
+            "ltf_counter_ichoch_isb_sequence_seen": False,
+            "ltf_counter_sequence_trade_direction": trade_direction,
+            "ltf_counter_sequence_ichoch_event_at": (
+                last_invalid_ichoch or active_ichoch or {}
+            ).get("eventTimestamp"),
+            "ltf_counter_sequence_ichoch_direction": (
+                last_invalid_ichoch or active_ichoch or {}
+            ).get("breakDirection"),
+            "ltf_counter_sequence_ichoch_level": _safe_float(
+                (last_invalid_ichoch or active_ichoch or {}).get("levelPrice")
+            ),
+            "ltf_counter_sequence_ichoch_event_id": _structure_event_id(
+                last_invalid_ichoch or active_ichoch or {}
+            ),
+            "ltf_counter_sequence_ichoch_source_level_id": _structure_source_level_id(
+                last_invalid_ichoch or active_ichoch or {}
+            ),
+            "ltf_counter_sequence_isb_event_at": (last_invalid_isb or {}).get("eventTimestamp"),
+            "ltf_counter_sequence_isb_direction": (last_invalid_isb or {}).get("breakDirection"),
+            "ltf_counter_sequence_isb_level": _safe_float((last_invalid_isb or {}).get("levelPrice")),
+            "ltf_counter_sequence_isb_event_id": _structure_event_id(last_invalid_isb or {}),
+            "ltf_counter_sequence_isb_source_level_id": _structure_source_level_id(last_invalid_isb or {}),
+            "ltf_counter_sequence_source_store": "internal_structure_sequence" if sequence else None,
+            "ltf_counter_sequence_invalidated": last_invalidated,
+            "ltf_counter_sequence_invalid_reason": last_invalid_reason,
+        }
+
+    def _compile_internal_pullback_pressure(
+        self,
+        sequence: list[dict[str, Any]],
+        direction: Direction,
+    ) -> dict[str, Any]:
+        """Summarize flexible internal pressure toward the pullback direction.
+
+        This is broader than the strict iChoCh -> iSB Path A sequence. It is
+        intended for D.watch -> C.pullback transition classification, where the
+        orderflow MSS is the confirmation and the internal sequence only tells
+        whether there was prior pullback pressure.
+        """
+        pullback_break = "down" if direction == "long" else "up"
+        qualifying: list[dict[str, Any]] = []
+        contradiction_after_last = False
+        saw_contradiction = False
+
+        for event in sequence:
+            if not isinstance(event, dict):
+                continue
+            if not (_structure_ichoch_seen(event) or _structure_isb_seen(event)):
+                continue
+            if event.get("breakDirection") == pullback_break:
+                qualifying.append(event)
+                contradiction_after_last = False
+                continue
+            if qualifying:
+                contradiction_after_last = True
+                saw_contradiction = True
+
+        if not qualifying:
+            return {
+                "ltf_counter_internal_pressure_seen": False,
+                "ltf_counter_internal_pressure_event_count": 0,
+                "ltf_counter_internal_pressure_first_at": None,
+                "ltf_counter_internal_pressure_last_at": None,
+                "ltf_counter_internal_pressure_last_action": None,
+                "ltf_counter_internal_pressure_last_direction": None,
+                "ltf_counter_internal_pressure_event_ids": [],
+                "ltf_counter_internal_pressure_source_level_ids": [],
+                "ltf_counter_internal_pressure_levels": [],
+                "ltf_counter_internal_pressure_class": "none",
+                "ltf_counter_internal_pressure_invalidated": False,
+                "ltf_counter_internal_pressure_invalid_reason": None,
+            }
+
+        first = qualifying[0]
+        last = qualifying[-1]
+        isb_count = sum(1 for event in qualifying if _structure_isb_seen(event))
+        ichoch_count = sum(1 for event in qualifying if _structure_ichoch_seen(event))
+        if contradiction_after_last:
+            pressure_class = "contradicted"
+            invalidated = True
+            invalid_reason = "final_internal_contradiction"
+        else:
+            invalidated = False
+            invalid_reason = None
+            if saw_contradiction:
+                pressure_class = "messy_reasserted"
+            elif isb_count >= 2:
+                pressure_class = "repeated_isb"
+            elif isb_count == 1:
+                pressure_class = "single_isb"
+            elif ichoch_count == 1:
+                pressure_class = "single_ichoch"
+            else:
+                pressure_class = "single_ichoch"
+
+        return {
+            "ltf_counter_internal_pressure_seen": not invalidated,
+            "ltf_counter_internal_pressure_event_count": len(qualifying),
+            "ltf_counter_internal_pressure_first_at": first.get("eventTimestamp"),
+            "ltf_counter_internal_pressure_last_at": last.get("eventTimestamp"),
+            "ltf_counter_internal_pressure_last_action": last.get("eventAction"),
+            "ltf_counter_internal_pressure_last_direction": last.get("breakDirection"),
+            "ltf_counter_internal_pressure_event_ids": [
+                _structure_event_id(event) for event in qualifying if _structure_event_id(event)
+            ],
+            "ltf_counter_internal_pressure_source_level_ids": [
+                source_id
+                for source_id in (_structure_source_level_id(event) for event in qualifying)
+                if source_id
+            ],
+            "ltf_counter_internal_pressure_levels": [
+                level for level in (_safe_float(event.get("levelPrice")) for event in qualifying)
+                if level is not None
+            ],
+            "ltf_counter_internal_pressure_class": pressure_class,
+            "ltf_counter_internal_pressure_invalidated": invalidated,
+            "ltf_counter_internal_pressure_invalid_reason": invalid_reason,
+        }
+
     def _compile_ltf_counter_choch(
         self,
         fused: dict[str, Any],
@@ -1280,11 +1517,20 @@ class EvidenceCompiler:
         ltf_struct = _ltf_struct(fused) or {}
         last_isc = ltf_struct.get("last_isc") or {}  # internal iChoCh (SC06) — primary
         last_sc  = ltf_struct.get("last_sc")  or {}  # macro SC — kept for sb_seen fallback
-        if not last_isc and not last_sc:
+        internal_sequence = ltf_struct.get("internal_structure_sequence") or []
+        if not last_isc and not last_sc and not internal_sequence:
             return None
 
         ltf_label = _execution_tf(fused)
         expected_counter_break = "down" if direction == "long" else "up"
+        sequence_facts = self._compile_internal_ichoch_isb_sequence(
+            [event for event in internal_sequence if isinstance(event, dict)],
+            direction,
+        )
+        pressure_facts = self._compile_internal_pullback_pressure(
+            [event for event in internal_sequence if isinstance(event, dict)],
+            direction,
+        )
 
         # PRIMARY: internal iChoCh (SC06) against confirmed ITR pivot
         choch_seen = bool(
@@ -1296,6 +1542,18 @@ class EvidenceCompiler:
         choch_direction       = last_isc.get("breakDirection")      if choch_seen else None
         choch_event_id        = _structure_event_id(last_isc)       if choch_seen else None
         choch_source_level_id = _structure_source_level_id(last_isc) if choch_seen else None
+
+        # iSB (SC05) — fires in PRO direction (opposite of iChoCh counter direction).
+        # last_isc holds either SC05 or SC06; they are mutually exclusive per bar.
+        # Use direct field check — _structure_event_action() does not handle "structure_isb".
+        pro_break = "up" if direction == "long" else "down"
+        isb_seen = bool(
+            (last_isc.get("eventAction") == "structure_isb" or last_isc.get("structure_isb") is True)
+            and last_isc.get("breakDirection") == pro_break
+        )
+        isb_at       = last_isc.get("eventTimestamp") if isb_seen else None
+        isb_level    = last_isc.get("levelPrice")     if isb_seen else None
+        isb_event_id = _structure_event_id(last_isc)  if isb_seen else None
 
         # FALLBACK: macro counter SB from last_sc (Path B — pullback_confirmed gate in DAG)
         sb_seen = bool(
@@ -1329,12 +1587,19 @@ class EvidenceCompiler:
                 "ltf_counter_choch_event_id": choch_event_id,
                 "ltf_counter_choch_source_level_id": choch_source_level_id,
                 "ltf_counter_choch_source_store": "structure_isc" if choch_seen else None,
+                "ltf_counter_isb_seen": isb_seen,
+                "ltf_counter_isb_event_at": isb_at,
+                "ltf_counter_isb_level": isb_level,
+                "ltf_counter_isb_event_id": isb_event_id,
+                "ltf_counter_isb_source_store": "structure_isc" if isb_seen else None,
                 "ltf_counter_sb_seen": sb_seen,
                 "ltf_counter_sb_level": sb_level,
                 "ltf_counter_sb_event_at": sb_at,
                 "ltf_counter_sb_event_id": sb_event_id,
                 "ltf_counter_sb_source_level_id": sb_source_level_id,
                 "ltf_counter_sb_source_store": "structure_sequence" if sb_seen else None,
+                **sequence_facts,
+                **pressure_facts,
             },
         )
 

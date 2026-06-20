@@ -1,6 +1,7 @@
 # other ignores
 .DS_Store
 .claude
+.codex
 ln-notes
 ln-data
 docs/debugging/*

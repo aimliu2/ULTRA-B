@@ -478,6 +478,18 @@ class StructureEngineInternalSCTests(unittest.TestCase):
         self.assertTrue(snap["last_isc"]["structure_isb"])
         self.assertFalse(snap["last_isc"]["structure_ichoch"])
 
+    def test_snapshot_exposes_internal_structure_sequence(self):
+        engine = warm_bullish_engine()
+        step(engine, 2, 11, 13, 10, 12.5, pivots=[pe("PE03", 2, 12)])
+        step(engine, 3, 12.5, 13, 4.2, 4.3)
+        snap = engine.get_snapshot(4.3)
+
+        sequence = snap["internal_structure_sequence"]
+        self.assertEqual([event["eventCode"] for event in sequence], ["SC05", "SC06"])
+        self.assertEqual(sequence, snap["recent_internal_structure_events"])
+        self.assertEqual(sequence[0]["eventAction"], "structure_isb")
+        self.assertEqual(sequence[1]["eventAction"], "structure_ichoch")
+
 
 if __name__ == "__main__":
     unittest.main()

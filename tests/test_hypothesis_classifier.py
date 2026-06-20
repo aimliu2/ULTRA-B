@@ -342,6 +342,72 @@ class HypothesisNoneCaseTests(unittest.TestCase):
         self.assertEqual(hyp.phase_sub_status, "X.no_direction")
 
 
+class HypothesisPathCTransitionTests(unittest.TestCase):
+    def test_d_watch_to_c_pullback_emits_one_shot_transition_pressure_context(self):
+        classifier = HypothesisClassifier()
+        classifier.state.previous_phase = "D"
+        classifier.state.htf_pd_epoch_id = (
+            "2024-01-01T00:00:00+00:00|SC01|up|2024-01-01T00:00:00+00:00"
+        )
+        classifier.state.active_phase_e_direction = "long"
+        classifier.state.shadow_thesis.phase_d.node = "D.watch"
+        classifier.state.shadow_thesis.phase_d.consumed_leg_id = "OF:source"
+        classifier.state.shadow_thesis.phase_d.watch_entered_at = "2024-01-01T09:00:00+00:00"
+
+        payload = dual_snapshot(
+            structure("bullish", "open", high=1.123, low=1.100),
+            [
+                {"time": "2024-01-01T08:00:00+00:00", "open": 1.118, "high": 1.123, "low": 1.111, "close": 1.121},
+                {"time": "2024-01-01T12:00:00+00:00", "open": 1.121, "high": 1.122, "low": 1.108, "close": 1.109},
+            ],
+            ltf=structure("bearish", "open", high=1.120, low=1.108),
+        )
+        payload["evidence_candidates"] = [
+            ec_candidate(
+                "phase_e_context",
+                direction="long",
+                debug_facts={
+                    "new_htf_extreme": False,
+                    "ltf_counter_orderflow_mss_watch": True,
+                    "ltf_counter_orderflow_leg_id": "OF:d-to-c",
+                    "ltf_counter_orderflow_anchor_id": "OF:d-to-c:anchor",
+                    "ltf_counter_orderflow_disruption_id": "OF:d-to-c:probe",
+                },
+            ),
+            ec_candidate(
+                "ltf_counter_choch",
+                direction="long",
+                status="collecting",
+                debug_facts={
+                    "ltf_counter_internal_pressure_seen": True,
+                    "ltf_counter_internal_pressure_class": "messy_reasserted",
+                    "ltf_counter_internal_pressure_event_ids": ["SC05:one", "SC05:two"],
+                    "ltf_counter_internal_pressure_first_at": "2024-01-01T10:00:00+00:00",
+                    "ltf_counter_internal_pressure_last_at": "2024-01-01T11:00:00+00:00",
+                    "ltf_counter_internal_pressure_invalidated": False,
+                    "ltf_counter_internal_pressure_invalid_reason": None,
+                },
+            ),
+        ]
+
+        hyp = classifier.classify(payload)
+
+        self.assertEqual(hyp.phase, "C")
+        self.assertEqual(hyp.phase_sub_status, "pullback")
+        self.assertEqual(hyp.debug_facts["phase_c_origin_node"], "D.watch_mss")
+        self.assertEqual(hyp.debug_facts["phase_c_entry_transition_origin_node"], "D.watch_mss")
+        self.assertEqual(hyp.debug_facts["phase_c_entry_transition_event_id"], "OF:d-to-c")
+        self.assertTrue(hyp.debug_facts["phase_c_entry_transition_internal_pressure_seen"])
+        self.assertEqual(
+            hyp.debug_facts["phase_c_entry_transition_internal_pressure_class"],
+            "messy_reasserted",
+        )
+        self.assertEqual(
+            hyp.debug_facts["phase_c_entry_transition_internal_pressure_event_ids"],
+            ["SC05:one", "SC05:two"],
+        )
+
+
 def classify_bullish_phase_c(classifier):
     classify_with_auto_ec(classifier,
         dual_snapshot(

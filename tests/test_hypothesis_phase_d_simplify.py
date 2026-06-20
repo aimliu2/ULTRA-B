@@ -272,6 +272,28 @@ class PhaseDSimplifyTests(unittest.TestCase):
         self.assertEqual(still_e.phase_sub_status, "pullback_developing")
         self.assertFalse(classifier.state.shadow_thesis.phase_e.pro_attempt_seen)
 
+    def test_d_watch_exits_to_e_seeking_on_new_htf_extreme(self):
+        """D.watch collapses to E.seeking when new_htf_extreme fires (expansion resumed)."""
+        classifier = HypothesisClassifier()
+        bars, watch = open_d_watch(classifier)
+        self.assertEqual(watch.phase, "D")
+        self.assertEqual(watch.phase_sub_status, "watch")
+
+        bars_5 = [
+            bars[-1],
+            {"time": "2024-01-02T00:00:00+00:00", "open": 1.117, "high": 1.124, "low": 1.115, "close": 1.123},
+        ]
+        payload = dual_snapshot(structure("bullish"), bars_5)
+        payload["evidence_candidates"] = [
+            ec_candidate("phase_e_context", direction="long", debug_facts={"new_htf_extreme": True})
+        ]
+
+        collapsed = classifier.classify(payload)
+
+        self.assertEqual(collapsed.phase, "E")
+        self.assertEqual(collapsed.debug_facts.get("phase_d_collapse_rule"), "new_htf_extreme")
+        self.assertTrue(collapsed.debug_facts.get("phase_d_collapsed"))
+
     def test_direction_mismatched_phase_e_context_does_not_move_d_watch_to_c(self):
         classifier = HypothesisClassifier()
         bars, watch = open_d_watch(classifier)

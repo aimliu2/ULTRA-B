@@ -320,7 +320,7 @@
       <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase D</div>
       <h1>Phase D — Simplify</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> — Phase D has one DAG node: <code>D.watch</code>. All prior sub-statuses superseded. <code>D.watch</code> opens from <code>E.pullback_developing</code> on the first pro-HTF macro ChoCh (<code>last_sc</code>, SC01/SC02). <code>D.watch + counter MSS (LL break) → C.pullback</code> — the pro-attempt definitively failed. iChoCh (<code>last_isc</code>, SC06), counter SB, and entry timing are <b>Layer 5 territory</b> — see <code>docs/501-entry.html</code>. Shadow carries two epoch-scoped snapshots: <code>choch_1</code> (the pro-HTF ChoCh that opened D.watch — Layer 5 reads level for SL reference) and <code>pro_attempt</code> (quality metadata accumulated while holding).
+        <b>TL;DR</b> — Phase D has one DAG node: <code>D.watch</code>. All prior sub-statuses superseded. <code>D.watch</code> opens from <code>E.pullback_developing</code> on the first pro-HTF macro ChoCh (<code>last_sc</code>, SC01/SC02), or via express gate from <code>E.stalling</code> when <code>htf_reaction_seen == True</code> (zone tapped before pro-attempt fires; emits <code>phase_d_entry_express = True</code>). <code>D.watch + counter MSS (fresh leg) → C.pullback</code> (<code>c_shadow.origin_node = "D.watch_mss"</code>) — the pro-attempt definitively failed. iChoCh (<code>last_isc</code>, SC06), counter SB, and entry timing are <b>Layer 5 territory</b> — see <code>docs/501-entry.html</code>. The sticky flag <code>phase_e_shadow_htf_reaction_seen</code> is carried into every D.watch hold bar to let Layer 5 detect zone context even after EC clears on 4H close.
       </div>
       <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis Dataflow</a>
       <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
@@ -349,18 +349,24 @@
         <p>
           Shadow carries two epoch-scoped snapshots: <code>choch_1</code> (the SC01/SC02 that opened D.watch — Layer 5 reads <code>level</code> for SL reference) and <code>pro_attempt</code> (quality metadata accumulated while holding in D.watch). A shallow bounce with nothing encountered is valid; Layer 5 grades quality, not the gate.
         </p>
-<pre class="block">Gate (D.watch opens):
+<pre class="block">Gate (D.watch opens — standard):
   phase_e_shadow_node == "E.pullback_developing"
   phase_e.pro_attempt_seen == True
     last_sc.breakDirection == pro-HTF direction   ← SC01/SC02 macro ChoCh
     ← pro_attempt_seen timestamp > pullback_developing_entered_at
+  phase_d_entry = "E.pullback_developing"
 
-Shadow stamps choch_1 snapshot (the pro-HTF ChoCh that opened D.watch):
-  phase_d_choch_1.trigger_type       "choch"
-  phase_d_choch_1.at
-  phase_d_choch_1.level              ← pro-HTF ChoCh level (e.g. prior range_high for long)
+Gate (D.watch opens — express):
+  phase_e_shadow_node == "E.stalling"
+  phase_e.htf_reaction_seen == True   ← HTF opposing SD zone tapped
+  phase_d.node is None                ← D.watch not already open this epoch
+  → D.watch immediately (zone was tapped before pro-attempt fired)
+  phase_d_entry = "E.stalling_zone_tap"
+  phase_d_entry_express = True        ← backtest counting only
 
-Shadow carries pro_attempt snapshot (quality metadata, refined while holding):
+Shadow carries (refined while holding):
+  watch_entered_at        cursor_time at open (express: same cursor, no choch_1 event)
+  consumed_leg_id         copied from phase_e.source_orderflow_leg_id at open
   pro_attempt.htf_reaction_status   ← htf_counter_reaction EC status
   pro_attempt.ltf_story_status      ← ltf_counter_story EC status
 
@@ -371,7 +377,14 @@ Holds while:
 Exits:
   → C.pullback      counter MSS fires on fresh leg (ltf_counter_orderflow_mss_watch,
                     AND orderflow_leg_id != consumed_leg_id)
-  → E.seeking       HTF close above PD range (expansion resumed)</pre>
+                    c_shadow.origin_node = "D.watch_mss"   ← Layer 5 Path C gate
+  → E.seeking       HTF close above PD range (expansion resumed)
+
+D.watch hold — debug output (every bar while holding):
+  phase_d_node                       "D.watch"
+  phase_e_shadow_htf_reaction_seen   bool  ← PhaseEShadow.htf_reaction_seen
+    sticky: set once at E.stalling zone tap, never cleared within epoch
+    Layer 5 reads this for Path B context detection; immune to EC clearing on 4H close</pre>
       </div>
     </details>
 
@@ -414,16 +427,18 @@ Former D.speculation → C.pullback gate (now Layer 5):
   → C.pullback      ltf_counter_orderflow_mss_watch fires on a fresh leg
                     (orderflow engine: anchor swing low broken after pro-attempt)
                     AND orderflow_leg_id != phase_d_shadow.consumed_leg_id
+                    c_shadow.origin_node = "D.watch_mss"   ← Path C gate in Layer 5
   → E.seeking       HTF close above PD range (expansion resumed)
 
 D.watch — epoch boundary:
   → shadow cleared, DAG resets to E.seeking
 
 Layer 5 reads from D.watch snapshot (not DAG transitions):
-  ltf_counter_choch_seen   ← SC06 iChoCh: bounce failed at ITR pivot → entry signal
-  ltf_counter_sb_seen      ← macro SB counter-HTF, pullback_confirmed → entry signal
-  phase_d_shadow.choch_1   ← SL reference (pro-HTF ChoCh level)
-  phase_d_shadow.pro_attempt ← quality grading context</pre>
+  ltf_counter_choch_seen              ← SC06 iChoCh: bounce failed at ITR pivot → entry signal
+  ltf_counter_isb_seen                ← SC05 iSB same counter direction → Path A trigger
+  ltf_counter_sb_seen                 ← macro SB counter-HTF → quality context
+  phase_e_shadow_htf_reaction_seen    ← sticky bool: zone tapped before or during D.watch
+  phase_d_shadow.pro_attempt          ← quality grading context</pre>
       </div>
     </details>
 
@@ -444,28 +459,47 @@ Layer 5 reads from D.watch snapshot (not DAG transitions):
 <span class="cm">#                                   Layer 5 entry confirmation (Path B). Not a DAG gate.</span>
 <span class="cm"># ltf_counter_orderflow_mss_watch — orderflow MSS: LTF orderflow anchor swing broken on fresh leg</span>
 <span class="cm">#                                   D.watch → C.pullback gate.</span>
+<span class="cm"># new_htf_extreme                 — phase_e_context: price made a new HTF extreme (expansion resumed)</span>
+<span class="cm">#                                   D.watch → E.seeking gate (checked before MSS).</span>
 
-<span class="cm"># ── D.watch gate ───────────────────────────────────────────────────────────</span>
+<span class="cm"># ── D.watch gate — express (zone tapped before pro-attempt) ────────────────</span>
+if (
+    phase_e_shadow_node == "E.stalling"
+    and phase_e_shadow.htf_reaction_seen   <span class="cm"># htf_opposing_sd_tapped at some point</span>
+    and phase_d_shadow.node is None
+):
+    d_shadow.node = "D.watch"
+    d_shadow.watch_entered_at = cursor_time
+    d_shadow.consumed_leg_id = phase_e_shadow.source_orderflow_leg_id
+    emit phase_d_entry = "E.stalling_zone_tap", phase_d_entry_express = True
+    → D.watch
+
+<span class="cm"># ── D.watch gate — standard (pro-attempt macro ChoCh) ──────────────────────</span>
 if (
     phase_e_shadow_node == "E.pullback_developing"
     and phase_e_pro_attempt_seen   <span class="cm"># last_sc SC01/SC02 macro ChoCh pro-direction</span>
 ):
-    stamp phase_d_choch_1(trigger_type="choch", level=pro_choch_level, at=pro_attempt_started_at)
+    d_shadow.node = "D.watch"
+    d_shadow.watch_entered_at = pro_attempt_started_at
+    d_shadow.consumed_leg_id = phase_e_shadow.source_orderflow_leg_id
+    emit phase_d_entry = "E.pullback_developing"
     → D.watch
 
 <span class="cm"># ── D.watch — each bar ─────────────────────────────────────────────────────</span>
 if phase_sub_status == "watch":
-    accumulate pro_attempt quality metadata (htf_reaction_status, ltf_story_status)
-    if (
+    if new_htf_extreme:              <span class="cm"># phase_e_context: expansion resumed — checked first</span>
+        → E.seeking
+    elif (
         ltf_counter_orderflow_mss_watch          <span class="cm"># orderflow engine: anchor swing broken</span>
         and ltf_counter_orderflow_leg_id != consumed_leg_id  <span class="cm"># fresh leg</span>
     ):
         set consumed_leg_id = ltf_counter_orderflow_leg_id
+        c_shadow.origin_node = "D.watch_mss"   <span class="cm"># Layer 5 Path C reads this</span>
         → C.pullback
-    elif htf_close_above_pd_range:
-        → E.seeking
     else:
-        hold D.watch  <span class="cm"># Layer 5 reads iChoCh / counter SB from snapshot for entry confirmation</span></pre>
+        accumulate pro_attempt quality metadata (htf_reaction_status, ltf_story_status)
+        emit phase_e_shadow_htf_reaction_seen = shadow_thesis.phase_e.htf_reaction_seen
+        hold D.watch  <span class="cm"># Layer 5 reads iChoCh/iSB from snapshot for entry confirmation</span></pre>
 
     <h2 id="config"><span class="sec-num">04</span> Config</h2>
     <p>

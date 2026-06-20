@@ -28,6 +28,7 @@ def _fused(
     ltf_last_sc_dir: str | None = None,
     ltf_last_sc: dict | None = None,
     ltf_last_isc: dict | None = None,
+    ltf_internal_structure_sequence: list[dict] | None = None,
     ltf_orderflow: dict | None = None,
     htf_zones: list[dict] | None = None,
     ltf_zones: list[dict] | None = None,
@@ -71,6 +72,7 @@ def _fused(
                         or ({"breakDirection": ltf_last_sc_dir} if ltf_last_sc_dir else None)
                     ),
                     "last_isc": ltf_last_isc,
+                    "internal_structure_sequence": ltf_internal_structure_sequence or [],
                 }
                 if ltf_bias
                 else None
@@ -556,6 +558,311 @@ class TestHtfCounterReaction:
         )
         assert choch.debug_facts["ltf_counter_sb_source_store"] == "structure_sequence"
         assert not any(key.startswith("phase_d_") for key in choch.debug_facts)
+
+    def test_ltf_counter_ichoch_isb_sequence_accepts_level_valid_pair(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bearish",
+                ltf_bias="bullish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.13117,
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1312,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_ichoch_isb_sequence_seen"] is True
+        assert choch.debug_facts["ltf_counter_sequence_trade_direction"] == "long"
+        assert choch.debug_facts["ltf_counter_sequence_ichoch_level"] == 1.13117
+        assert choch.debug_facts["ltf_counter_sequence_isb_level"] == 1.1312
+        assert choch.debug_facts["ltf_counter_sequence_invalidated"] is False
+
+    def test_ltf_counter_ichoch_isb_sequence_rejects_2019_level_shape(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bearish",
+                ltf_bias="bullish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2019-03-07T02:00:00+00:00",
+                        "levelTimestamp": "2019-03-07T01:45:00+00:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.13117,
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2019-03-07T09:00:00+00:00",
+                        "levelTimestamp": "2019-03-07T08:45:00+00:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.13022,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_ichoch_isb_sequence_seen"] is False
+        assert choch.debug_facts["ltf_counter_sequence_invalidated"] is True
+        assert choch.debug_facts["ltf_counter_sequence_invalid_reason"] == "isb_level_not_beyond_ichoch"
+
+    def test_ltf_counter_ichoch_isb_sequence_rejects_intervening_opposite_ichoch(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bearish",
+                ltf_bias="bullish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.13117,
+                    },
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:10:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1305,
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:05:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1313,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_ichoch_isb_sequence_seen"] is False
+        assert choch.debug_facts["ltf_counter_sequence_invalidated"] is True
+        assert choch.debug_facts["ltf_counter_sequence_invalid_reason"] == "opposite_ichoch_between"
+
+    def test_ltf_counter_internal_pressure_classifies_none(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bullish",
+                ltf_bias="bearish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.1020,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_internal_pressure_seen"] is False
+        assert choch.debug_facts["ltf_counter_internal_pressure_class"] == "none"
+
+    def test_ltf_counter_internal_pressure_accepts_single_ichoch(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bullish",
+                ltf_bias="bearish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1000,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_internal_pressure_seen"] is True
+        assert choch.debug_facts["ltf_counter_internal_pressure_class"] == "single_ichoch"
+        assert choch.debug_facts["ltf_counter_internal_pressure_event_count"] == 1
+
+    def test_ltf_counter_internal_pressure_accepts_repeated_isb(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bullish",
+                ltf_bias="bearish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1000,
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.0990,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_internal_pressure_seen"] is True
+        assert choch.debug_facts["ltf_counter_internal_pressure_class"] == "repeated_isb"
+        assert choch.debug_facts["ltf_counter_internal_pressure_event_count"] == 2
+
+    def test_ltf_counter_internal_pressure_accepts_messy_reassertion(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bullish",
+                ltf_bias="bearish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1000,
+                    },
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.1020,
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:30:00",
+                        "levelTimestamp": "2025-01-01T10:15:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.0990,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_internal_pressure_seen"] is True
+        assert choch.debug_facts["ltf_counter_internal_pressure_class"] == "messy_reasserted"
+        assert choch.debug_facts["ltf_counter_internal_pressure_last_at"] == "2025-01-01T10:30:00"
+
+    def test_ltf_counter_internal_pressure_rejects_final_contradiction(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bullish",
+                ltf_bias="bearish",
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "down",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "low",
+                        "levelPrice": 1.1000,
+                    },
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.1020,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_counter_internal_pressure_seen"] is False
+        assert choch.debug_facts["ltf_counter_internal_pressure_class"] == "contradicted"
+        assert choch.debug_facts["ltf_counter_internal_pressure_invalid_reason"] == "final_internal_contradiction"
 
     def test_pd_and_eq_candidates_are_preserved_without_layer4_selection(self):
         ec = EvidenceCompiler()

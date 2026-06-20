@@ -1,0 +1,701 @@
+<!-- source: MEMORY.md — Layer 5 policy decision and Layer 6 lightweight analysis need
+     source: .claude/layer5-entry-contract.md — EntryIntent, SkipIntent, budget and stale rules
+     source: docs/501-entry-details.html — Layer 5 MP geometry and no-chase rule
+     algo:   src/ultrab/runtime/dual_smc.py  (headless runtime surface)
+     config: src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>601 - Layer 6 Trade Analysis — Lightweight Outcome Ledger</title>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 18px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+  .hl { color: var(--accent); }
+  .cm { color: var(--text-dim); }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">00 Core Concept</a>
+    <a href="#input">01 Input Contract</a>
+    <a href="#fill">02 Fill Model</a>
+    <a href="#outcomes">03 Outcome Rules</a>
+    <a href="#ledger">04 Result Ledger</a>
+    <a href="#budget">05 Budget / Stale</a>
+    <a href="#metrics">06 Metrics</a>
+    <a href="#algo">07 Algorithm</a>
+    <a href="#config">08 Config</a>
+    <a href="#issues">09 Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>MEMORY.md</code>
+      <code>.claude/layer5-entry-contract.md</code>
+      <code>docs/501-entry-details.html</code>
+      <code>runtime/dual_smc.py</code>
+      <code>replayer/config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 6 · Trade Analysis · Lightweight V1</div>
+      <h1>601 - Layer 6 Trade Analysis — Lightweight Outcome Ledger</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - Layer 6 V1 should be a small headless outcome recorder, not a broker simulator. It consumes accepted Layer 5 <code>EntryIntent</code> objects, assumes no spread or slippage, classifies <code>win</code>, <code>loss</code>, or <code>timeout</code>, and writes a stable <code>TradeResult</code> row. Skipped Layer 5 decisions can be recorded for audit, but they are not filled trades.
+      </div>
+      <a class="panel-link" href="./401-hypothesis.html">→ 401 Hypothesis Dataflow</a>
+      <a class="panel-link" href="./501-entry-details.html">→ 501 Entry Details</a>
+      <a class="panel-link" href="./501-entry-diagram.html">→ 501 Entry Diagram</a>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>
+      Layer 6 exists so Layer 5 can be tested like a real entry system without immediately binding it to MT5 execution, spread models, partial fills, or order reconciliation. The first version should answer one narrow question: after Layer 5 emits a valid order intent, did that intent win, lose, time out, or get skipped before entry?
+    </p>
+    <p>
+      This keeps the headless path close to the future bot. Layer 5 emits a broker-neutral <code>EntryIntent</code>; Layer 6 consumes the same shape the bot adapter would later translate into an order. The difference is that V1 fills from replay bars with intentionally simple assumptions.
+    </p>
+    <div class="rule-block">
+      Layer 6 records outcomes. It does not create entries, alter DAG phase state, or spend budget by itself.
+    </div>
+
+    <h2 id="input"><span class="sec-num">01</span> Input Contract</h2>
+    <p>
+      Layer 6 receives two intent families from Layer 5. <code>EntryIntent</code> means an order is allowed and can be simulated. <code>SkipIntent</code> means Layer 5 made an explicit no-trade decision that may be useful for later policy analysis.
+    </p>
+
+    <details open>
+      <summary>EntryIntent <span class="where">filled trade candidate</span></summary>
+      <div class="body">
+<pre class="block">EntryIntent:
+  intent_id              str
+  symbol                 str
+  timeframe              str
+  epoch_id               str
+  phase                  D | C | B | A
+  phase_episode_id       str
+  policy_name            str              <span class="cm"># D.medium, C.draft, etc.</span>
+  direction              long | short
+
+  created_at             str              <span class="cm"># Layer 5 decision time</span>
+  entry_type             market_position
+  entry_price            float
+  stop_loss              float
+  target_price           float
+  target_r               float            <span class="cm"># default 2.0, conditional 2.5</span>
+  risk_pips              float
+
+  evidence_id            str | None
+  evidence_kind          liquidity_grab | ltf_sd_zone | htf_sd_zone | None
+  trigger_event_id       str | None
+  trigger_kind           ichoch | isb | macro_sb | None</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>SkipIntent <span class="where">audit candidate, not a fill</span></summary>
+      <div class="body">
+<pre class="block">SkipIntent:
+  intent_id              str
+  symbol                 str
+  epoch_id               str
+  phase                  str
+  phase_episode_id       str
+  policy_name            str
+  created_at             str
+  skip_reason            no_budget | missing_evidence | missing_trigger |
+                         invalid_geometry | late_entry_risk_too_wide
+  budget_spent           false
+  stale_marked           bool
+  evidence_id            str | None
+  trigger_event_id       str | None</pre>
+      </div>
+    </details>
+
+    <h2 id="fill"><span class="sec-num">02</span> Fill Model</h2>
+    <p>
+      The first fill model should be deliberately simple. It should make Layer 5 measurable without giving false confidence about broker execution. V1 assumes no spread, no slippage, no partial fills, no rejected orders, and one active simulated position per accepted intent.
+    </p>
+
+    <details open>
+      <summary>Discretionary → Algorithm mapping <span class="where">execution simplification</span></summary>
+      <div class="body">
+        <p><strong>Discretionary idea:</strong> if the entry quality is gone, do not chase. If Layer 5 still allows the trade, test the clean thesis without adding broker noise yet.</p>
+        <p><strong>Algorithm mapping:</strong> fill accepted MP entries at the intent price, then scan future bars until SL, TP, or timeout fires.</p>
+      </div>
+    </details>
+
+    <pre class="block">FillModelV1:
+  fill_policy: no_spread_no_slippage
+  entry_fill: intent.entry_price
+  active_until:
+    stop_loss touched
+    target_price touched
+    timeout reached
+    dataset ends</pre>
+
+    <div class="rule-block">
+      This model is a baseline. Spread, slippage, broker minimum stop distance, partial fill, and MT5 reconciliation are later adapters, not Layer 6 V1 requirements.
+    </div>
+
+    <h2 id="outcomes"><span class="sec-num">03</span> Outcome Rules</h2>
+    <p>
+      Outcome rules must be deterministic so policy comparisons are repeatable. The ambiguous case is a bar that touches both SL and TP. V1 should use <code>loss_first</code> because intrabar path is unknown and optimism would overstate edge.
+    </p>
+
+    <details open>
+      <summary>Touch rules <span class="where">bar replay</span></summary>
+      <div class="body">
+<pre class="block">Long:
+  if bar.low  <= stop_loss:    loss
+  if bar.high >= target_price: win
+
+Short:
+  if bar.high >= stop_loss:    loss
+  if bar.low  <= target_price: win
+
+Same bar touches both:
+  same_bar_sl_tp_policy = loss_first</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>Timeout rules <span class="where">unfinished thesis</span></summary>
+      <div class="body">
+<pre class="block">Timeout:
+  if neither SL nor TP touched within max_hold_bars:
+    outcome = timeout
+    exit_time = timeout_bar.timestamp
+    exit_price = timeout_bar.close
+    r_result = mark_to_market_r(exit_price)</pre>
+      </div>
+    </details>
+
+    <h2 id="ledger"><span class="sec-num">04</span> Result Ledger</h2>
+    <p>
+      The ledger is the durable surface for analysis. It should be small enough to write on every replay run but rich enough to reconstruct what Layer 5 believed, which evidence it used, and how Layer 6 classified the result.
+    </p>
+
+<pre class="block">TradeResult:
+  result_id              str
+  intent_id              str
+  symbol                 str
+  timeframe              str
+  epoch_id               str
+  phase                  str
+  phase_episode_id       str
+  policy_name            str
+  direction              long | short
+
+  entry_time             str | None
+  entry_price            float | None
+  stop_loss              float | None
+  target_price           float | None
+  target_r               float | None
+  risk_pips              float | None
+
+  exit_time              str | None
+  exit_price             float | None
+  outcome                win | loss | timeout | skipped
+  r_result               float | None
+  bars_held              int | None
+
+  evidence_id            str | None
+  evidence_kind          str | None
+  trigger_event_id       str | None
+  trigger_kind           str | None
+  budget_spent           bool
+  stale_marked           bool
+  skip_reason            str | None</pre>
+
+    <div class="rule-block">
+      <code>skipped</code> rows are optional audit rows. They help measure no-chase behavior, but they must not be counted as filled trades in win rate.
+    </div>
+
+    <h2 id="budget"><span class="sec-num">05</span> Budget / Stale Interaction</h2>
+    <p>
+      Layer 5 owns budget and stale ledgers. Layer 6 should record the consequences, not become the owner of those ledgers. This keeps the bot path straightforward: broker execution reports can later update the same result fields without moving permission logic into analysis.
+    </p>
+
+    <details open>
+      <summary>Budget rule <span class="where">Layer 5 remains owner</span></summary>
+      <div class="body">
+<pre class="block">If EntryIntent is accepted:
+  budget_spent = true       <span class="cm"># placed or filled order, depending adapter policy</span>
+  Layer 6 records final outcome
+
+If SkipIntent is emitted:
+  budget_spent = false
+  outcome = skipped
+  skip_reason preserved
+
+If skip_reason == late_entry_risk_too_wide:
+  stale_marked = true
+  same phase episode / evidence / trigger is blocked by Layer 5</pre>
+      </div>
+    </details>
+
+    <h2 id="metrics"><span class="sec-num">06</span> Metrics</h2>
+    <p>
+      The first reports should be diagnostic, not optimized. The goal is to see whether the entry contract behaves sanely: D.medium should not chase, skipped late entries should preserve budget, and timeouts should reveal unclear geometry or weak target assumptions.
+    </p>
+
+<pre class="block">Minimum report:
+  filled_trades
+  skipped_intents
+  wins
+  losses
+  timeouts
+  win_rate
+  avg_r
+  expectancy_r
+  timeout_rate
+  stale_skip_count
+  by_phase
+  by_policy
+  by_evidence_kind
+  by_trigger_kind</pre>
+
+    <div class="rule-block">
+      Fixed 2R/2.5R is the baseline. Daily ATR geometry belongs in a later Layer 6 experiment after the result ledger is stable.
+    </div>
+
+    <h2 id="algo"><span class="sec-num">07</span> Algorithm</h2>
+    <p>
+      The algorithm is a small reducer over Layer 5 intents and replay bars. It should be reusable by a headless backtest, replay UI, and eventually the bot's dry-run mode.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on">on_intent()</button>
+        <button>advance_trade()</button>
+        <button>result row</button>
+      </div>
+<pre class="on"><span class="cm"># Layer 6 outer loop</span>
+def on_intent(intent, cursor):
+    if intent.kind == "skip":
+        return TradeResult.skipped(
+            intent=intent,
+            stale_marked=intent.stale_marked,
+        )
+
+    trade = ActiveTrade.from_entry_intent(intent)
+
+    while cursor.has_next_bar():
+        bar = cursor.next_bar()
+        result = advance_trade(trade, bar)
+        if result is not None:
+            return result
+
+    return TradeResult.timeout_or_open_end(trade, cursor.last_bar)</pre>
+<pre><span class="cm"># Deterministic touch classifier</span>
+def advance_trade(trade, bar):
+    if trade.direction == "long":
+        hit_sl = bar.low <= trade.stop_loss
+        hit_tp = bar.high >= trade.target_price
+    else:
+        hit_sl = bar.high >= trade.stop_loss
+        hit_tp = bar.low <= trade.target_price
+
+    if hit_sl and hit_tp:
+        return close_trade(trade, bar, outcome="loss")  <span class="cm"># loss_first</span>
+    if hit_sl:
+        return close_trade(trade, bar, outcome="loss")
+    if hit_tp:
+        return close_trade(trade, bar, outcome="win")
+    if trade.bars_held >= trade.max_hold_bars:
+        return close_trade(trade, bar, outcome="timeout", exit_price=bar.close)
+    return None</pre>
+<pre>def close_trade(trade, bar, outcome, exit_price=None):
+    exit_price = exit_price or (
+        trade.stop_loss if outcome == "loss" else trade.target_price
+    )
+    r_result = signed_r(
+        direction=trade.direction,
+        entry=trade.entry_price,
+        exit=exit_price,
+        risk=abs(trade.entry_price - trade.stop_loss),
+    )
+    return TradeResult(
+        intent_id=trade.intent_id,
+        outcome=outcome,
+        exit_time=bar.timestamp,
+        exit_price=exit_price,
+        r_result=r_result,
+        bars_held=trade.bars_held,
+    )</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">08</span> Config</h2>
+    <p>
+      The runtime does not yet expose a Layer 6 config block. The following shape is the proposed implementation contract.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on">config.yaml</button>
+        <button>__init__()</button>
+      </div>
+<pre class="on">replay:
+  trade_analysis:
+    enabled: true
+    fill_model: no_spread_no_slippage
+    same_bar_sl_tp_policy: loss_first
+    timeout:
+      max_hold_bars: 32
+      exit_price: close
+    record_skips: true
+    result_log:
+      enabled: true
+      format: csv
+      path: trade_results.csv</pre>
+<pre>class TradeAnalysisConfig:
+    def __init__(self, raw):
+        cfg = raw.get("replay", {}).get("trade_analysis", {})
+        self.enabled = bool(cfg.get("enabled", False))
+        self.fill_model = cfg.get("fill_model", "no_spread_no_slippage")
+        self.same_bar_sl_tp_policy = cfg.get("same_bar_sl_tp_policy", "loss_first")
+        self.max_hold_bars = int(cfg.get("timeout", {}).get("max_hold_bars", 32))
+        self.timeout_exit_price = cfg.get("timeout", {}).get("exit_price", "close")
+        self.record_skips = bool(cfg.get("record_skips", True))</pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">09</span> Open Issues</h2>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Implement Layer 5 first enough to emit intents.</b> Layer 6 depends on a stable <code>EntryIntent</code> / <code>SkipIntent</code> stream.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>Same-bar path is unknown.</b> V1 uses <code>loss_first</code>. Later testing can compare open/high/low/close path assumptions or lower-timeframe replay.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Broker realism.</b> Spread, slippage, min stop distance, order rejection, and partial fill are deliberately deferred to the bot adapter/backtest realism phase.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Daily ATR geometry.</b> ATR-shaped stops/targets should be tested after fixed 2R/2.5R produces a reliable baseline ledger.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Dataset end before timeout.</b> Mark as <code>timeout</code> with an audit flag or separate <code>open_end</code> later if this becomes common in replay windows.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>If metrics look too optimistic.</b> Keep the same Layer 5 intents and rerun Layer 6 with spread/slippage and stricter same-bar policy variants.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+  document.querySelectorAll('[data-tabs]').forEach(group => {
+    const buttons = Array.from(group.querySelectorAll('.tabbar button'));
+    const panes = Array.from(group.querySelectorAll('pre'));
+    buttons.forEach((btn, index) => {
+      btn.addEventListener('click', () => {
+        buttons.forEach(b => b.classList.remove('on'));
+        panes.forEach(p => p.classList.remove('on'));
+        btn.classList.add('on');
+        panes[index].classList.add('on');
+      });
+    });
+  });
+
+  const links = Array.from(document.querySelectorAll('nav a[href^="#"]'));
+  const sections = links.map(a => document.querySelector(a.getAttribute('href'))).filter(Boolean);
+  const mark = () => {
+    let active = sections[0];
+    for (const sec of sections) {
+      if (sec.getBoundingClientRect().top <= 120) active = sec;
+    }
+    links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === `#${active.id}`));
+  };
+  document.addEventListener('scroll', mark, { passive: true });
+  mark();
+</script>
+</body>
+</html>

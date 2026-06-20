@@ -1,0 +1,868 @@
+<!-- source: ultrab/ln-notes/4trade-identify/401.hypothesis.md (not present in this checkout; see docs/401-hypothesis.html)
+     source: docs/401-hypothesis.html
+     source: docs/402-hypothesis-phX.html
+     algo:   src/ultrab/core/smc/hypothesis.py
+     algo:   src/ultrab/runtime/dual_smc.py
+     config: src/ultrab/replayer/config.yaml -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>403 - Shadow Thesis Persistence</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    margin-right: 16px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+  .tabs {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 16px 0 8px;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  .tabbar {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    background: var(--gray-150);
+    flex-wrap: wrap;
+  }
+  .tabbar button {
+    appearance: none;
+    border: none;
+    background: none;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    padding: 10px 16px;
+    cursor: pointer;
+    border-right: 1px solid var(--border);
+  }
+  .tabbar button.on {
+    background: var(--surface);
+    color: var(--text-head);
+    border-bottom: 2px solid var(--accent);
+    margin-bottom: -1px;
+  }
+  .tabs pre {
+    display: none;
+    margin: 0;
+    padding: 16px 18px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+  }
+  .tabs pre.on { display: block; }
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+  table {
+    border-collapse: collapse;
+    max-width: 700px;
+    width: 100%;
+    margin: 16px 0;
+    font-size: 13px;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    display: block;
+  }
+  thead, tbody, tr { display: table; width: 100%; table-layout: fixed; }
+  th, td { border-bottom: 1px solid var(--border); padding: 9px 10px; text-align: left; vertical-align: top; }
+  th { color: var(--text-head); font-family: var(--mono); font-size: 11px; background: var(--gray-150); }
+  tr:last-child td { border-bottom: none; }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#concept">Core Concept</a>
+    <a href="#modes">Restart Modes</a>
+    <a href="#persist">Persistence Contract</a>
+    <a href="#bootstrap">Bootstrap Window</a>
+    <a href="#relocate">Terrain Relocation</a>
+    <a href="#algorithm">Algorithm</a>
+    <a href="#config">Config</a>
+    <a href="#issues">Open Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>docs/401-hypothesis.html</code>
+      <code>docs/402-hypothesis-phX.html</code>
+      <code>src/ultrab/core/smc/hypothesis.py</code>
+      <code>src/ultrab/runtime/dual_smc.py</code>
+      <code>src/ultrab/replayer/config.yaml</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 4 · memory and restart semantics</div>
+      <h1>403 - Shadow Thesis Persistence</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> - Shadow Thesis is the hiker's journal. Runtime now restores a saved journal when epoch/direction/anchors are valid, rebuilds it from hidden Layer 4 bootstrap bars when persistence is unavailable, and only then uses conservative terrain relocation. <code>X.none</code> is no longer the normal answer to a missing journal; it is reserved for contradictory or unsupported terrain.
+      </div>
+      <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis</a>
+      <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open DAG Map</a>
+      <a class="panel-link" href="./402-hypothesis-phX.html">→ Related: Phase X Startup States</a>
+    </header>
+
+    <h2 id="concept"><span class="sec-num">00</span> Core Concept</h2>
+    <p>
+      The DAG is the map, EC and Layer 3 are the terrain report, and Shadow Thesis is the local journal. The journal records what Layer 4 has already committed to: which pullback leg was consumed, which pro attempt opened D, which C origin is active, which B commitment extreme is protected, and which A weaken/recovery memory is still valid.
+    </p>
+    <p>
+      A restart must first decide whether the journal is still trustworthy. If it is trustworthy, the system resumes it. If the journal is missing, the system should rebuild it from hidden bars when enough local history exists. If it cannot be rebuilt, the system relocates from current terrain. Resetting to <code>E.seeking</code> or falling to <code>X.none</code> is not the default.
+    </p>
+
+    <div class="callout">
+      <div class="ico">!</div>
+      <div>
+        The 2026-02-02 startup failure happened because Layer 3 terrain was warmed but Layer 4 woke up blank. Runtime now covers this path: <code>2026-02-02T00:00:00+00:00</code> runs 300 hidden bootstrap bars and reaches <code>C.pullback</code> before the first visible bar.
+      </div>
+    </div>
+
+    <div class="callout">
+      <div class="ico">!</div>
+      <div>
+        The validity discriminator is the <b>epoch</b>, not calendar time. A saved journal from three weeks ago is valid if <code>htf_pd_epoch_id</code> is unchanged — the hiker slept a long time but woke up in the same valley. A saved journal from Friday is invalid if a new HTF BOS/ChoCh fired over the weekend — the terrain reset, so the old commitment anchors are void regardless of how little time passed.
+      </div>
+    </div>
+
+    <details open>
+      <summary>Discretionary → Algorithm mapping <span class="where">field journal</span></summary>
+      <div class="body">
+        <p><b>Discretionary:</b> if the hiker slept on the hill, his journal still describes the trip. He resumes from the same waypoint unless the terrain proves the trip is invalid.</p>
+        <p><b>Algorithm:</b> if persisted <code>HypothesisClassifierState</code> has the same <code>htf_pd_epoch_id</code> as current terrain and no hard invalidation fires, restore <code>current_hypothesis</code> and <code>shadow_thesis</code>.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Discretionary → Algorithm mapping <span class="where">lost journal</span></summary>
+      <div class="body">
+        <p><b>Discretionary:</b> if the hiker lost the journal, he walks the recent trail if footprints are visible; if not, he reads the terrain and finds the nearest defensible map node.</p>
+        <p><b>Algorithm:</b> run hidden Layer 4 bootstrap over recent bars. If that does not produce a valid journal, use direction-checked EC candidates and Layer 3 snapshots to relocate to the deepest reconstructable node.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Shadow Thesis is Layer 4 memory. It may be persisted, restored, rebuilt, or cleared, but EC must never write it. EC says what the market did; Shadow Thesis says what Layer 4 believed and committed to.
+    </div>
+
+    <h2 id="modes"><span class="sec-num">01</span> Restart Modes</h2>
+    <p>
+      Startup has three implemented recovery modes before <code>X.none</code>. The modes are ordered by trust. A saved journal is more faithful than hidden bootstrap; hidden bootstrap is more faithful than current-terrain relocation.
+    </p>
+
+    <table>
+      <thead>
+        <tr><th>Mode</th><th>Use when</th><th>Expected outcome</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>resume_saved_journal</code></td>
+          <td>Planned restart, same <code>htf_pd_epoch_id</code>, persisted state exists.</td>
+          <td>Resume A/B/C/D/E from stored <code>current_hypothesis</code> and <code>shadow_thesis</code>.</td>
+        </tr>
+        <tr>
+          <td><code>hidden_layer4_bootstrap</code></td>
+          <td>No usable saved journal, but enough bars exist before visible start.</td>
+          <td>Replay hidden bars through EC + hypothesis to reconstruct journal.</td>
+        </tr>
+        <tr>
+          <td><code>terrain_relocation</code></td>
+          <td>Journal missing and bootstrap unavailable or inconclusive.</td>
+          <td>Choose deepest reconstructable node from current EC/L3 terrain.</td>
+        </tr>
+        <tr>
+          <td><code>X.none</code></td>
+          <td>Directional terrain is contradictory or insufficient to select even E/C.</td>
+          <td>Emit diagnostic gap, not a normal startup path.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <details open>
+      <summary>Case 1 - slept on the hill <span class="where">planned maintenance</span></summary>
+      <div class="body">
+        <p>Friday ends in <code>A.watch</code> under a bullish HTF epoch. The market closes, the process stops, and Monday reopens inside the same HTF epoch. The correct startup path is to restore the persisted journal and continue <code>A.watch</code>, not to relocate to C.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Case 2 - journal missing but recent trail exists <span class="where">bootstrap</span></summary>
+      <div class="body">
+        <p>The process starts at <code>2026-02-02T00:00:00+00:00</code> with no saved journal. The implemented hidden Layer 4 bootstrap walks 300 prior 15m bars and arrives at <code>C.pullback short</code> before the first visible bar.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Case 3 - fell into the river <span class="where">terrain relocation</span></summary>
+      <div class="body">
+        <p>If saved state and bootstrap cannot reconstruct the journal, the system reads current terrain. It may relocate to A or B only if the required commitment anchors can be reconstructed. Otherwise it should stop at the deepest honest node, usually C inside HTF pullback terrain or E inside HTF open terrain.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Case 4 - long downtime, epoch unchanged <span class="where">persist still valid</span></summary>
+      <div class="body">
+        <p>The system was down for days or weeks. On restart, EC warms up and reads <code>htf_pd_epoch_id</code> from current terrain. If it matches the saved journal's epoch, the persisted journal is valid regardless of how long the system was offline. The hiker slept a long time but woke up in the same valley — same trail, same commitment line. Restore the journal, run one classify pass, continue.</p>
+        <p>Uptime tracking is not needed. The epoch check already acts as the proxy: if the HTF structure did not reset, the old commitment anchors are still valid.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Case 5 - long downtime, epoch changed <span class="where">persist voided, reconstruct new epoch</span></summary>
+      <div class="body">
+        <p>A new HTF BOS/ChoCh fired while the system was down. The saved epoch no longer matches current terrain. Reject the persisted journal — the old commitment anchors are void — and fall to the hidden Layer 4 bootstrap. The bootstrap walks the 300 bars before <code>start_time</code> and reconstructs the journal for the <em>new</em> epoch.</p>
+        <p>On 15m LTF, 300 bootstrap bars = ~75 hours. If the new epoch's C→B entry fired within that window, the bootstrap reconstructs <code>b_shadow.commitment_extreme_level</code> correctly. If C→B fired earlier, the bootstrap starts mid-epoch without the commitment anchor and terrain relocation becomes the honest fallback.</p>
+        <p>Multiple epoch changes during downtime reduce to the same case: only the current epoch matters. All prior epochs are void by definition.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Do not use terrain relocation while a valid saved journal exists. A valid journal is the highest-fidelity source of Layer 4 memory.
+    </div>
+
+    <h2 id="persist"><span class="sec-num">02</span> Persistence Contract</h2>
+    <p>
+      Persistence must capture the whole Layer 4 state required to resume a hypothesis. Saving only the phase label is unsafe because B and A depend on commitment anchors stored in shadow fields.
+    </p>
+
+    <details open>
+      <summary>Persist the classifier state <span class="where">HypothesisClassifierState</span></summary>
+      <div class="body">
+        <p>Persist <code>hypothesis_id</code>, <code>phase_episode_id</code>, <code>previous_phase</code>, <code>htf_pd_epoch_id</code>, <code>active_phase_e_direction</code>, <code>current_hypothesis</code>, and the full <code>shadow_thesis</code> tree.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Validate before restore <span class="where">epoch and direction</span></summary>
+      <div class="body">
+        <p>Restore only when current terrain still agrees with the saved epoch and direction. If current <code>htf_pd_epoch_id</code> differs, clear the journal and move to bootstrap or relocation.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Resume through normal DAG <span class="where">not raw carry</span></summary>
+      <div class="body">
+        <p>After restore, run one normal classification pass. This lets existing invalidation gates fire on the first live bar instead of blindly carrying stale state.</p>
+      </div>
+    </details>
+
+    $$restore\_ok = saved.epoch = current.epoch \land saved.direction = current.direction \land \neg hard\_invalidated$$
+
+    <pre class="block">PersistedShadowState
+  schema_version
+  saved_at
+  symbol
+  combo
+  lower_tf
+  higher_tf
+  htf_pd_epoch_id
+  active_phase_e_direction
+  previous_phase
+  current_hypothesis
+  shadow_thesis
+    phase_e
+    phase_d
+    phase_c
+    phase_b
+    phase_a</pre>
+
+    <div class="rule-block">
+      A/B resume requires B/A commitment fields, not just phase names. If <code>b_shadow.commitment_extreme_level</code> is missing, restored A should be rejected or downgraded into bootstrap/relocation.
+    </div>
+
+    <h3>Must-persist vs reconstructable fields</h3>
+    <p>Not all shadow fields need to be persisted. Fields EC can provide fresh after Layer 3 warmup are reconstructable. Fields that are historical snapshots taken at a specific past bar are not.</p>
+
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Classification</th><th>Reason</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>b_shadow.commitment_extreme_level</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>Snapshot of <code>last_sc.breakLevel</code> at C→B entry bar. <code>last_sc</code> may have advanced since then; Layer 3 only holds the current value.</td>
+        </tr>
+        <tr>
+          <td><code>b_shadow.commitment_extreme_event_id</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>Historical event ID at C→B entry. Required to verify freshness gates in A.watch.</td>
+        </tr>
+        <tr>
+          <td><code>a_shadow.entered_at</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>Timestamp of A entry bar. Layer 3 does not track when Layer 4 phase transitions fired.</td>
+        </tr>
+        <tr>
+          <td><code>a_shadow.pro_extreme_at_weaken</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>Anti-oscillation gate — price at which A.watch weakened. Required to block premature recovery re-entry.</td>
+        </tr>
+        <tr>
+          <td><code>c_shadow.origin_node</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>V1 vs V2 entry path. Determines which gates are valid inside C. Not derivable from current terrain.</td>
+        </tr>
+        <tr>
+          <td><code>c_shadow.entered_at</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>Freshness floor for C-internal gates.</td>
+        </tr>
+        <tr>
+          <td><code>e_shadow.source_orderflow_leg_id</code></td>
+          <td><span class="hl">Must persist</span></td>
+          <td>MSS leg that opened E.pullback_developing. Required to gate D.watch entry on fresh leg only.</td>
+        </tr>
+        <tr>
+          <td><code>htf_pd_epoch_id</code></td>
+          <td><span class="hl2">Reconstructable</span></td>
+          <td>EC reads this directly from HTF structure on every bar. Used for validation, not restoration.</td>
+        </tr>
+        <tr>
+          <td><code>active_phase_e_direction</code></td>
+          <td><span class="hl2">Reconstructable</span></td>
+          <td>EC reads HTF bias on every bar. Confirmed from current terrain at restore time.</td>
+        </tr>
+        <tr>
+          <td>Current phase label (E/D/C/B/A)</td>
+          <td><span class="hl2">Reconstructable</span></td>
+          <td>Derived from terrain relocation if persist fails. Not needed when persist succeeds because current_hypothesis is restored.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="rule-block">
+      <code>commitment_extreme_level</code> cannot be sourced from Layer 3 on restart. It is a historical <code>last_sc.breakLevel</code> snapshot taken at C→B entry. Layer 3 only holds the <em>current</em> <code>last_sc</code> — if any new BOS/ChoCh fired between C→B entry and the restart, Layer 3's value is wrong. Pushing this to EC would also violate ownership: EC tracks what the market did, not what Layer 4 committed to.
+    </div>
+
+    <h2 id="bootstrap"><span class="sec-num">03</span> Bootstrap Window</h2>
+    <p>
+      Runtime now splits startup context into Layer 3 terrain warmup and hidden Layer 4 bootstrap. The bootstrap slice runs hidden bars through <code>HypothesisClassifier.classify()</code> before the first visible replay bar.
+    </p>
+
+    <details open>
+      <summary>Terrain warmup <span class="where">Layer 3 only</span></summary>
+      <div class="body">
+        <p>The first slice prepares structure, zones, orderflow, and liquidity. It does not write hypothesis memory.</p>
+      </div>
+    </details>
+    <details>
+      <summary>Layer 4 bootstrap <span class="where">hidden history</span></summary>
+      <div class="body">
+        <p>The second slice runs full snapshots through EC and the hypothesis classifier. These bars are not visible replay bars, but they build the Shadow Thesis journal for the first visible bar.</p>
+      </div>
+    </details>
+
+    <pre class="block">window_bars = 500
+warmup_bars = 200
+hypothesis_bootstrap_bars = window_bars - warmup_bars
+
+start_index = requested visible start
+
+[start - 500, start - 300)  terrain warmup only
+[start - 300, start)        hidden EC + Layer 4 bootstrap
+[start]                     first visible bar with journal already built</pre>
+
+    <div class="rule-block">
+      <code>window_bars</code> should not only mean visible attention. For startup, it should define the complete context budget: terrain warmup plus hidden Layer 4 bootstrap plus the first visible bar.
+    </div>
+
+    <div class="callout">
+      <div class="ico">!</div>
+      <div>
+        On 15m LTF, 300 bootstrap bars = ~75 hours. This is the window available to reconstruct the current epoch's Shadow Thesis after a persist reject (epoch mismatch). If the new epoch's C→B entry fired within 75 hours of <code>start_time</code>, the bootstrap reconstructs <code>b_shadow.commitment_extreme_level</code> and all commitment anchors. If C→B fired earlier, the bootstrap starts mid-epoch and terrain relocation becomes the honest fallback. Extend <code>hypothesis_bootstrap_bars</code> if typical C→B onset on the HTF routinely exceeds this window.
+      </div>
+    </div>
+
+    <h2 id="relocate"><span class="sec-num">04</span> Terrain Relocation</h2>
+    <p>
+      Terrain relocation is the fallback when no valid journal exists and hidden bootstrap cannot reconstruct one. The current implementation is conservative: it can relocate honestly to C or E, and rejects A/B/D with explicit reasons until their anchors/provenance can be reconstructed.
+    </p>
+
+    <details open>
+      <summary>A relocation <span class="where">hardest</span></summary>
+      <div class="body">
+        <p>Target rule: accept only if A terrain is clear and B/A anchors are reconstructable: <code>b_shadow.commitment_extreme_level</code>, <code>b_shadow.commitment_extreme_event_id</code>, <code>phase_a.entered_at</code>, and any weaken/recovery memory needed by current substate. Current runtime rejects A relocation with an explicit diagnostic reason.</p>
+      </div>
+    </details>
+    <details>
+      <summary>B relocation <span class="where">commitment required</span></summary>
+      <div class="body">
+        <p>Target rule: accept only if B watch terrain is clear and the B commitment extreme can be reconstructed from visible LTF structure. Current runtime rejects B relocation rather than guessing the commitment extreme.</p>
+      </div>
+    </details>
+    <details>
+      <summary>C relocation <span class="where">terrain-readable</span></summary>
+      <div class="body">
+        <p>Accept when HTF is in pullback terrain and direction-checked <code>ltf_counter_story</code> / <code>phase_e_context</code> supports counter-pullback state. If selected POI exists, use <code>armed</code>; otherwise use <code>watching</code>.</p>
+      </div>
+    </details>
+    <details>
+      <summary>E relocation <span class="where">expansion terrain</span></summary>
+      <div class="body">
+        <p>Accept when HTF is open or expansion-seeking and no deeper reconstructable pullback/continuation node is supported. Runtime commits E from the current EC/L3 facts.</p>
+      </div>
+    </details>
+
+    <pre class="block">Relocation priority:
+  1. A only if B/A journal anchors can be reconstructed
+  2. B only if commitment extreme can be reconstructed
+  3. C when HTF pullback terrain is clear
+  4. D only if D.watch provenance is reconstructable
+  5. E when HTF open / expansion terrain is clear
+  6. X.none only for contradiction, not missing journal</pre>
+
+    <div class="rule-block">
+      C is not the universal restart answer. It is the honest fallback inside HTF pullback terrain when deeper B/A commitment memory cannot be reconstructed.
+    </div>
+
+    <h2 id="algorithm"><span class="sec-num">05</span> Algorithm</h2>
+    <p>
+      The restart algorithm lives in <code>DualSmcRuntime</code> initialization and classifier state handling. Normal per-bar DAG logic remains focused on current-state transitions.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">startup order</button>
+        <button data-t="1">restore state</button>
+        <button data-t="2">bootstrap loop</button>
+        <button data-t="3">relocator</button>
+      </div>
+<pre class="on"><span class="cm"># Runtime startup hierarchy implemented in DualSmcRuntime._init_engines()</span>
+def start_runtime(start_time):
+    build_engines()
+
+    saved = load_shadow_state(symbol, combo)
+    if saved:
+        warm_layer3_terrain(to_visible_start)
+    if restore_saved_journal(saved, current_terrain):
+        return start_visible_replay()
+
+    rebuild_engines()
+    warm_layer3_terrain(to_bootstrap_start)
+    if run_hidden_layer4_bootstrap():
+        return start_visible_replay()
+
+    if relocate_from_current_terrain():
+        return start_visible_replay()
+
+    return start_visible_replay_with_x_none_diagnostics()</pre>
+<pre>def restore_saved_journal(saved, terrain):
+    if not saved:
+        return False
+    if saved.schema_version != CURRENT_SCHEMA:
+        return False
+    if saved.htf_pd_epoch_id != terrain.htf_pd_epoch_id:
+        return False
+    if saved.active_phase_e_direction != terrain.direction:
+        return False
+    if saved.current_hypothesis.phase in {"A", "B"} \
+       and not saved.shadow_thesis.phase_b.commitment_extreme_level:
+        return False
+
+    classifier.state = deserialize(saved.classifier_state)
+    <span class="cm"># Let the next normal classify pass invalidate if needed.</span>
+    return True</pre>
+<pre>def run_hidden_layer4_bootstrap():
+    start = lower_start_index - hypothesis_bootstrap_bars
+    for idx in range(start, lower_start_index):
+        step_layer3_to(idx)
+        payload = snapshot(classify=False)
+        payload.evidence_candidates = ec.update(payload.context_snapshot)
+        classifier.classify(payload)
+
+    return classifier.state.current_hypothesis.phase in {"A", "B", "C", "D", "E"}</pre>
+<pre>def relocate_from_current_terrain():
+    candidates = [
+        reject_a_until_anchors_reconstructable(),
+        reject_b_until_commitment_reconstructable(),
+        relocate_c_if_supported(),
+        reject_d_until_watch_provenance_reconstructable(),
+        relocate_e_if_supported(),
+    ]
+    selected = first_ready(candidates)
+    if not selected:
+        return False
+    write_reconstructed_shadow(selected)
+    commit_hypothesis(selected)
+    return True</pre>
+    </div>
+
+    <h2 id="config"><span class="sec-num">06</span> Config</h2>
+    <p>
+      Runtime reads the existing <code>replay.hypothesis</code> block and adds restart-specific keys with safe defaults. If <code>hypothesis_bootstrap_bars</code> is absent, it defaults to <code>window_bars - warmup_bars</code>.
+    </p>
+
+    <div class="tabs" data-tabs>
+      <div class="tabbar">
+        <button class="on" data-t="0">supported config</button>
+        <button data-t="1">archived runtime</button>
+        <button data-t="2">implemented init</button>
+      </div>
+<pre class="on">data:
+  window_bars: 500
+
+replay:
+  warmup_bars: 200
+  hypothesis:
+    enabled: true
+    phase_a:
+      objective_progress_threshold: 0.90
+    persist_shadow_state: true
+    shadow_state_path: ".runtime/shadow-thesis"
+    bootstrap_mode: "window_remainder"
+    hypothesis_bootstrap_bars: null  <span class="cm"># null => window_bars - warmup_bars</span>
+    terrain_relocation_enabled: true
+    x_none_only_on_contradiction: true</pre>
+<pre><span class="cm"># Archived behavior before restart hierarchy</span>
+self.warmup_bars = int(self.replay_config.get("warmup_bars", 200))
+self.lower_start_index = self._resolve_index(self.lower_bars, start_time, lower_window_start_index)
+self.current_lower_index = self.lower_start_index - 1
+self.evidence_compiler = EvidenceCompiler()
+self.hypothesis_classifier = HypothesisClassifier(...)
+
+self._warm_lower_engines()
+self._warm_higher_engines()
+self._warm_liquidity_lower_interactions()
+<span class="cm"># classify() is not called before the first visible bar.</span></pre>
+<pre><span class="cm"># Implemented runtime behavior</span>
+self._build_engines()
+
+saved = self._startup_saved_shadow_state or self._load_configured_shadow_state()
+if saved:
+    self._warm_layer3_to_lower_index(self.lower_start_index)
+    if self._restore_saved_shadow_state(saved):
+        return
+    self._build_engines()
+
+self._warm_layer3_to_lower_index(self._hypothesis_bootstrap_start_index())
+if not self._run_hidden_layer4_bootstrap():
+    self._relocate_hypothesis_from_terrain()
+
+<span class="cm"># First visible bar now starts with restored, bootstrapped,
+# or relocated Layer 4 context.</span></pre>
+    </div>
+
+    <h2 id="issues"><span class="sec-num">07</span> Open Issues</h2>
+    <p>
+      This note now records the implemented restart contract. Remaining work is mostly around deeper relocation and Layer 5 entry permission.
+    </p>
+
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Persist Shadow Thesis state.</b> Runtime serializes and restores <code>HypothesisClassifierState</code>, including full phase-owned shadow ledgers and schema/version metadata.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Hidden Layer 4 bootstrap.</b> Runtime splits startup context into terrain warmup plus hidden hypothesis bootstrap. The 2026-02-02 random wake-up uses 300 hidden bars and reaches <code>C.pullback short</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Conservative terrain relocation.</b> Runtime can relocate to C/E and emits explicit rejection reasons for A/B/D until their commitment anchors or watch provenance are reconstructable.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Edge Case</div>
+        <p><b>Weekend maintenance.</b> Test coverage finds the last pre-gap bar and first post-gap bar from the local data. If epoch and anchors match, restart must use <code>resume_saved_journal</code>; fuller validation can wait for bot-layer operation.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Fallback</div>
+        <p><b>Missing or stale saved journal.</b> Runtime rejects persisted state on schema mismatch, epoch mismatch, direction mismatch, or missing required anchors, then runs hidden bootstrap before terrain relocation.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Narrow <code>X.none</code> role.</b> Missing Layer 4 context now attempts restore, bootstrap, and relocation first. <code>X.none</code> is reserved for unsupported or contradictory terrain.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Direction-sensitive EC reads.</b> Layer 4 now uses direction-checked candidate reads for direction-sensitive E/C/D/B/A gates, which is required before terrain relocation can be trusted.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Next Milestone</div>
+        <p><b>Build Layer 5 entry permission.</b> Shadow Thesis restart is sufficient for random wake-up testing. Next work is executable entry permission on top of the DAG shadow surfaces.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+document.querySelectorAll("[data-tabs]").forEach(box => {
+  const btns = box.querySelectorAll("button");
+  const panes = box.querySelectorAll("pre");
+  btns.forEach(b => b.addEventListener("click", () => {
+    btns.forEach(x => x.classList.remove("on"));
+    panes.forEach(x => x.classList.remove("on"));
+    b.classList.add("on");
+    panes[+b.dataset.t].classList.add("on");
+  }));
+});
+
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks = document.querySelectorAll("nav a[href^='#']");
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

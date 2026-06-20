@@ -194,6 +194,10 @@ class StructureEngine:
                 )
             ),
         )
+        self._internal_structure_sequence_limit = max(
+            1,
+            int(config.get("internal_structure_sequence_limit", self._structure_sequence_limit)),
+        )
 
         # tier-specific PE codes and SC range codes (SC01–SC04)
         if self._tier == "itr":
@@ -260,6 +264,7 @@ class StructureEngine:
         self._latest_level_low: StructureLevel | None = None
         self._structure_attempt: StructureAttempt | None = None
         self._structure_sequence: list[StructureSequencePoint] = []
+        self._internal_structure_sequence: list[dict[str, Any]] = []
 
         # warmup gate — flips True on first SC; post-warmup uses wick range
         self._warmup_complete: bool = False
@@ -370,6 +375,10 @@ class StructureEngine:
             point.to_dict()
             for point in self._structure_sequence
         ]
+        internal_structure_sequence = [
+            dict(event)
+            for event in self._internal_structure_sequence
+        ]
         orderflow_anchor_sequence = [
             self._orderflow_anchor_point(point)
             for point in self._structure_sequence
@@ -406,6 +415,8 @@ class StructureEngine:
                 else None
             ),
             "last_isc":      self._last_isc.to_dict() if self._last_isc else None,
+            "internal_structure_sequence": internal_structure_sequence,
+            "recent_internal_structure_events": internal_structure_sequence,
             "structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
             "ltf_structure_attempt": self._structure_attempt.to_dict() if self._structure_attempt else None,
             "structure_sequence": structure_sequence,
@@ -1076,12 +1087,14 @@ class StructureEngine:
                     self._last_isb_level_id = lh.level_id
                     sc = self._make_isc(ts, lh, "high", "up", choch=False)
                     self._last_isc = sc
+                    self._remember_internal_structure_event(sc)
                     return sc
             # iChoCh: close below latest confirmed ITR low (breaks HL)
             if ll and close < ll.price and self._last_ichoch_level_id != ll.level_id:
                 self._last_ichoch_level_id = ll.level_id
                 sc = self._make_isc(ts, ll, "low", "down", choch=True)
                 self._last_isc = sc
+                self._remember_internal_structure_event(sc)
                 return sc
 
         elif self._bias == "bearish":
@@ -1091,15 +1104,24 @@ class StructureEngine:
                     self._last_isb_level_id = ll.level_id
                     sc = self._make_isc(ts, ll, "low", "down", choch=False)
                     self._last_isc = sc
+                    self._remember_internal_structure_event(sc)
                     return sc
             # iChoCh: close above latest confirmed ITR high (breaks LH)
             if lh and close > lh.price and self._last_ichoch_level_id != lh.level_id:
                 self._last_ichoch_level_id = lh.level_id
                 sc = self._make_isc(ts, lh, "high", "up", choch=True)
                 self._last_isc = sc
+                self._remember_internal_structure_event(sc)
                 return sc
 
         return None
+
+    def _remember_internal_structure_event(self, sc: ScEvent) -> None:
+        self._internal_structure_sequence.append(sc.to_dict())
+        if len(self._internal_structure_sequence) > self._internal_structure_sequence_limit:
+            self._internal_structure_sequence = self._internal_structure_sequence[
+                -self._internal_structure_sequence_limit :
+            ]
 
     def _is_hh_or_seed(self, level: StructureLevel) -> bool:
         """True if the given ITR high is higher than the previous same-side ITR level,

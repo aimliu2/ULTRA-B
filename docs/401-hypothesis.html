@@ -316,7 +316,7 @@
 
 <header>
   <h1>401 · Layer 4 Hypothesis — Dataflow</h1>
-  <p>Click any component to read its contract. Layer 3 feeds Layer 4; Layer 4 feeds Layer 5.</p>
+  <p>Click any component to read its contract. Layer 3 feeds Layer 4; Layer 4 emits the hypothesis snapshot consumed downstream by Layer 5.</p>
 </header>
 
 <div class="epigraph">
@@ -356,25 +356,21 @@ flowchart TD
     DAG -->|"phase committed"| SHADOW
   end
 
-  subgraph SG5["Layer 5 — Output"]
-    direction LR
-    L5H["06 · hyp · Hypothesis dict"]
-    L5S["07 · ep · Shadow episode fields"]
+  subgraph SG5["Layer 5 — Entry Permission"]
+    L5P["06 · l5 · Entry Permission Consumer"]
   end
 
   EC -->|"evidence_candidates"| DAG
   EC -->|"evidence_candidates"| OUT
   SNAP -->|"display fields · POI validation"| OUT
-  OUT --> L5H
-  OUT --> L5S
+  OUT -->|"hypothesis snapshot"| L5P
 
   click EC nodeClick
   click SNAP nodeClick
   click DAG nodeClick
   click SHADOW nodeClick
   click OUT nodeClick
-  click L5H nodeClick
-  click L5S nodeClick
+  click L5P nodeClick
     </div>
     <button class="pan-reset" data-wrap="wrap-1">reset</button>
     <div class="pan-hint">scroll to zoom · drag to pan</div>
@@ -543,50 +539,22 @@ Projected episode fields:
   none_origin_phase  — best-effort: which phase preceded this none
   currentTimestamp   — str
   currentPrice       — float</div>
-<div class="rule-block">The Output Constructor does not make decisions. Decisions are the DAG's job. This step only compiles the chosen state into the standard output shape.</div>`,
+<div class="rule-block">The Output Constructor does not make entry decisions. It compiles the committed Layer 4 state into the standard snapshot surface that Layer 5 reads after the phase decision is settled for the bar.</div>
+<a class="panel-link" href="./501-entry-details.html">→ Open 501 Layer 5 Entry Details</a>
+<a class="panel-link" href="./501-entry-diagram.html">→ Open 501 Layer 5/6 Diagram</a>`,
     },
 
-    L5H: {
+    L5P: {
       num:   "06",
       tag:   "Layer 5",
-      title: "Hypothesis dict",
-      meta:  "per-bar output consumed by Layer 5 for trade execution decisions",
+      title: "Entry Permission Consumer",
+      meta:  "downstream consumer of the committed hypothesis snapshot",
       body:  `
-<p>The Hypothesis dict is the per-bar output of Layer 4. Layer 5 reads it to determine whether to open, hold, or close a position.</p>
-<p>Layer 5 uses the following fields primarily:</p>
-<ul>
-  <li><code>phase</code> + <code>direction</code> — which phase is active and in which direction</li>
-  <li><code>poi_id</code> — the confirmed entry zone to watch</li>
-  <li><code>entry_policy</code> — the trigger specification (ChoCh confirm, rejection candle, etc.)</li>
-  <li><code>target_policy</code> — the target specification (HTF P/D objective, EQ pool, etc.)</li>
-  <li><code>invalidation</code> — the level that closes the thesis if breached</li>
-  <li><code>episode_status</code> — whether the thesis is open, confirming, or confirmed</li>
-</ul>
-<div class="rule-block">Layer 5 is a passive consumer. It does not re-evaluate market structure. It acts on what Layer 4 has already decided.</div>`,
-    },
-
-    L5S: {
-      num:   "07",
-      tag:   "Layer 5",
-      title: "Shadow episode fields",
-      meta:  "lifecycle state for the active trade thesis; used by Layer 5 for position management",
-      body:  `
-<p>Shadow episode fields are emitted alongside the Hypothesis dict to give Layer 5 the full lifecycle context of the current trade thesis.</p>
-<div class="code-block">episode_status values:
-  open        — phase entered, no position yet
-  confirming  — entry triggered, waiting for follow-through
-  confirmed   — thesis validated (target approached or hit)
-  failed      — invalidation hit before target
-  suppressed  — re-entry blocked after failure
-  expired     — epoch reset or structural expiry</div>
-<p>Layer 5 uses <code>episode_status</code> to:</p>
-<ul>
-  <li>Know when to arm entry triggers (<code>open</code>)</li>
-  <li>Know when a position is live (<code>confirming</code>)</li>
-  <li>Know when to close and wait (<code>failed</code> / <code>suppressed</code>)</li>
-  <li>Know when the thesis completed successfully (<code>confirmed</code>)</li>
-</ul>
-<div class="rule-block">Shadow episode fields are for Layer 5 consumption only. Layer 4 keeps its own internal shadow thesis state — these fields are a projected subset of that state.</div>`,
+<p>This node is intentionally small on the Layer 4 diagram. It marks the downstream boundary: Layer 4 emits the committed hypothesis snapshot; Layer 5 consumes that snapshot after the DAG and Shadow Thesis have settled for the bar.</p>
+<p>Layer 5 has its own detailed contract for entry evidence, trigger rules, budget, stale opportunities, and order intents. Those details belong in the 501 notes, not in the Layer 4 dataflow diagram.</p>
+<div class="rule-block">Layer 5 is downstream. It must not advance DAG phase state or rewrite Shadow Thesis memory.</div>
+<a class="panel-link" href="./501-entry-details.html">→ Open 501 Layer 5 Entry Details</a>
+<a class="panel-link" href="./501-entry-diagram.html">→ Open 501 Layer 5 Wiring Diagram</a>`,
     },
   };
 

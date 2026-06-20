@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- source: MEMORY.md; .claude/layer5-entry-contract.md; docs/501-entry-details.html; docs/601-trade-analysis-details.html -->
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>501 · Layer 5 Entry — Layer 6 Wiring Diagram</title>
+
+  <script src="../assets/mermaid.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #FAF9F5;
+      --surface:   #ffffff;
+      --border:    #D1CFC5;
+      --accent:    #D97757;
+      --accent2:   #788C5D;
+      --text:      #3D3D3A;
+      --text-dim:  #87867F;
+      --text-head: #141413;
+      --tag-bg:    #E3DACC;
+      --tag-text:  #3D3D3A;
+      --panel-w:   410px;
+    }
+
+    body {
+      font-family: ui-serif, Georgia, "Times New Roman", serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 18px 32px 14px;
+      border-bottom: 1.5px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    header h1 {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--text-head);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 3px;
+      font-style: italic;
+    }
+
+    .epigraph {
+      padding: 12px 32px;
+      background: #F0EEE6;
+      border-bottom: 1.5px solid var(--border);
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.8;
+      font-style: italic;
+      flex-shrink: 0;
+    }
+    .epigraph span { display: block; }
+    .epigraph .panel-link {
+      display: inline-block;
+      margin-top: 8px;
+      margin-right: 18px;
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      border-bottom: 1px solid transparent;
+      font-style: normal;
+    }
+    .epigraph .panel-link:hover { border-bottom-color: var(--accent); }
+
+    .layout {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      min-height: 0;
+    }
+    .layout-single { flex-direction: row; }
+
+    .diagram-wrap {
+      flex: 1;
+      overflow: hidden;
+      position: relative;
+      cursor: grab;
+      user-select: none;
+      background-color: var(--bg);
+      background-image: radial-gradient(circle, #C8C4BA 1px, transparent 1px);
+      background-size: 28px 28px;
+      min-width: 0;
+    }
+    .diagram-wrap.panning { cursor: grabbing; }
+    .diagram-wrap .mermaid {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+    .diagram-wrap .mermaid svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .pan-reset {
+      position: absolute;
+      bottom: 14px;
+      left: 14px;
+      z-index: 10;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      color: var(--text-dim);
+      font-family: system-ui, -apple-system, sans-serif;
+      font-size: 11px;
+      padding: 4px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    .pan-reset:hover { color: var(--text-head); border-color: var(--accent); }
+    .pan-hint {
+      position: absolute;
+      bottom: 14px;
+      right: 14px;
+      z-index: 10;
+      font-size: 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      color: var(--text-dim);
+      pointer-events: none;
+      opacity: 0.7;
+    }
+
+    .mermaid .node rect,
+    .mermaid .node polygon,
+    .mermaid .node circle,
+    .mermaid .node ellipse {
+      cursor: pointer;
+      transition: stroke 0.15s ease;
+    }
+    .mermaid .node:hover rect,
+    .mermaid .node:hover polygon {
+      stroke: var(--accent) !important;
+    }
+    .mermaid .edgePath.dashed path {
+      stroke-dasharray: 6 4;
+      stroke: #B8B4AA;
+    }
+
+    .side-panel {
+      width: var(--panel-w);
+      min-width: var(--panel-w);
+      border-left: 1.5px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 20px 22px 16px;
+      border-bottom: 1.5px solid var(--border);
+      flex-shrink: 0;
+    }
+    .panel-header .node-num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #C8C4BA;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      line-height: 1;
+      margin-right: 8px;
+    }
+    .panel-header .layer-tag {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      background: var(--tag-bg);
+      color: var(--text-dim);
+      border: 1.5px solid var(--border);
+      border-radius: 22px;
+      padding: 2px 10px;
+      font-family: system-ui, -apple-system, sans-serif;
+      vertical-align: middle;
+    }
+    .panel-header .node-num-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+    .panel-header h2 {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-head);
+      line-height: 1.4;
+    }
+    .panel-header .meta {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 5px;
+      font-style: italic;
+    }
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 22px 28px;
+    }
+    .panel-body p {
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--text);
+      margin-top: 12px;
+    }
+    .panel-body p:first-child { margin-top: 0; }
+    .panel-body strong { color: var(--text-head); font-weight: 600; }
+    .panel-body ul {
+      margin-top: 10px;
+      padding-left: 16px;
+    }
+    .panel-body ul li {
+      font-size: 13px;
+      line-height: 1.75;
+      color: var(--text);
+      margin-top: 5px;
+    }
+    .panel-body .rule-block {
+      margin-top: 16px;
+      padding: 11px 14px;
+      background: #F0EEE6;
+      border-left: 3px solid var(--accent);
+      border-radius: 0 8px 8px 0;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.7;
+      font-style: italic;
+    }
+    .panel-body .code-block {
+      margin-top: 12px;
+      background: #F0EEE6;
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-size: 11.5px;
+      line-height: 1.65;
+      color: var(--text);
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .panel-body .panel-link {
+      display: inline-block;
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-family: system-ui, -apple-system, sans-serif;
+      border-bottom: 1px solid transparent;
+    }
+    .panel-body .panel-link:hover { border-bottom-color: var(--accent); }
+    .panel-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 8px;
+      color: var(--text-dim);
+      font-size: 13px;
+      text-align: center;
+      padding: 32px;
+      font-style: italic;
+    }
+    .panel-empty .arrow-hint { font-size: 22px; opacity: 0.25; }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    @keyframes shimmer {
+      0%   { background-position: -200% 0; }
+      100% { background-position:  200% 0; }
+    }
+    .diagram-loader {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      background: linear-gradient(90deg, var(--tag-bg) 25%, #F5F2EC 50%, var(--tag-bg) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.6s ease-in-out infinite;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+    .diagram-loader.done { opacity: 0; pointer-events: none; }
+    .diagram-wrap.loading .mermaid {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>501 · Layer 5 Entry — Layer 6 Wiring Diagram</h1>
+  <p>Click any component to inspect the contract from Layer 3 entry facts and Layer 4 hypothesis snapshot to entry intent and trade result.</p>
+</header>
+
+<div class="epigraph">
+  <span>Layer 5 decides whether an executable order intent exists. Layer 6 records what happened after that intent, including win, loss, timeout, and skipped opportunities.</span>
+  <a class="panel-link" href="./401-hypothesis.html">→ 401 Hypothesis Dataflow</a>
+  <a class="panel-link" href="./501-entry-details.html">→ 501 Entry Details</a>
+  <a class="panel-link" href="./601-trade-analysis-details.html">→ 601 Trade Analysis Details</a>
+</div>
+
+<div class="layout layout-single">
+  <div class="diagram-wrap loading" id="wrap-1">
+    <div class="diagram-loader" id="loader-1"></div>
+    <div class="mermaid">
+%%{init: {"theme": "base", "themeVariables": {
+  "primaryColor":"#E3DACC",
+  "primaryTextColor":"#141413",
+  "primaryBorderColor":"#C8C4BA",
+  "lineColor":"#87867F",
+  "secondaryColor":"#F0EEE6",
+  "tertiaryColor":"#FAF9F5",
+  "edgeLabelBackground":"#FAF9F5",
+  "fontFamily":"ui-serif, Georgia, serif"
+}}}%%
+flowchart TD
+  subgraph L3["Layer 3 — Entry Contract"]
+    L3C["01 · l3 · Entry Facts Contract"]
+  end
+
+  subgraph L4["Layer 4 — Hypothesis Runtime"]
+    SNAP["02 · snapshot · Hypothesis Snapshot"]
+  end
+
+  subgraph L5["Layer 5 — Entry Permission"]
+    direction TB
+    POLICY["03 · policy · Phase Entry Policy"]
+    EVID["04 · evidence · CounterEntryEvidence"]
+    TRIGGER["05 · d-trigger · D.watch Trigger"]
+    BUDGET["06 · budget · Budget + Stale Ledger"]
+    GEOM["07 · geometry · SL / Target Geometry"]
+    INTENT["08 · intent · EntryIntent / SkipIntent"]
+  end
+
+  subgraph L6["Layer 6 — Lightweight Trade Analysis"]
+    direction TB
+    FILL["09 · fill · Fill Model V1"]
+    OUTCOME["10 · outcome · Win / Loss / Timeout"]
+    LEDGER["11 · ledger · TradeResult Ledger"]
+    REPORT["12 · analysis · Policy Metrics"]
+  end
+
+  SNAP -->|"phase · direction · episode"| POLICY
+  L3C -->|"evidence IDs · trigger facts"| EVID
+  L3C -->|"D trigger facts"| TRIGGER
+  POLICY -->|"phase D: D.medium"| EVID
+  EVID -->|"D evidence first"| TRIGGER
+  BUDGET -->|"ticket + stale guard"| TRIGGER
+  TRIGGER -->|"fresh D trigger"| GEOM
+  EVID -->|"SL boundary"| GEOM
+  GEOM -->|"risk band pass/fail"| INTENT
+  INTENT -->|"accepted entry only"| FILL
+  INTENT -.->|"skip audit"| LEDGER
+  FILL --> OUTCOME
+  OUTCOME --> LEDGER
+  LEDGER --> REPORT
+
+  click L3C nodeClick
+  click SNAP nodeClick
+  click POLICY nodeClick
+  click EVID nodeClick
+  click TRIGGER nodeClick
+  click BUDGET nodeClick
+  click GEOM nodeClick
+  click INTENT nodeClick
+  click FILL nodeClick
+  click OUTCOME nodeClick
+  click LEDGER nodeClick
+  click REPORT nodeClick
+    </div>
+    <button class="pan-reset" data-wrap="wrap-1">reset</button>
+    <div class="pan-hint">scroll to zoom · drag to pan</div>
+  </div>
+
+  <aside class="side-panel" id="panel-1">
+    <div class="panel-header" id="panel-1-header" style="display:none"></div>
+    <div class="panel-body" id="panel-1-body"></div>
+    <div class="panel-empty" id="panel-1-empty">
+      <div class="arrow-hint">←</div>
+      <div>Click a component to read<br>its Layer 5/6 contract.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+  const DETAIL = {
+    L3C: {
+      num: "01",
+      tag: "Layer 3",
+      title: "Entry Facts Contract",
+      meta: "EC facts and context object IDs required by Layer 5",
+      body: `
+<p>Layer 5 does need a Layer 3 contract. It should not inspect raw structure, liquidity, or S/D engines directly. Layer 3/EC emits facts, event IDs, and object IDs; Layer 5 resolves entry permission and geometry from that stable surface.</p>
+<div class="code-block">Existing trigger facts:
+  ltf_counter_choch_seen / event_at / level / event_id
+  ltf_counter_sb_seen    / event_at / level / event_id
+
+Required before full D Path A:
+  ltf_counter_isb_seen / event_at / level / event_id / source_store
+
+Evidence pointers:
+  ltf_counter_story.selected_poi
+  ltf_counter_story.ltf_counter_sd_zone_ids
+  htf_counter_reaction.htf_opposing_sd_zone_ids
+  htf_counter_reaction.liquidity_reclaim_candidates
+
+Context lookup:
+  context_snapshot.zones
+  context_snapshot.liquidity.current_triggerable_liquidity_events</div>
+<div class="rule-block">Layer 3 reports facts and IDs. Layer 5 chooses whether those facts are enough for entry and computes SL/target geometry.</div>
+<a class="panel-link" href="./312-EC-context-group.html">→ 312 Evidence Compiler Context</a>
+<a class="panel-link" href="./501-entry-details.html#boundary">→ 501 DAG / Layer 5 Boundary</a>`
+    },
+
+    SNAP: {
+      num: "02",
+      tag: "Layer 4",
+      title: "Hypothesis Snapshot",
+      meta: "committed phase state after DAG + Shadow Thesis update",
+      body: `
+<p>The snapshot is the Layer 4 output that Layer 5 reads. It names the active phase, direction, phase episode, and projected shadow fields after the DAG decision for the current bar is already committed.</p>
+<div class="code-block">Layer 5 reads:
+  phase
+  phase_sub_status
+  direction
+  episode_id / phase_episode_id
+  currentTimestamp
+  currentPrice
+  hypothesis.debug_facts</div>
+<div class="rule-block">Layer 5 does not change this snapshot. It consumes the committed state and emits an entry or skip intent downstream.</div>
+<a class="panel-link" href="./401-hypothesis.html">→ 401 Hypothesis Dataflow</a>`
+    },
+
+    POLICY: {
+      num: "03",
+      tag: "Layer 5",
+      title: "Phase Entry Policy",
+      meta: "phase-specific permission mode; D defaults to medium",
+      body: `
+<p>The policy layer chooses which phase-specific rule is active. Phase D is the first fully specified policy and defaults to <strong>medium</strong>.</p>
+<div class="code-block">D.medium:
+  require D.watch
+  require one evidence object first
+  require fresh D.watch trigger second
+  require execution quality pass
+
+No-trade V1:
+  E: budget 0
+  X: budget 0</div>
+<p>Remaining C/B/A entry policies stay draft until their iChoCh rules are finalized. They should get their own trigger contracts rather than reusing the D Path A/B rule by default.</p>
+<a class="panel-link" href="./501-entry-details.html">→ 501 Entry Details</a>`
+    },
+
+    EVID: {
+      num: "04",
+      tag: "Layer 5",
+      title: "CounterEntryEvidence",
+      meta: "single resolved evidence object for SL and quality",
+      body: `
+<p>The evidence object is a Layer 5 resolver output built from EC candidates plus current context snapshot objects. It can be a liquidity grab, LTF S/D zone, or later a stricter HTF S/D zone.</p>
+<div class="code-block">CounterEntryEvidence:
+  evidence_kind: liquidity_grab | ltf_sd_zone | htf_sd_zone
+  evidence_id
+  direction
+  presented_at
+  high / low / level
+  sl_side
+  sl_price_raw
+  sl_buffer_pips
+  sl_price</div>
+<div class="rule-block">Medium policy needs evidence before trigger. If the trigger appears first, the setup is incomplete for D.medium.</div>
+<a class="panel-link" href="./501-entry-details.html#phase-d">→ Phase D evidence policy</a>`
+    },
+
+    TRIGGER: {
+      num: "05",
+      tag: "Layer 5",
+      title: "D.watch Trigger Contract",
+      meta: "Phase D-only Path A / Path B trigger after evidence",
+      body: `
+<p>This node is Phase D-specific. Path A and Path B came from the old <code>D.speculation</code> mechanics and now belong to Layer 5 entry confirmation while the DAG holds <code>D.watch</code>.</p>
+<div class="code-block">Path A:
+  fresh counter iChoCh
+  OR iChoCh followed by same-direction internal iSB
+
+Path B:
+  fresh macro counter SB fallback
+
+Freshness:
+  trigger.event_at > evidence.presented_at
+  trigger.event_at > phase_d_shadow.watch_entered_at</div>
+<div class="rule-block">Do not reuse this trigger contract for C, B, or A by default. Those phases need separate entry trigger contracts when their iChoCh rules are decided.</div>
+<div class="rule-block">A valid D trigger is not enough by itself. The geometry gate still rejects late entries whose evidence-based stop is too wide.</div>
+<a class="panel-link" href="./402-hypothesis-phD.html">→ 402 Phase D</a>`
+    },
+
+    BUDGET: {
+      num: "06",
+      tag: "Layer 5",
+      title: "Budget + Stale Ledger",
+      meta: "spend only on placed/filled orders; skip preserves budget",
+      body: `
+<p>Budget is scoped to <code>htf_pd_epoch_id</code>. The stale ledger blocks repeated attempts on the same missed opportunity without consuming the epoch ticket.</p>
+<div class="code-block">Default V1 budget:
+  D first=1, reentry=0
+  C/B/A first=1, reentry=1
+  E/X first=0, reentry=0
+
+Stale reason:
+  late_entry_risk_too_wide</div>
+<div class="rule-block">Spend budget only when an order is actually placed or filled. A skipped late setup saves budget and waits for the next independent phase episode.</div>
+<a class="panel-link" href="./501-entry-details.html#budget">→ Budget details</a>`
+    },
+
+    GEOM: {
+      num: "07",
+      tag: "Layer 5",
+      title: "SL / Target Geometry",
+      meta: "evidence boundary plus buffer, then R target",
+      body: `
+<p>Stop loss is anchored to the evidence, not to a generic fixed distance. The risk band exists to reject late execution, not to force every trade into exactly 20 pips.</p>
+<div class="code-block">SL rule:
+  liquidity evidence: use grabbed high/low + buffer
+  LTF S/D evidence: use other side of zone + buffer
+  HTF S/D evidence: use counter HTF zone boundary + buffer
+
+Risk quality:
+  preferred EURUSD band: 15-25 pips
+  above max_risk_pips: skip stale, no chase
+
+Target:
+  default 2R
+  upgrade 2.5R only when HTF runway supports it</div>
+<div class="rule-block">Future Layer 6 tests can replace fixed R with a Daily ATR shape, but V1 needs a simple measurable baseline.</div>
+<a class="panel-link" href="./601-trade-analysis-details.html">→ 601 Trade Analysis Details</a>`
+    },
+
+    INTENT: {
+      num: "08",
+      tag: "Layer 5",
+      title: "EntryIntent / SkipIntent",
+      meta: "neutral handoff shape for backtest and MT5 bot",
+      body: `
+<p>The output of Layer 5 is an intent object. This keeps the headless module deployable: the bot can import the same library contract and translate accepted intents into broker orders later.</p>
+<div class="code-block">EntryIntent:
+  intent_id
+  symbol
+  direction
+  entry_price
+  stop_loss
+  target_price
+  risk_pips
+  target_r
+  evidence_id
+  trigger_event_id
+
+SkipIntent:
+  skip_reason
+  budget_spent = false
+  stale_marked = true|false</div>
+<a class="panel-link" href="./501-entry-details.html#algo">→ Layer 5 algorithm</a>`
+    },
+
+    FILL: {
+      num: "09",
+      tag: "Layer 6",
+      title: "Fill Model V1",
+      meta: "headless outcome simulation with no spread/slippage",
+      body: `
+<p>Layer 6 V1 is intentionally lightweight. It receives accepted market-position intents and walks future bars until the stop, target, or timeout condition resolves.</p>
+<div class="code-block">V1 assumptions:
+  no spread
+  no slippage
+  market-position entry at intent price
+  same-bar SL/TP collision: loss_first
+  timeout: exit at close after max_hold_bars</div>
+<div class="rule-block">This is close enough to validate Layer 5 policy before broker-specific execution is added, while still keeping the order contract deployable.</div>
+<a class="panel-link" href="./601-trade-analysis-details.html#fill">→ Fill model details</a>`
+    },
+
+    OUTCOME: {
+      num: "10",
+      tag: "Layer 6",
+      title: "Win / Loss / Timeout",
+      meta: "terminal state classification",
+      body: `
+<p>Layer 6 classifies the accepted intent into a terminal result. A skipped intent can also be recorded for policy audit, but it is not a filled trade.</p>
+<div class="code-block">Long:
+  loss if low <= stop_loss
+  win  if high >= target_price
+
+Short:
+  loss if high >= stop_loss
+  win  if low <= target_price
+
+Timeout:
+  no SL/TP by max_hold_bars
+  exit at configured price, default close</div>
+<div class="rule-block">When SL and TP are both touched in the same bar, V1 uses loss_first. It is conservative and avoids overstating edge.</div>
+<a class="panel-link" href="./601-trade-analysis-details.html#outcomes">→ Outcome rules</a>`
+    },
+
+    LEDGER: {
+      num: "11",
+      tag: "Layer 6",
+      title: "TradeResult Ledger",
+      meta: "durable row per accepted or audited intent",
+      body: `
+<p>The ledger is the analysis surface. It stores enough fields to reconstruct what Layer 5 decided, what Layer 6 observed, and whether budget or stale state changed.</p>
+<div class="code-block">TradeResult:
+  intent_id
+  phase
+  direction
+  entry_time / entry_price
+  stop_loss / target_price / target_r
+  exit_time / exit_price
+  outcome
+  r_result
+  bars_held
+  budget_spent
+  stale_marked</div>
+<a class="panel-link" href="./601-trade-analysis-details.html#ledger">→ Result ledger details</a>`
+    },
+
+    REPORT: {
+      num: "12",
+      tag: "Layer 6",
+      title: "Policy Metrics",
+      meta: "win rate, R, timeout, stale skip, and policy comparisons",
+      body: `
+<p>Layer 6 metrics are the reason to keep V1 lightweight: it should quickly tell whether D.medium is sensible, whether D.hard is too restrictive, and whether skipped late entries preserve expectancy.</p>
+<div class="code-block">Minimum metrics:
+  trades
+  wins / losses / timeouts / skipped
+  win_rate
+  average_r
+  expectancy_r
+  timeout_rate
+  stale_skip_count
+  by_phase
+  by_policy</div>
+<div class="rule-block">The first milestone is recording truth. Optimization, ATR-shaped geometry, spread/slippage, and broker reconciliation can come after the baseline ledger is reliable.</div>
+<a class="panel-link" href="./601-trade-analysis-details.html">→ 601 Trade Analysis Details</a>`
+    }
+  };
+
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'loose', theme: 'base' });
+
+  document.addEventListener('DOMContentLoaded', async () => {
+    if (typeof mermaid.run === 'function') {
+      await mermaid.run();
+    } else {
+      mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+    }
+    requestAnimationFrame(() => {
+      initSvgPanZoom('wrap-1');
+      const wrapEl = document.getElementById('wrap-1');
+      const loaderEl = document.getElementById('loader-1');
+      wrapEl.classList.remove('loading');
+      loaderEl.classList.add('done');
+      loaderEl.addEventListener('transitionend', () => loaderEl.remove(), { once: true });
+    });
+  });
+
+  function initSvgPanZoom(wrapId) {
+    const wrap = document.getElementById(wrapId);
+    const resetBtn = wrap.querySelector('.pan-reset');
+    const svg = wrap.querySelector('.mermaid svg');
+    if (!svg) return;
+
+    const current = () => {
+      const vb = svg.viewBox.baseVal;
+      return { x: vb.x, y: vb.y, width: vb.width, height: vb.height };
+    };
+    const setViewBox = vb =>
+      svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.width} ${vb.height}`);
+
+    let initialViewBox;
+    try {
+      const bbox = svg.getBBox();
+      const pad = Math.max(bbox.width, bbox.height) * 0.08;
+      initialViewBox = {
+        x: bbox.x - pad,
+        y: bbox.y - pad,
+        width: bbox.width + pad * 2,
+        height: bbox.height + pad * 2
+      };
+    } catch {
+      const vb = current();
+      initialViewBox = { x: vb.x, y: vb.y, width: vb.width || 1200, height: vb.height || 800 };
+    }
+    setViewBox(initialViewBox);
+
+    let dragging = false, moved = false, lastX = 0, lastY = 0;
+
+    wrap.addEventListener('mousedown', e => {
+      if (e.button !== 0) return;
+      dragging = true;
+      moved = false;
+      lastX = e.clientX;
+      lastY = e.clientY;
+      wrap.classList.add('panning');
+      e.preventDefault();
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const dx = e.clientX - lastX;
+      const dy = e.clientY - lastY;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) moved = true;
+      const vb = current();
+      const rect = wrap.getBoundingClientRect();
+      setViewBox({
+        x: vb.x - dx * (vb.width / rect.width),
+        y: vb.y - dy * (vb.height / rect.height),
+        width: vb.width,
+        height: vb.height
+      });
+      lastX = e.clientX;
+      lastY = e.clientY;
+    });
+    window.addEventListener('mouseup', () => {
+      dragging = false;
+      wrap.classList.remove('panning');
+    });
+    wrap.addEventListener('click', e => { if (moved) e.stopPropagation(); }, true);
+    wrap.addEventListener('wheel', e => {
+      e.preventDefault();
+      const rect = wrap.getBoundingClientRect();
+      const mx = e.clientX - rect.left;
+      const my = e.clientY - rect.top;
+      const vb = current();
+      const factor = e.deltaY < 0 ? 0.9 : 1.1;
+      const nextW = Math.min(Math.max(vb.width * factor, initialViewBox.width * 0.08), initialViewBox.width * 12);
+      const nextH = Math.min(Math.max(vb.height * factor, initialViewBox.height * 0.08), initialViewBox.height * 12);
+      setViewBox({
+        x: vb.x + (vb.width - nextW) * (mx / rect.width),
+        y: vb.y + (vb.height - nextH) * (my / rect.height),
+        width: nextW,
+        height: nextH
+      });
+    }, { passive: false });
+    if (resetBtn) {
+      resetBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        setViewBox(initialViewBox);
+      });
+    }
+  }
+
+  function renderPanel(panelId, data) {
+    if (!data) return;
+    document.getElementById(`${panelId}-empty`).style.display = 'none';
+
+    const hdr = document.getElementById(`${panelId}-header`);
+    hdr.style.display = 'block';
+    hdr.innerHTML = `
+      <div class="node-num-row">
+        <span class="node-num">${data.num}</span>
+        <span class="layer-tag">${data.tag}</span>
+      </div>
+      <h2>${data.title}</h2>
+      <div class="meta">${data.meta}</div>
+    `;
+    document.getElementById(`${panelId}-body`).innerHTML = data.body;
+  }
+
+  window.nodeClick = function(nodeId) {
+    renderPanel('panel-1', DETAIL[nodeId]);
+  };
+</script>
+
+<!--
+  Source: MEMORY.md
+          .claude/layer5-entry-contract.md
+          docs/501-entry-details.html
+          docs/601-trade-analysis-details.html
+
+  Layer 1 (Visual) — Mermaid chart + side panel. Active.
+
+  Layer 2 (Hidden LLM text) — omitted. DETAIL object is plain readable
+  template-literal prose in <script>.
+
+  Layer 3 (JSON-LD) — omitted. Plain static HTML; no CSR framework.
+-->
+</body>
+</html>

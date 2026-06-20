@@ -3,12 +3,8 @@ ultra forward time-lapse event-driven backtest framework. Written in Python
 
 ## Package Layout
 
-```text
-src/ultrab/
-  core/        shared market-data and SMC components
-  replayer/    HTML replay app
-  backtester/  time-lapse forward-test engine
-```
+[config path](src/ultrab/replayer/config.yaml)
+
 
 ## Replay App Quickstart
 
