@@ -84,7 +84,7 @@ class TradeResult:
 
 
 class TradeAnalyzer:
-    def __init__(self, *, max_hold_bars: int = 32) -> None:
+    def __init__(self, *, max_hold_bars: int | None = 32) -> None:
         self.max_hold_bars = max_hold_bars
 
     def open_trade(self, intent: EntryIntent) -> ActiveTrade:
@@ -143,7 +143,7 @@ class TradeAnalyzer:
             return self._close(trade, bar, "loss", intent.stop_loss)
         if hit_tp:
             return self._close(trade, bar, "win", intent.target_price)
-        if trade.bars_held >= self.max_hold_bars:
+        if self.max_hold_bars is not None and trade.bars_held >= self.max_hold_bars:
             return self._close(trade, bar, "timeout", float(bar["close"]))
         return None
 

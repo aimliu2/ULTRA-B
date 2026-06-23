@@ -511,6 +511,17 @@ if finale.get(<span class="hl2">"phase_a_thesis_matured"</span>):
       shadow flag for Layer 5 quality logic.
     </div>
 
+    <div class="callout">
+      <div class="ico">!</div>
+      <div>
+        <b>Hard gate:</b> after <code>X.thesis_over</code>, same-epoch stale shadow state must not
+        reopen <code>D.watch</code>, express <code>D.watch</code>, <code>C</code>, <code>B</code>, or
+        <code>A</code>. The only allowed escape is a fresh <code>E.seeking</code> context from a new
+        HTF extreme or structural epoch. Until then, carry <code>X.thesis_over</code> with
+        <code>entry_policy="skip"</code>.
+      </div>
+    </div>
+
     <!-- ── 03 Warmup / cold-start ───────────────────────────────────────── -->
     <h2 id="warmup-cold-start"><span class="sec-num">03</span> Warmup &amp; Cold-Start</h2>
     <p>The legacy none note documented an important runtime fact that still applies:
@@ -638,6 +649,8 @@ if directional bias exists but no E/D/C/B/A block claims the bar:
       The critical distinction is preserved: <code>X.thesis_over</code> is post-cycle
       (<code>entry_policy="skip"</code>, budget spent). All other <code>X.*</code> sub-statuses
       use <code>"wait"</code>. The factory branches on <code>phase_sub_status</code>.
+      Same-epoch stale E/D shadow transitions are blocked while thesis-over is active; only a
+      fresh <code>E.seeking</code> context may restart the cycle.
     </div>
 
     <!-- ── 06 Open Issues ───────────────────────────────────────────────── -->

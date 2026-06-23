@@ -629,10 +629,16 @@ D.watch → C.pullback:
   ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id
   origin_node = "D.watch_mss"
 
-V1 depth (from E.pullback_developing, no D):
+Path 2 structural BoS (from E.pullback_developing, no D):
+  phase_d.node is None
+  ltf_counter_bos_confirmed == true (ltf_counter_story)
+  ltf_counter_orderflow_started_at > pullback_developing_entered_at
+  origin_node = "E.pullback_developing_bos"
+
+Path 3 depth flip (from E.pullback_developing, no D):
   phase_d.node is None
   ltf_pullback_depth_pct >= 51%
-  origin_node = "E.pullback_developing_no_pro"</div>
+  origin_node = "E.pullback_developing_depth"</div>
 <p>Pro-HTF macro ChoCh (<code>last_sc</code>) fires while in C.pullback → depth gate at 51%:</p>
 <div class="code-block">depth >= 51%  →  B.watch (discount zone reached; structural reclaim opens)
 depth <  51%  →  C.pullback_weaken (still in premium; bounce attempt)</div>
@@ -642,7 +648,7 @@ depth <  51%  →  C.pullback_weaken (still in premium; bounce attempt)</div>
   <li><strong>C.pullback_weaken</strong> — pro-HTF SC fires and pullback depth &lt; 51%</li>
   <li><strong>E.seeking</strong> (dashed) — new HTF extreme resumes expansion</li>
 </ul>
-<div class="rule-block">origin_node carries provenance: "D.watch_mss" vs "E.pullback_developing_no_pro". Layer 5 reads this for quality grading.</div>
+<div class="rule-block">origin_node carries provenance: "D.watch_mss" | "E.pullback_developing_bos" | "E.pullback_developing_depth". Layer 5 reads this for quality grading.</div>
 <a class="panel-link" href="./402-hypothesis-phC.html">→ 402 Phase C detail</a>`,
     },
 
@@ -772,9 +778,10 @@ Output:
 <ul>
   <li>Do not replenish A/B budget inside the same thesis</li>
   <li>Carry X.thesis_over while waiting for fresh Phase E context</li>
+  <li>Block same-epoch D.watch, express D.watch, C, B, and A re-entry from stale shadow state</li>
   <li>Restart through E.seeking when the HTF structural context opens a new continuation leg</li>
 </ul>
-<div class="rule-block">X.thesis_over is post-cycle and budget-spent. It is not the same thing as X.none, which is an unclassified directional gap.</div>
+<div class="rule-block">X.thesis_over is post-cycle and budget-spent. It is the hardest Layer 4 gate: only a new E.seeking context may escape it. It is not the same thing as X.none, which is an unclassified directional gap.</div>
 <a class="panel-link" href="./402-hypothesis-phX.html">→ 402 Phase X detail</a>`,
     },
 

@@ -83,7 +83,6 @@ class PhaseEShadow:
     htf_reaction_zone_id: str | None = None
     htf_reaction_entered_at: str | None = None
     htf_reaction_exit_reason: str | None = None  # "ran_zone" | "stalled" | "mss_fired"
-
     def reset(self) -> None:
         self.node = "E.seeking"
         self.previous_node = None
@@ -125,9 +124,7 @@ class PhaseDShadow:
     commitment_extreme_level: float | None = None  # peak of pro-attempt bounce at D.watch open (Layer 5 SL anchor)
     watch_range_extreme: float | None = None  # running LTF range extreme since D.watch open (Layer 5 SL anchor)
     htf_zone_seen: bool = False  # latches True when htf_opposing_sd_tapped fires during D.watch hold
-    entry_express: bool = False  # True when D.watch opened via express gate (zone tap during E.stalling/pullback)
-    express_zone_proximal: float | None = None  # zone proximal at express open; survives D.watch → C; SL anchor for B/C2_express
-
+    htf_zone_seen_id: str | None = None  # zone_id that latched htf_zone_seen
     def reset(self) -> None:
         self.node = None
         self.consumed_leg_id = None
@@ -137,14 +134,13 @@ class PhaseDShadow:
         self.commitment_extreme_level = None
         self.watch_range_extreme = None
         self.htf_zone_seen = False
-        self.entry_express = False
-        self.express_zone_proximal = None
+        self.htf_zone_seen_id = None
 
 
 @dataclass
 class PhaseCshadow:
     """Internal Phase C sub-node memory across C.pullback / C.pullback_weaken bars."""
-    origin_node: str | None = None  # "D.watch_mss" | "D.speculation_mss" | "E.pullback_developing_no_pro"
+    origin_node: str | None = None  # "D.watch_mss" | "E.pullback_developing_bos" | "E.pullback_developing_depth"
     entered_at: str | None = None   # eventTimestamp of the MSS/event that opened C.pullback
     weaken_at: str | None = None    # eventTimestamp of the pro-HTF SC that opened C.pullback_weaken
     recover_at: str | None = None   # cursor_time of C.pullback_weaken → C.pullback recovery
@@ -503,8 +499,10 @@ class HypothesisClassifier:
         current_bar, previous_bar = _current_and_previous_htf_bars(snapshot)
         waiting_for_first_closed_htf = _waiting_for_first_closed_htf(cursor_time, current_bar, previous_bar)
 
+        epoch_changed = False
         epoch_id = _epoch_id(htf)
         if epoch_id and epoch_id != self.state.htf_pd_epoch_id:
+            epoch_changed = True
             self.state.phase_episode_id = uuid4().hex
             self.state.htf_pd_epoch_id = epoch_id
             self.state.active_phase_e_direction = "none"
@@ -548,6 +546,33 @@ class HypothesisClassifier:
         if phase in {"open", "pullback_confirmed"} and direction != "none":
             reaction = self._phase_e_reaction(snapshot, direction, current_bar, previous_bar)
             debug.update(reaction)
+
+            if (
+                not epoch_changed
+                and self.state.previous_phase == "X"
+                and self.state.current_hypothesis
+                and self.state.current_hypothesis.phase_sub_status == "X.thesis_over"
+            ):
+                if debug.get("phase_e_context_new_htf_extreme"):
+                    self._reset_phase_e_shadow()
+                    self._reset_phase_d_shadow()
+                    self._reset_phase_c_shadow()
+                    self._reset_phase_b_shadow()
+                    self._reset_phase_a_shadow()
+                    hyp = self._phase_e(
+                        direction,
+                        cursor_time,
+                        {
+                            **debug,
+                            "phase_x_exit_reason": "new_phase_e_context_after_thesis_over",
+                        },
+                        ltf,
+                    )
+                    return self._commit(hyp)
+                debug["phase_x_hold_reason"] = "thesis_over_waiting_for_new_phase_e"
+                debug["phase_x_blocked_stale_shadow_transitions"] = True
+                hyp = self._carry_current_hypothesis(cursor_time, debug)
+                return self._commit(hyp)
 
             if self.state.previous_phase == "A" and self.state.active_phase_e_direction == direction:
                 a_shadow = self.state.shadow_thesis.phase_a
@@ -781,29 +806,11 @@ class HypothesisClassifier:
                                 return self._commit(hyp)
 
                     phase_c = self._phase_c_setup(snapshot, ltf, direction)
-                    phase_d_from_c = self._phase_d_setup(snapshot, htf, ltf, direction, current_bar)
+                    # C.pullback → D.watch disabled: D re-entry from C is a Layer 5 trade decision,
+                    # not a Layer 4 DAG gate. Remove _phase_d_setup call and liquidity_ready block.
                     debug.update(phase_c)
-                    debug.update(phase_d_from_c)
                     debug["phase_c_shadow_origin_node"] = c_shadow.origin_node
                     debug["phase_c_shadow_entered_at"] = c_shadow.entered_at
-                    if phase_d_from_c["phase_d_liquidity_ready"]:
-                        phase_d_sub_status = self._phase_d_sub_status(phase_d_from_c)
-                        hyp = self._phase_d(
-                            direction,
-                            cursor_time,
-                            {
-                                **debug,
-                                "phase_d_sub_status": phase_d_sub_status,
-                                "phase_d_origin_node": (
-                                    f"C.{self.state.current_hypothesis.phase_sub_status}"
-                                    if self.state.current_hypothesis.phase_sub_status
-                                    else "C"
-                                ),
-                                "phase_d_selection_reason": self._phase_d_selection_reason(phase_d_from_c),
-                            },
-                            phase_sub_status=phase_d_sub_status,
-                        )
-                        return self._commit(hyp)
                     if phase_c["phase_c_story_ready"] and phase_c["phase_c_selected_poi"]:
                         phase_c_sub_status = (
                             self.state.current_hypothesis.phase_sub_status
@@ -950,6 +957,7 @@ class HypothesisClassifier:
                     # HTF zone latch (Path B context gate for Layer 5)
                     if not d_shadow.htf_zone_seen and htf_react_facts.get("htf_opposing_sd_tapped"):
                         d_shadow.htf_zone_seen = True
+                        d_shadow.htf_zone_seen_id = self._htf_proximal_zone_id(snapshot, direction)
 
                     # Hold in D.watch — Layer 5 owns iChoCh / SB entry timing
                     hyp = self._phase_d(
@@ -966,44 +974,6 @@ class HypothesisClassifier:
 
                 # Shadow node not set — hold current output unchanged
                 hyp = self._carry_current_hypothesis(cursor_time, {**debug, "phase_d_held": True})
-                return self._commit(hyp)
-
-            # Express D.watch gate: HTF zone tapped during E.stalling or E.pullback_developing,
-            # before pro-attempt fires. not pro_attempt_seen prevents pre-empting regular D.watch.
-            if (
-                self.state.previous_phase not in {"B", "A"}
-                and self._previous_or_active_e(direction)
-                and self.state.phase_e_shadow_node in {"E.stalling", "E.pullback_developing"}
-                and self.state.shadow_thesis.phase_e.htf_reaction_seen
-                and not self.state.shadow_thesis.phase_e.pro_attempt_seen
-                and self.state.shadow_thesis.phase_d.node is None
-            ):
-                phase_e_shadow = self.state.shadow_thesis.phase_e
-                _e_node = self.state.phase_e_shadow_node
-                d_shadow = self.state.shadow_thesis.phase_d
-                d_shadow.node = "D.watch"
-                d_shadow.watch_entered_at = cursor_time
-                d_shadow.consumed_leg_id = phase_e_shadow.source_orderflow_leg_id
-                d_shadow.watch_range_extreme = None
-                d_shadow.htf_zone_seen = False
-                d_shadow.entry_express = True
-                d_shadow.express_zone_proximal = self._express_zone_proximal(snapshot, direction)
-                hyp = self._phase_d(
-                    direction,
-                    cursor_time,
-                    {
-                        **debug,
-                        "phase_d_node": "D.watch",
-                        "phase_d_entry": (
-                            "E.stalling_zone_tap"
-                            if _e_node == "E.stalling"
-                            else "E.pullback_developing_zone_tap"
-                        ),
-                        "phase_d_entry_express": True,
-                        "phase_e_shadow_htf_reaction_seen": True,
-                    },
-                    phase_sub_status="watch",
-                )
                 return self._commit(hyp)
 
             # D.watch entry from E.pullback_developing
@@ -1027,8 +997,10 @@ class HypothesisClassifier:
                     d_shadow.consumed_leg_id = phase_e_shadow.source_orderflow_leg_id
                     d_shadow.watch_range_extreme = None
                     d_shadow.htf_zone_seen = False
+                    d_shadow.htf_zone_seen_id = None
                     d_shadow.entry_express = False
                     d_shadow.express_zone_proximal = None
+                    d_shadow.express_zone_proximal_zone_id = None
                     phase_e_shadow.consumed_orderflow_leg_id = d_shadow.consumed_leg_id
                     _ltf_extreme = (
                         ltf.get("range_high") if direction == "long"
@@ -1057,7 +1029,51 @@ class HypothesisClassifier:
 
             phase_c_from_e = self._phase_c_setup(snapshot, ltf, direction)
 
-            # V1: E.pullback_developing, no D entered, depth >= 51% → C.pullback
+            # Path 2: E.pullback_developing, no D entered, LTF BoS counter direction → C.pullback
+            # Fires when a new orderflow leg (started after pullback_developing_entered_at) reaches
+            # directional regime in the counter direction. Gate 1 (D.watch) takes priority — if
+            # pro_attempt_seen fires on the same bar, this block is never reached.
+            if (
+                self.state.previous_phase not in {"B", "A"}
+                and self.state.phase_e_shadow_node == "E.pullback_developing"
+                and self.state.shadow_thesis.phase_d.node is None
+            ):
+                _, _ltf_story_facts = _ec_candidate_for_direction(
+                    snapshot, "ltf_counter_story", direction
+                )
+                _, _e_ctx_bos = _ec_candidate_for_direction(
+                    snapshot, "phase_e_context", direction
+                )
+                _bos = _ltf_story_facts.get("ltf_counter_bos_confirmed")
+                _bos_started = _e_ctx_bos.get("ltf_counter_orderflow_started_at")
+                _pd_entered = phase_e_shadow.pullback_developing_entered_at or ""
+                if (
+                    _bos
+                    and _bos_started
+                    and str(_bos_started) > str(_pd_entered)
+                ):
+                    c_shadow = self.state.shadow_thesis.phase_c
+                    c_shadow.origin_node = "E.pullback_developing_bos"
+                    c_shadow.entered_at = cursor_time
+                    _status_bos: HypothesisStatus = (
+                        "armed" if phase_c_from_e["phase_c_selected_poi"] else "watching"
+                    )
+                    debug.update({
+                        **phase_c_from_e,
+                        "phase_c_origin_node": "E.pullback_developing_bos",
+                        "phase_c_selection_reason": "bos_counter_direction_confirmed",
+                    })
+                    hyp = self._phase_c(
+                        direction,
+                        phase_c_from_e["phase_c_selected_poi"],
+                        _status_bos,
+                        cursor_time,
+                        debug,
+                        phase_sub_status="pullback",
+                    )
+                    return self._commit(hyp)
+
+            # Path 3: E.pullback_developing, no D entered, depth >= 51% → C.pullback (fast depth flip)
             if (
                 self.state.previous_phase not in {"B", "A"}
                 and self.state.phase_e_shadow_node == "E.pullback_developing"
@@ -1070,15 +1086,15 @@ class HypothesisClassifier:
                     _depth_v1_val = None
                 if _depth_v1_val is not None and _depth_v1_val >= 51.0:
                     c_shadow = self.state.shadow_thesis.phase_c
-                    c_shadow.origin_node = "E.pullback_developing_no_pro"
+                    c_shadow.origin_node = "E.pullback_developing_depth"
                     c_shadow.entered_at = cursor_time
                     _status_v1: HypothesisStatus = (
                         "armed" if phase_c_from_e["phase_c_selected_poi"] else "watching"
                     )
                     debug.update({
                         **phase_c_from_e,
-                        "phase_c_origin_node": "E.pullback_developing_no_pro",
-                        "phase_c_selection_reason": "no_pro_attempt_depth_threshold_reached",
+                        "phase_c_origin_node": "E.pullback_developing_depth",
+                        "phase_c_selection_reason": "depth_threshold_51pct",
                     })
                     hyp = self._phase_c(
                         direction,
@@ -1260,6 +1276,10 @@ class HypothesisClassifier:
             "blocked_phase_candidates": blocked_candidates,
         }
 
+    # C→D DAG gate disabled: Layer 5 owns D re-entry from C, not Layer 4.
+    # _phase_d_setup, _phase_d_liquidity_grab_setup, _phase_d_sub_status,
+    # _phase_d_origin_node, _phase_d_selection_reason are orphaned helpers kept
+    # for reference but no longer called.
     def _phase_d_setup(
         self,
         snapshot: dict[str, Any],
@@ -2268,26 +2288,29 @@ class HypothesisClassifier:
             "phase_d_shadow_commitment_extreme_level": s.commitment_extreme_level,
             "phase_d_shadow_watch_range_extreme": s.watch_range_extreme,
             "phase_d_shadow_htf_zone_seen": s.htf_zone_seen,
-            "phase_d_shadow_entry_express": s.entry_express,
-            "phase_d_shadow_express_zone_proximal": s.express_zone_proximal,
+            "phase_d_shadow_htf_zone_seen_id": s.htf_zone_seen_id,
         }
 
-    def _express_zone_proximal(self, snapshot: dict[str, Any], direction: Direction) -> float | None:
-        """Return zone proximal price for express D.watch SL.
-        direction=long (hypothesis) → trade=short → supply zone → proximal=zone.low.
-        direction=short (hypothesis) → trade=long → demand zone → proximal=zone.high.
-        Mirrors _htf_proximal_zone in layer5.py including supply/demand direction filter."""
+    def _htf_proximal_zone_id(self, snapshot: dict[str, Any], direction: Direction) -> str | None:
+        """Return zone_id of the first HTF counter zone matching the trade direction.
+        Mirrors _express_zone_proximal zone-selection logic but returns zone_id, not price."""
+        zone = self._htf_opposing_zone(snapshot, direction)
+        zid = zone.get("zone_id") if zone else None
+        return str(zid) if zid is not None else None
+
+    def _htf_opposing_zone(self, snapshot: dict[str, Any], direction: Direction) -> dict[str, Any] | None:
+        """Return the direction-correct HTF opposing S/D zone for Phase D express.
+
+        direction=long selects supply; direction=short selects demand. This keeps the
+        bullish/bearish mirror visible at the only branch that chooses zone polarity.
+        """
         _, rfacts = _ec_candidate_for_direction(snapshot, "htf_counter_reaction", direction)
         zone_ids = rfacts.get("htf_opposing_sd_zone_ids") or []
         zone_dir = "supply" if direction == "long" else "demand"
         for zid in zone_ids:
             for z in snapshot.get("zones") or []:
                 if z.get("zone_id") == zid and z.get("direction") == zone_dir:
-                    v = z.get("low") if direction == "long" else z.get("high")
-                    try:
-                        return float(v) if v is not None else None
-                    except (TypeError, ValueError):
-                        return None
+                    return z
         return None
 
     def _reset_phase_c_shadow(self) -> None:

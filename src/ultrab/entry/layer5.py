@@ -162,12 +162,9 @@ class EntryPermissionEngine:
     """Layer 5 Phase D permission engine — D.lax policy.
 
     SA:         D.watch, no zone — iChoCh bar close → entry. SL = watch_range_extreme + buffer.
-    B:          D.watch, zone tapped during hold — iChoCh → entry. SL = zone proximal.
+    B:          D.watch, zone tapped during hold — ITR-armed zone probe + iChoCh → entry.
+                SL = zone distal/invalidation edge.
     C2:         C.pullback (origin D.watch_mss), no prior iChoCh → entry at transition bar.
-    B_express:  Express D.watch (zone tap at E.stalling/pullback) + iChoCh → entry.
-                SL = express_zone_proximal from shadow (fallback: watch_range_extreme).
-    C2_express: Express D.watch + MSS fires, no prior iChoCh → entry at C.pullback transition bar.
-                SL = express_zone_proximal from shadow (fallback: watch_range_extreme).
     All:    TP = pd_midpoint (50% HTF PD range). RR >= 1.75 to take.
     Symbol geometry (sl_band_pips, sl_buffer_pips) is per-symbol from config.yaml asset_geometry.
     Unknown symbol returns None — no silent fallback to EURUSD defaults.
@@ -188,7 +185,9 @@ class EntryPermissionEngine:
         self._stale_opportunities: set[tuple[str, str, str | None]] = set()
         self._processed_opportunities: set[tuple[str, str, str | None]] = set()
         # cache_key = "{epoch_id}:{prior_direction}" — stable across D→C phase transition
-        self._d_watch_budget_spent: dict[str, bool] = {} # True once any path fires and is accepted
+        self._d_watch_budget_spent: dict[str, bool] = {}  # True once any path fires and is accepted
+        # zone_id → phase_episode_id of first D.watch episode that armed it; blocks re-trigger from same zone
+        self._zone_first_episode: dict[str, str] = {}
 
     def evaluate(self, snapshot: dict[str, Any]) -> EntryIntent | SkipIntent | None:
         hypothesis = snapshot.get("hypothesis") or {}
@@ -256,22 +255,13 @@ class EntryPermissionEngine:
         choch_cand = _candidate(snapshot, "ltf_counter_choch", prior_direction) or {}
         choch_facts = choch_cand.get("debug_facts") or {}
 
-        is_express = bool(debug.get("phase_d_shadow_entry_express"))
-        express_zone_proximal = _float(debug.get("phase_d_shadow_express_zone_proximal"))
-
         # HTF zone context: sticky E flag (immune to EC clearing on 4H close) OR zone seen during D.watch
         htf_zone_context = (
             bool(debug.get("phase_e_shadow_htf_reaction_seen"))
             or bool(debug.get("phase_d_shadow_htf_zone_seen"))
         )
 
-        if is_express:
-            result = self._try_path_b_express(
-                snapshot, choch_facts, trade_direction, watch_entered_at,
-                express_zone_proximal, debug, epoch_id, phase_episode_id,
-                pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
-            )
-        elif htf_zone_context:
+        if htf_zone_context:
             result = self._try_path_b(
                 snapshot, choch_facts, prior_direction, trade_direction, watch_entered_at,
                 pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
@@ -365,14 +355,9 @@ class EntryPermissionEngine:
         min_sl_pips: float,
         max_sl_pips: float,
     ) -> EntryIntent | SkipIntent | None:
-        """Path C2 / C2_express: C.pullback from D.watch_mss.
-        C2: MSS transition alone → entry. SL = watch_range_extreme + buffer.
-        C2_express: same gate, but SL = express_zone_proximal (fallback: watch_range_extreme)."""
-        is_express = bool(debug.get("phase_d_shadow_entry_express"))
-        express_zone_proximal = _float(debug.get("phase_d_shadow_express_zone_proximal"))
+        """Path C2: C.pullback from D.watch_mss. MSS transition alone → entry. SL = watch_range_extreme + buffer."""
         watch_extreme = _float(debug.get("phase_d_shadow_watch_range_extreme"))
-
-        sl_extreme = (express_zone_proximal if express_zone_proximal is not None else watch_extreme) if is_express else watch_extreme
+        sl_extreme = watch_extreme
         if sl_extreme is None:
             return None
 
@@ -385,7 +370,7 @@ class EntryPermissionEngine:
         if bool(debug.get("phase_c_entry_transition_internal_pressure_invalidated")):
             return None
 
-        trigger_path = "D.watch_pathC2_express" if is_express else "D.watch_pathC2"
+        trigger_path = "D.watch_pathC2"
 
         entry_price_est = self._entry_price(snapshot) or 0.0
         sl_raw = sl_extreme - buffer if trade_direction == "long" else sl_extreme + buffer
@@ -522,8 +507,8 @@ class EntryPermissionEngine:
         min_sl_pips: float,
         max_sl_pips: float,
     ) -> EntryIntent | SkipIntent | None:
-        """Path B: HTF SD zone context + fresh iChoCh confirms initiation fade → entry.
-        SL = zone proximal (near edge) + buffer, floor at min_sl_pips."""
+        """Path B: HTF SD zone context + ITR-armed probe + fresh iChoCh → entry.
+        SL = zone distal/invalidation edge + buffer."""
         hypothesis = snapshot.get("hypothesis") or {}
         epoch_id = (hypothesis.get("debug_facts") or {}).get("htf_pd_epoch_id") or snapshot.get("evidence_compiler_epoch_id")
         phase_episode_id = str((hypothesis.get("debug_facts") or {}).get("phase_episode_id") or hypothesis.get("hypothesis_id") or "")
@@ -538,17 +523,31 @@ class EntryPermissionEngine:
         if zone is None:
             return None
 
-        choch_at = choch_facts.get("ltf_counter_choch_event_at")
-        if not choch_facts.get("ltf_counter_choch_seen") or not _time_gt(choch_at, watch_entered_at):
+        armed_itr = self._path_b_armed_itr(
+            snapshot, zone, trade_direction, watch_entered_at,
+            pip_size, sl_buffer_pips, max_sl_pips,
+        )
+        if armed_itr is None:
             return None
 
-        # SL = zone proximal line (the near edge — low for short supply zone, high for long demand zone)
-        proximal = _float(zone.get("low") if trade_direction == "short" else zone.get("high"))
-        if proximal is None:
+        zone_id = str(zone.get("zone_id") or "")
+        if zone_id:
+            prior_ep = self._zone_first_episode.get(zone_id)
+            if prior_ep is not None and prior_ep != phase_episode_id:
+                return None  # same armed zone presented in a prior D.watch episode
+            self._zone_first_episode.setdefault(zone_id, phase_episode_id)
+
+        choch_at = choch_facts.get("ltf_counter_choch_event_at")
+        if not choch_facts.get("ltf_counter_choch_seen") or not _time_gt(choch_at, armed_itr["confirmed_at"]):
+            return None
+
+        # SL = zone distal line (far edge — high for short supply zone, low for long demand zone)
+        distal = self._zone_distal_price(zone, trade_direction)
+        if distal is None:
             return None
 
         buffer = sl_buffer_pips * pip_size
-        sl_raw = proximal + buffer if trade_direction == "short" else proximal - buffer
+        sl_raw = distal + buffer if trade_direction == "short" else distal - buffer
         entry_price_est = self._entry_price(snapshot) or 0.0
         computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
         if computed_pips < min_sl_pips:
@@ -567,8 +566,10 @@ class EntryPermissionEngine:
             zone_id=zone.get("zone_id"),
             high=_float(zone.get("high")),
             low=_float(zone.get("low")),
+            level=armed_itr["price"],
+            taken_at=armed_itr["confirmed_at"],
             sl_side="above" if trade_direction == "short" else "below",
-            sl_price_raw=proximal,
+            sl_price_raw=distal,
             sl_buffer_pips=sl_buffer_pips,
             sl_price=sl_price,
         )
@@ -586,75 +587,51 @@ class EntryPermissionEngine:
             evidence, trigger, pip_size, min_sl_pips, max_sl_pips, phase_override="D",
         )
 
-    def _try_path_b_express(
+    def _path_b_armed_itr(
         self,
         snapshot: dict[str, Any],
-        choch_facts: dict[str, Any],
+        zone: dict[str, Any],
         trade_direction: Direction,
         watch_entered_at: str,
-        express_zone_proximal: float | None,
-        debug: dict[str, Any],
-        epoch_id: Any,
-        phase_episode_id: str,
         pip_size: float,
         sl_buffer_pips: float,
-        min_sl_pips: float,
         max_sl_pips: float,
-    ) -> EntryIntent | SkipIntent | None:
-        """B_express: express D.watch (zone tap at E.stalling/pullback) + fresh iChoCh → entry.
-        SL = express_zone_proximal from shadow; fallback to watch_range_extreme when None."""
-        choch_seen = bool(choch_facts.get("ltf_counter_choch_seen"))
-        choch_at = choch_facts.get("ltf_counter_choch_event_at")
-        if not choch_seen or not choch_at or not _time_gt(choch_at, watch_entered_at):
+    ) -> dict[str, Any] | None:
+        lower = snapshot.get("lower_structure") or {}
+        itr = lower.get("latest_itr_low") if trade_direction == "long" else lower.get("latest_itr_high")
+        if not isinstance(itr, dict):
             return None
 
-        proximal = (
-            express_zone_proximal
-            if express_zone_proximal is not None
-            else _float(debug.get("phase_d_shadow_watch_range_extreme"))
-        )
-        if proximal is None:
+        itr_price = _float(itr.get("price"))
+        confirmed_at = itr.get("confirmed_at")
+        zone_low = _float(zone.get("low"))
+        zone_high = _float(zone.get("high"))
+        distal = self._zone_distal_price(zone, trade_direction)
+        if (
+            itr_price is None
+            or not confirmed_at
+            or zone_low is None
+            or zone_high is None
+            or distal is None
+        ):
             return None
-
-        choch_event_id = choch_facts.get("ltf_counter_choch_event_id")
-        choch_level = _float(choch_facts.get("ltf_counter_choch_level"))
+        if not _time_gt(str(confirmed_at), watch_entered_at):
+            return None
+        if not (zone_low <= itr_price <= zone_high):
+            return None
 
         buffer = sl_buffer_pips * pip_size
-        sl_raw = proximal + buffer if trade_direction == "short" else proximal - buffer
-        entry_price_est = self._entry_price(snapshot) or 0.0
-        computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
-        if computed_pips < min_sl_pips:
-            sl_price = (entry_price_est - min_sl_pips * pip_size if trade_direction == "long"
-                        else entry_price_est + min_sl_pips * pip_size)
-        else:
-            sl_price = sl_raw
+        sl_edge = distal - buffer if trade_direction == "long" else distal + buffer
+        probe_risk_pips = abs(itr_price - sl_edge) / pip_size if pip_size else 0.0
+        if probe_risk_pips > max_sl_pips:
+            return None
 
-        evidence = CounterEntryEvidence(
-            evidence_kind="htf_sd_zone_express",
-            evidence_id=str(choch_event_id or uuid4().hex),
-            timeframe=None,
-            direction=trade_direction,
-            presented_at=choch_at,
-            source_store="phase_d_shadow",
-            level=proximal,
-            sl_side="above" if trade_direction == "short" else "below",
-            sl_price_raw=proximal,
-            sl_buffer_pips=sl_buffer_pips,
-            sl_price=sl_price,
-        )
-        trigger = TriggerEvidence(
-            trigger_kind="counter_ichoch",
-            trigger_path="D.watch_pathB_express",
-            event_at=choch_at,
-            event_id=str(choch_event_id) if choch_event_id is not None else None,
-            level=choch_level,
-            source_level_id=choch_facts.get("ltf_counter_choch_source_level_id"),
-            source_store=choch_facts.get("ltf_counter_choch_source_store"),
-        )
-        return self._make_intent(
-            snapshot, epoch_id, phase_episode_id, trade_direction, sl_price,
-            evidence, trigger, pip_size, min_sl_pips, max_sl_pips, phase_override="D",
-        )
+        return {
+            "level_id": itr.get("level_id"),
+            "price": itr_price,
+            "confirmed_at": str(confirmed_at),
+            "probe_risk_pips": probe_risk_pips,
+        }
 
     def _skip(
         self,
@@ -699,12 +676,24 @@ class EntryPermissionEngine:
     def _htf_proximal_zone(
         self, snapshot: dict[str, Any], zone_ids: list[str], trade_direction: Direction
     ) -> dict[str, Any] | None:
-        """Return the first matching HTF zone for SL proximal reference.
-        Supply zone for short trades (SL above zone.low = near edge).
-        Demand zone for long trades (SL below zone.high = near edge)."""
+        """Return the first HTF zone matching the trade direction."""
         zone_direction = "demand" if trade_direction == "long" else "supply"
         for zone_id in zone_ids:
             for zone in snapshot.get("zones") or []:
                 if zone.get("zone_id") == zone_id and zone.get("direction") == zone_direction:
                     return zone
         return None
+
+    def _zone_by_id(
+        self, snapshot: dict[str, Any], zone_id: str, trade_direction: Direction
+    ) -> dict[str, Any] | None:
+        zone_direction = "demand" if trade_direction == "long" else "supply"
+        if not zone_id:
+            return None
+        for zone in snapshot.get("zones") or []:
+            if zone.get("zone_id") == zone_id and zone.get("direction") == zone_direction:
+                return zone
+        return None
+
+    def _zone_distal_price(self, zone: dict[str, Any], trade_direction: Direction) -> float | None:
+        return _float(zone.get("low") if trade_direction == "long" else zone.get("high"))

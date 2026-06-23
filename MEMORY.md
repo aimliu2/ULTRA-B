@@ -1,6 +1,268 @@
 # Project status
 
-## Current state — 2026-06-21
+## Current state — 2026-06-23 (E.pullback_developing → C.pullback 3-path + ghost C→D disabled)
+
+**E.pullback_developing → C.pullback now has 3 explicit paths (hypothesis.py):**
+- Path 1 (unchanged): D.watch involved — `pro_attempt_seen → D.watch → counter MSS → C.pullback`, `origin_node = "D.watch_mss"`
+- Path 2 (NEW): LTF BoS in counter direction, no D entered — `ltf_counter_bos_confirmed` from `ltf_counter_story` candidate; freshness gate: `ltf_counter_orderflow_started_at` from `phase_e_context` candidate must be after `pullback_developing_entered_at`; `origin_node = "E.pullback_developing_bos"`
+- Path 3 (renamed from "no_pro"): depth ≥ 51% express fallback — `origin_node = "E.pullback_developing_depth"` (was `"E.pullback_developing_no_pro"`)
+- Path priority: 1 → 2 → 3. Path 2 checked via `_ec_candidate_for_direction(snapshot, "ltf_counter_story"/"phase_e_context", direction)`.
+- `PhaseCshadow.origin_node` comment updated: `"D.watch_mss" | "E.pullback_developing_bos" | "E.pullback_developing_depth"`
+- Tests in `tests/test_hypothesis_phase_d_simplify.py`: Path 2 fresh BoS fires, stale BoS blocked, Path 3 renamed, both-active: Path 2 wins.
+
+**Ghost C.pullback → D.watch DAG path disabled:**
+- `_phase_d_setup` was hardcoding `phase_d_liquidity_ready: False` — path was dead code.
+- Call site removed, `if phase_d_from_c["phase_d_liquidity_ready"]:` block removed.
+- Five orphaned helpers (`_phase_d_setup`, `_phase_d_liquidity_grab_setup`, `_phase_d_sub_status`, `_phase_d_origin_node`, `_phase_d_selection_reason`) marked with comment — kept for reference, not called.
+- Reason: C.pullback → D.watch re-entry is a Layer 5 trade decision, not a Layer 4 DAG gate.
+- Dead code cleanup deferred to when Phase C Layer 5 trade is wired.
+- Suite: **176 passed / 32 skipped** (no regressions; `phase_d_liquidity_ready` was always False).
+
+**Next: Phase B regular trade (B.watch at Layer 5).** Regime classifier deferred — wire regular path first, apply regime gate later.
+- DAG: B.watch entered from `C.pullback` via depth gate at 51% + pro-HTF last_sc. `PhaseBShadow`: `commitment_extreme_level`, `entered_at`, `htf_sd_zone_id` etc.
+- Phase C trade: deferred (regime affects C.pullback recovery most — do last).
+
+---
+
+## Current state — 2026-06-23 (Phase D integrity confirmed + express dead code removed)
+
+**Phase D integrity confirmed — SA/B/C2 paths all correct:**
+- Manually inspected latest accepted samples for each path (see `analysis/trades/sample_phase_d.md`).
+- All losses in Phase D were regime losses (counter-trend trades in strong trend-continuation markets), not path-mechanic failures.
+- Trend-continuation loss pattern documented in `analysis/trades/note_on_trend_continue.md`.
+- C2 loss at `2024-06-07T11:45:00Z`: correct direction, SL too tight (15.2 pips) → swept before TP.
+- Self-relocation failure at `2024-05-10T00:00:00Z` noted in `analysis/restart_self_relocation.md`.
+- **Phase D declared stable. Next: Phase B entry engine.**
+
+**Express D.watch gate dead code removed (across 9 files):**
+- `hypothesis.py`: Removed `PhaseEShadow.htf_reaction_active/htf_reaction_left_at`, `PhaseDShadow.entry_express/express_zone_proximal/express_zone_proximal_zone_id`; removed `_express_zone_proximal()`, `_express_zone_current_bar_taps()`, `_phase_e_reaction_episode_allows_express()` methods; removed express gate block (~37 commented lines + live debug call).
+- `layer5.py`: Removed `is_express` branch in `_try_d_watch()`, removed `_try_path_b_express()` (~86 lines), removed `is_express` logic in `_try_path_c()`.
+- `regime_tags.py`: Removed `old_express_condition_seen` column and `_old_express_condition_seen()` function.
+- `run_layer5_backtest.py`: Removed express path counters and report rows.
+- `tests/test_layer5_layer6.py`: Removed 4 express tests and 2 express helpers.
+- `tests/test_hypothesis_phase_d_simplify.py`: Removed 3 express tests and 2 express helpers.
+- `.claude/layer34-contract.md`: Removed express gate policy block.
+- `.claude/layer5-entry-contract.md`: Updated to SA/B/C2 only; removed express sections.
+- `docs/402-hypothesis-phD.html`: Removed express gate section and pseudocode.
+- **Suite: 172 passed / 32 skipped** (down from 177; 5 express tests removed).
+- KEPT: `_htf_proximal_zone_id()` and `_htf_opposing_zone()` in hypothesis.py — live callers set `d_shadow.htf_zone_seen_id` for Path B zone-latch guard.
+
+## Current state — 2026-06-22 (tagged E-seeking HTF S/D chunk sweep)
+
+**Tagged chunk sweep COMPLETE for “HTF S/D tapped from E.seeking before Phase D trade” check:**
+- Ran 20 bounded EURUSD `15m_4h` chunks with current regime tag columns:
+  - Base windows: `analysis/layer5-tagged-e-seeking-201901/`, `202001/`, `202012/`, `202109/`, `202207/`, `202401/`.
+  - Offset windows: `analysis/layer5-tagged-e-seeking-offset-201904/`, `201910/`, `202003/`, `202009/`, `202106/`, `202112/`, `202204/`, `202210/`, `202304/`, `202310/`, `202404/`, `202410/`, `202504/`, `202510/`.
+- Aggregate across the 20 chunks:
+  - `183` result rows, `4406` Phase D observation rows.
+  - Result paths: `D.watch_pathSA=157`, `D.watch_pathC2=24`, `D.watch_pathB=2`, `D.watch_pathB_express=0`, `D.watch_pathC2_express=0`.
+  - Result `htf_sd_zone_touch_timing`: blank `178`, `at_entry=3`, `during_d=2`, `before_d=0`.
+  - Observation `htf_sd_zone_touch_timing`: blank `2886`, `before_d=999`, `at_entry=342`, `during_d=179`.
+- Interpretation:
+  - The new tags do find many D.watch bars where the HTF S/D touch was inherited from Phase E (`before_d`).
+  - No Phase D entry/skip decision fired from those `before_d` bars in this 20-chunk sweep (`entry_decision=none` for all 999).
+  - `before_d` is a supported proxy for “HTF S/D tapped while Phase E shadow was leaving `E.seeking`”: `phase_e_shadow_htf_reaction_seen` latches only in `_phase_e_shadow_facts()` under `previous_node == "E.seeking"` and `ltf_probe_at_htf_opposing_zone`.
+  - This is not a risk-geometry skip finding; no `before_d` rows reached a Layer 5 decision. Current Path B still requires ITR arming + fresh iChoCh, and those bars did not produce an entry decision.
+- Useful candidate observation clusters for replay/debug:
+  - `2019-04-30T04:30:00Z`→`2019-05-03T17:00:00Z` in offset `201904`, mostly wide range, short prior direction.
+  - `2022-02-01T18:00:00Z`→`2022-02-02T16:00:00Z` in offset `202112`, wide range, short prior direction.
+  - `2023-04-28T17:00:00Z`→`2023-05-04T03:45:00Z` in offset `202304`, wide range, long prior direction.
+  - `2024-03-26T18:30:00Z`→`2024-03-27T12:00:00Z` in base `202401`, normal range, short prior direction.
+- Arrow `sysctlbyname` CPU-info warnings appeared under sandbox during the runs, but every chunk completed and wrote CSV/report outputs.
+
+**Latest Phase D path samples / stability checkpoint:**
+- Additional bounded current-code sample directories written under `analysis/layer5-tagged-phase-d-path-sample-*` to find latest SA/B/C2 rows.
+- Current de-duplicated current-code result sample set: 156 unique decisions across `analysis/layer5-tagged-e-seeking-*` and `analysis/layer5-tagged-phase-d-path-sample-*`.
+- Latest accepted SA samples:
+  - `2026-01-29T09:45:00Z` SHORT timeout, `+2.429R`, risk 24.0 pips, `watch_extreme`, `counter_ichoch_immediate`.
+  - `2025-06-04T21:45:00Z` SHORT timeout, `+0.353R`, risk 15.0 pips, `watch_extreme`, `counter_ichoch_immediate`.
+  - `2024-10-16T00:15:00Z` LONG timeout, `-0.273R`, risk 15.0 pips, `watch_extreme`, `counter_ichoch_immediate`.
+- Regular Path B remains extremely sparse under current conservative rules:
+  - Accepted B: `2021-01-14T07:00:00Z` LONG loss, `-1R`, risk 15.0 pips, zone `SD-4H-2021-01-12T20:00:00Z`, `at_entry`, ITR inside zone.
+  - Skipped B: `2021-01-13T17:30:00Z` LONG skipped `late_entry_risk_too_wide`, risk 41.9 pips, same zone, `during_d`, ITR inside zone.
+  - No third regular B decision found after the additional bounded sweep. This supports treating B as rare/conservative rather than launch-blocking.
+- Latest accepted C2 samples:
+  - `2024-06-07T11:45:00Z` SHORT loss, `-1R`, risk 15.2 pips, `watch_extreme`, `d_watch_mss_plain`.
+  - `2024-05-10T03:45:00Z` SHORT timeout, `-0.133R`, risk 15.0 pips, `watch_extreme`, `d_watch_mss_plain`, `at_entry`, ITR inside zone.
+  - `2024-03-27T12:15:00Z` LONG loss, `-1R`, risk 17.9 pips, `watch_extreme`, `d_watch_mss_plain`.
+- Focused integrity tests passed after sampling:
+  - `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_layer5_layer6.py tests/test_hypothesis_phase_d_simplify.py -q` -> 30 passed.
+- Stability conclusion candidate: Phase D paths SA/C2 have enough current-code accepted samples and passing focused tests; regular B is sparse but has candidate rows saved. **Phase D is not signed off yet**; user still needs to manually inspect sample integrity before calling it stable.
+- End-of-day decision: stop additional sampling for now. Saved candidate sample note at `analysis/trades/sample_phased.md`; resume with manual integrity inspection, not more HTF S/D refinement.
+- Next session:
+  - Manually inspect integrity of the saved SA/B/C2 samples in `analysis/trades/sample_phased.md`.
+  - If samples pass inspection, then call Phase D stable.
+  - After sign-off, clean up disabled/dead express Path B/C code and matching docs/tests/contracts.
+  - Then move on to Phase B entry engine work.
+
+## Current state — 2026-06-21 (express Path B/C fresh chunk sample)
+
+**Fresh express chunk sampling rerun COMPLETE:**
+- Previous sampling outputs were deleted/outdated, so six new bounded EURUSD `15m_4h` runs were written:
+  - `analysis/layer5-express-sample-201901/`
+  - `analysis/layer5-express-sample-202001/`
+  - `analysis/layer5-express-sample-202012/`
+  - `analysis/layer5-express-sample-202109/`
+  - `analysis/layer5-express-sample-202207/`
+  - `analysis/layer5-express-sample-202401/`
+- Exact trigger-path extraction found:
+  - `D.watch_pathB_express`: 4 rows.
+  - `D.watch_pathC2_express`: 3 rows.
+- Suggested Path B express inspection samples:
+  - `2021-01-14T18:00:00+00:00` LONG, skipped `late_entry_risk_too_wide`, risk 32.3 pips.
+  - `2021-09-16T22:30:00+00:00` LONG, skipped `late_entry_risk_too_wide`, risk 32.0 pips.
+  - `2022-07-19T15:15:00+00:00` SHORT, skipped `late_entry_risk_too_wide`, risk 33.8 pips.
+- Suggested Path C2 express inspection samples:
+  - `2021-09-17T10:15:00+00:00` LONG, skipped `late_entry_risk_too_wide`, risk 50.3 pips.
+  - `2021-10-14T04:45:00+00:00` SHORT, skipped `runway_too_short`, risk 21.2 pips.
+  - `2024-03-25T15:45:00+00:00` LONG, skipped `late_entry_risk_too_wide`, risk 37.4 pips.
+- User decision: do not rely on current Path D entry statistics yet; Phase D entry behavior is still being stabilized. `min_rr` / max acceptable SL can be reconsidered later after express Path B/C integrity is inspected.
+- `runway_too_short` clarification: current Layer 5 uses `min_rr = 1.75`, not 1.5. With an estimated 33% win rate, theoretical breakeven RR is about `2.03R`, so `1.75R` would require roughly `36.4%` win rate before costs.
+- Inspection note: `2021-01-14T18:00:00+00:00` Path B express is a chase-high case. Price was `E.seeking`, then hit the HTF lower in bearish HTF bias; immediate flickering turned it into `D.watch`. Treat this as a suspect express transition case to inspect before trusting the sample.
+- Temporary code state: the Layer 4 express `D.watch` transition is commented out in `src/ultrab/core/smc/hypothesis.py` while Phase E HTF-reaction branch semantics are redesigned. The helper still observes current-bar zone overlap and emits `phase_d_express_blocked_reason = "express_gate_temporarily_disabled"` when the old gate would have been relevant.
+- Regime tag analysis added under `src/ultrab/entry/regime_tags.py` and wired into `run_layer5_backtest.py`. Both `layer5_trade_results.csv` and `layer5_phase_d_observations.csv` now include compact analysis-only tags: HTF S/D zone context, old express condition, HTF P/D liquidity-grab context, D/watch and zone-touch bar ages, ITR-in-zone context, HTF P/D range bucket, and session. These tags do not change phase or entry permission yet; they are for filtering/tightening later.
+- Next session:
+  - Retest the correctness of the new regime tags against real replay samples before using them for filtering.
+  - Inspect whether Phase C DAG walking needs additional evidence. If C can advance with no meaningful evidence in wide HTF P/D ranges, that may be a correctness problem; distinguish intended tight-range fast C from over-lax wide-range C.
+
+## Current state — 2026-06-21 (X.thesis_over hard gate fix)
+
+**X.thesis_over same-epoch re-entry bug fixed:**
+- Root issue discovered while investigating `2021-01-29T08:45:00+00:00`: the continuous run was wrong, not just the cold-start relocation. It emitted `X.thesis_over` at `2021-01-27T16:45:00+00:00`, then stale same-epoch Phase E shadow state reopened `D.watch` at `2021-01-27T17:00:00+00:00`.
+- This violated the rule that `X.thesis_over` is the hard post-cycle / budget-spent gate. Same-epoch regular `D.watch`, express `D.watch`, `C`, `B`, and `A` must be blocked; only a fresh `E.seeking` context from a new HTF extreme or structural epoch may escape.
+- Fix in `hypothesis.py`: an early `X.thesis_over` guard now runs before stale E/D gates. It carries `X.thesis_over` with `phase_x_blocked_stale_shadow_transitions = True`, unless `phase_e_context_new_htf_extreme` is true, in which case it resets shadows and moves to `E.seeking`.
+- Regression tests added in `tests/test_hypothesis_phase_d_simplify.py`: regular stale `E.pullback_developing` cannot reopen D; stale express zone reaction cannot reopen D; new HTF extreme can restart `E.seeking`.
+- Historical probe after fix:
+  - `2021-01-27T16:45:00+00:00` -> `X.thesis_over`
+  - `2021-01-27T17:00:00+00:00` -> `X.thesis_over`
+  - `2021-01-28T00:00:00+00:00` -> `X.thesis_over`
+  - `2021-01-29T08:45:00+00:00` -> `X.thesis_over`, no `D.watch_pathB`
+- Targeted chunk rerun: `analysis/layer5-chunk-202012-pathB-integrity/` now writes 6 result rows; the old `2021-01-29T08:45:00+00:00` Path B row is gone.
+- Docs updated: `docs/401-hypothesis-DAG.html`, `docs/402-hypothesis-phX.html`, `docs/402-hypothesis-phD.html`.
+- Focused tests: `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_hypothesis_phase_d_simplify.py -q` -> 9 passed.
+- Broader focused tests: `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_hypothesis_phase_d_simplify.py tests/test_hypothesis_classifier.py -q` -> 30 passed / 31 skipped.
+- Full suite: `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` -> 177 passed / 32 skipped.
+
+**Self-relocation case note updated:**
+- Existing restart/self-relocation docs live in `docs/403-shadow-thesis.html`, especially Bootstrap Window / Terrain Relocation. A separate Layer 5 budget-reset note is in `docs/501-entry-details.html` under “Budget ownership and self-relocation reset.”
+- New shared restart case note: `analysis/restart_self_relocation.md`.
+- Cold starts at `2021-01-28T00:00:00+00:00` or `2021-01-29T00:00:00+00:00` still fall to `X.none`. This is no longer compared against D.watch; after the hard-gate fix, continuous state is `X.thesis_over`.
+- Cold-start diagnostics:
+  - `recovery_mode = cold_start_no_context`
+  - `2021-01-28T00:00:00+00:00` bootstrap window `2021-01-22T21:00:00+00:00` → `2021-01-27T23:45:00+00:00`
+  - `2021-01-29T00:00:00+00:00` bootstrap window `2021-01-25T21:00:00+00:00` → `2021-01-28T23:45:00+00:00`
+  - `bootstrap_bars_used = 300`, `bootstrap_success = False`
+  - `relocation_attempted = True`, `relocation_selected_node = None`
+  - rejections: A/B expected anchor rejects, `D = d_relocation_requires_reconstructable_watch_provenance`, `C = phase_c_story_not_ready`, `E = htf_phase_not_open`
+- Boundary probe: cold start at `2021-01-27T00:00:00+00:00` relocates to `C.pullback` (`terrain_relocation`) instead of exact continuous `A.watch_weaken short`, then stays around `C.pullback_weaken long`. Remaining open design question: whether restart should support exact A/X thesis-over parity without a saved journal.
+- Retest checkpoint added: `2026-02-02T00:00:00+00:00`. This one is likely handled already; docs/tests record hidden bootstrap landing in `C.pullback short`. Keep it as a known-good comparison case when retesting relocation.
+
+## Current state — 2026-06-21 (Path B integrity chunk test)
+
+**Regular Path B integrity chunk test COMPLETE:**
+- Fresh bounded runs written to `analysis/layer5-chunk-*-pathB-integrity/`.
+- Windows: standard six 6000-step chunks (`2019-03-04`, `2020-06-01`, `2021-09-01`, `2023-01-01`, `2024-06-01`, `2026-01-01`) plus targeted `2020-12-01` chunk.
+- Across 7 chunks after the `X.thesis_over` hard-gate fix: 5 Path B-family decisions:
+  - Regular `D.watch_pathB`: 2 current rows, both in `analysis/layer5-chunk-202012-pathB-integrity/`.
+  - `D.watch_pathB_express`: 3 rows, all skipped as `late_entry_risk_too_wide`.
+- Additional post-hardgate offset chunk outputs written under `analysis/layer5-sample-*-pathB-hardgate/`. No new regular `D.watch_pathB` rows found there.
+- Additional shifted in-memory sweep over 14 more 6000-step starts (`2019-04`, `2019-10`, `2020-03`, `2020-09`, `2021-06`, `2021-12`, `2022-04`, `2022-10`, `2023-04`, `2023-10`, `2024-04`, `2024-10`, `2025-04`, `2025-10`) also found no new regular `D.watch_pathB`.
+- Regular Path B timestamps:
+  - `2021-01-13T17:30:00+00:00` LONG, skipped `late_entry_risk_too_wide`, 41.9 pips, zone `SD-4H-2021-01-12T20:00:00+00:00`.
+  - `2021-01-14T07:00:00+00:00` LONG, accepted, entry `1.21493`, SL `1.21343`, risk 15.0 pips, loss -1R at `2021-01-14T15:00:00+00:00`, zone `SD-4H-2021-01-12T20:00:00+00:00`.
+- Invalidated row: `2021-01-29T08:45:00+00:00` is no longer Path B; after the hard-gate fix it remains `X.thesis_over`.
+- Runtime integrity probe for the 2 current regular Path B rows passed all current contract checks: regular not express, Phase D watch, demand-zone direction for long trade, ITR low inside zone, ITR confirmed after D.watch open, iChoCh after ITR, SL raw anchored to zone distal low.
+- Analysis note: `analysis/trades/path_b_integrity_20260621.md`.
+
+## Current state — 2026-06-21 (updated)
+
+**Layer 4 D.watch express re-dip guard COMPLETE:**
+- Bug timestamp: `2021-01-11T08:00:00Z` Path B_express LONG came from an earlier Layer 4 express `D.watch`, not from Layer 5 ITR arming.
+- Root cause: `phase_e_shadow_htf_reaction_seen` was sticky and sourced from HTF-zone `in_zone`; express could open after the live LTF bar had already left the original HTF reaction episode and later re-dipped the same zone.
+- Fix in `hypothesis.py`: express D.watch now requires the current LTF bar to overlap the direction-correct HTF opposing zone (`long` → supply, `short` → demand) and requires the first continuous reaction episode to still be active.
+- User integrity checklist to verify later before trusting Path B again:
+  - Bullish context: `HTF PD level high > HTF supply zone > probe`; `D.watch` must come from the initiation, not from a later stale/re-dip flip.
+  - Bearish mirror in code is `HTF PD level low < HTF demand zone < probe`; user wrote “supply” for the bearish bullet, so confirm wording if this was intentional.
+  - Replay inspection should show no flickering and no later mis-flip after the first reaction episode leaves the HTF S/D zone.
+- New Phase E shadow episode fields: `htf_reaction_active`, `htf_reaction_left_at`. Once `htf_reaction_seen` is true and a current LTF bar is outside the zone, `htf_reaction_left_at` is set; any later re-entry is blocked with `phase_d_express_blocked_reason = "htf_zone_reentry_after_reaction_left"`.
+- Regression probe from `2021-01-08T00:00Z`: `2021-01-11T01:45Z` and `2021-01-11T08:00Z` now remain `E.stalling`; no `D.watch` express opens.
+- Partial affected-window rerun: `analysis/layer5-sample-202012-pathB-express-episode-guard/` removes the old `2021-01-11T08:00Z` accepted B_express row. Because the bad express no longer spends budget, a later non-express accepted Path B appears at `2021-01-14T07:00Z` (LONG, 15.0 pips, loss -1R). Full 17-window totals are not rerun yet.
+- Docs updated: `.claude/layer34-contract.md` and `docs/402-hypothesis-phD.html`.
+- Verification: focused runtime/Layer 5 suite → 34 passed; full suite `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` → 174 passed / 32 skipped.
+
+**Path B ITR arming redesign COMPLETE:**
+- Scope: Path B only (`D.watch_pathB`, `D.watch_pathB_express`). SA/C2/C2_express behavior intentionally unchanged.
+- New Path B sequence: HTF zone context → direction-correct LTF ITR pivot arms the zone probe → fresh iChoCh after the armed ITR → entry.
+- Direction rules:
+  - SHORT / supply: require `lower_structure.latest_itr_high` inside the supply zone.
+  - LONG / demand: require `lower_structure.latest_itr_low` inside the demand zone.
+- Arming geometry:
+  - SHORT: `zone.high + buffer - latest_itr_high.price <= max_sl_pips`.
+  - LONG: `latest_itr_low.price - (zone.low - buffer) <= max_sl_pips`.
+  - ITR `confirmed_at` must be after `phase_d_shadow.watch_entered_at`.
+- Entry freshness: iChoCh must fire after the armed ITR confirmation, not merely after D.watch open.
+- SL remains the HTF zone distal/invalidation edge + buffer, with min floor widen and max-risk late-entry skip handled by existing geometry.
+- B_express now resolves `phase_d_shadow_express_zone_proximal_zone_id` against `snapshot["zones"]`; if the saved express zone is gone, B_express returns no entry. It no longer falls back to watch_range_extreme.
+- Tests added for no ITR, unarmed ITR, unarmed-zone-not-poisoning later armed episode, iChoCh-before-ITR, short/supply armed entry, long/demand mirror armed entry, B_express saved-zone resolution, and B_express ITR arming.
+- Docs updated: `.claude/layer5-entry-contract.md` and `docs/501-entry-details.html`.
+- Verification: `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_layer5_layer6.py -q` → 19 passed. Full suite → 172 passed / 32 skipped.
+
+**Path B ITR-armed resample COMPLETE:**
+- Re-ran six 6000-step EURUSD chunks into `analysis/layer5-chunk-*-pathB-itr-armed/`.
+- Result: 2 Path B-family rows total, both `D.watch_pathB_express`, both skipped as `late_entry_risk_too_wide`; 0 accepted Path B/B_express trades.
+- `2021-09-16T22:30:00Z`: B_express LONG skipped, 32.0 pips.
+- `2024-07-11T19:30:00Z`: B_express SHORT skipped, 36.3 pips.
+- Old rows at `2020-06-10T18:00Z` and `2024-06-14T20:15Z` no longer appear as Path B/B_express rows under ITR arming.
+- Updated `analysis/trades/path_b_timestamps.md` with current counts and stale-row mapping.
+
+**Path B expanded sampling note:**
+- User asked for bounded sampling, not full-history. Full-history run was interrupted intentionally.
+- Added 11 offset 6000-step sample windows across 2019-2025.
+- Expanded sample total: 17 windows, 7 Path B-family rows, 1 accepted, 6 skipped.
+- Only accepted Path B-family timestamp found so far: `2021-01-11T08:00:00Z`, `D.watch_pathB_express`, LONG, entry 1.21812, SL 1.21618, risk 19.4 pips, target_r 3.941, outcome loss -1R.
+- Updated `analysis/trades/path_b_timestamps.md` with accepted/skipped rows and source directories.
+
+**Path B / B_express SL edge fix COMPLETE:**
+- `_express_zone_proximal` (hypothesis.py): was returning `zone.low` for SHORT / `zone.high` for LONG — the near/proximal edge. Fixed to return `zone.high` for SHORT / `zone.low` for LONG (the distal/far edge). This is the correct SL anchor: if price clears the far edge, the zone is invalidated.
+- `_try_path_b` (layer5.py): same swap on the `proximal =` line.
+- Path B_express and C2_express both read `phase_d_shadow_express_zone_proximal` — fixing `_express_zone_proximal` fixes all three paths automatically.
+- 2020-06-10T18:00 case: wrong SL was 1.13274 (zone.low + buffer, below entry 1.13495 for SHORT → immediate stop-out in 1 bar). Correct SL = zone.high + buffer = 1.13851 (above entry). After fix: entry skipped as `late_entry_risk_too_wide` (35.6 pips > max_sl_pips). Tests: 166 passed / 32 skipped.
+
+**Zone re-trigger guard COMPLETE (`_zone_first_episode`):**
+- `PhaseDShadow` (hypothesis.py): added `htf_zone_seen_id: str | None` (set when `htf_zone_seen` latches) and `express_zone_proximal_zone_id: str | None` (set at express gate open). Both reset on D.watch open and in `reset()`. Both in debug output.
+- New helper `_htf_proximal_zone_id(snapshot, direction)` in hypothesis.py: returns zone_id of the first direction-matched counter zone.
+- `EntryPermissionEngine` (layer5.py): added `_zone_first_episode: dict[str, str]` — `{zone_id → phase_episode_id of first D.watch episode that armed it}`.
+- `_try_path_b`: records zone_id after ITR arming but before the choch gate. Blocks if the same armed zone_id was seen in a prior (different) episode.
+- `_try_path_b_express`: same block/record using `phase_d_shadow_express_zone_proximal_zone_id` after the saved express zone arms.
+- Protects against: cross-epoch re-trigger after a valid armed probe (budget resets but zone_id is remembered), re-dip in new D.watch episode after an armed episode ended without entry. A shallow unarmed zone touch does not poison a later armed episode.
+
+**Layer 6 bot no-timeout fix COMPLETE:**
+- `TradeAnalyzer.__init__` (layer6.py): `max_hold_bars: int | None = 32`. Bot passes `None` (no timeout). Backtest default stays 32 bars (8h on 15m).
+
+**Path B ITR trigger redesign — RESOLVED / IMPLEMENTED (2026-06-21):**
+
+Context: All Path B/B_express entries rejected after SL fix (zone distal → 30-56 pip risk). iChoCh fires as price bounces OUT of zone → entry at zone proximal → full zone width risk. User asked: wait for ITR pivot inside zone (price ~50% deep) instead.
+
+Infrastructure confirmed:
+- `snapshot["lower_structure"]["latest_itr_high"]` / `["latest_itr_low"]` already exposed by `structureEngine.get_snapshot()` with `price`, `confirmed_at` fields. No EC changes needed.
+- For express path: look up zone by `express_zone_proximal_zone_id` in snapshot["zones"]. If zone gone from snapshot, no express entry.
+- `_time_gt(confirmed_at, watch_entered_at)` freshness check needed.
+
+Geometry probe result (2024-07-11 SHORT, zone=[1.08827, 1.09013], 18.6 pip wide):
+- First ITR high inside zone: `1.08969` at `17:30`, close=`1.08710` → zone distal SL risk=32.3 pips ❌, ITR pivot+buffer SL risk=27.9 pips ❌
+- Bar +1 (`18:00`): same pivot, close=`1.08780` → zone distal SL=25.3 pips ❌, ITR pivot+buffer SL=20.9 pips ✓
+- Bar +2 (`18:15`): new lower pivot `1.08868`, close=`1.08782` → zone distal SL=25.1 pips ❌, ITR pivot+buffer SL=10.6 pips → below min_sl=15
+
+Resolved design:
+- ITR is an arming evidence gate, not the entry trigger and not the SL anchor.
+- iChoCh remains the entry trigger, but must occur after the armed ITR.
+- SL remains zone distal/invalidation edge + buffer. ITR-to-zone-edge geometry must be within max risk before Path B can arm, and entry-to-zone-edge geometry is still checked at execution.
+
+**Open / deferred:**
+- Express gate pre-existing zone: 2020-06-10 case showed the phase transition from C.pullback_weaken → E.seeking happened while price was already inside the HTF supply zone. `htf_reaction_seen` latched immediately at E.stalling (not from a fresh probe). Express gate fired on a stale zone tap. Discussed fix (`htf_zone_pre_existed_at_e_open` flag) but **not implemented** — user concluded the SL fix (zone.high anchor → late_entry_risk_too_wide) already filters this case correctly. Deferred.
+- Path B timestamps at `analysis/trades/path_b_timestamps.md` are **STALE** — all 3 previously "accepted" entries were bugs (wrong proximal SL). With correct distal SL: 0 Path B/B_express accepted across all 6 chunks.
+
+## Current state — 2026-06-21 (original)
 
 **Phase D Express Taxonomy COMPLETE** — plan `.claude/plans/ok-we-could-proceed-polymorphic-perlis.md` fully implemented.
 

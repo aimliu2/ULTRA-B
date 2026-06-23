@@ -495,8 +495,9 @@ C.pullback.after_inducement  — B.initiation_watch rejection</pre>
 
 Result:
   → C.pullback
-  phase_c_origin_node = "E.pullback_developing_no_pro"</pre>
-        <p>Price grinds counter without ever attempting a pro-HTF MSS. D was never entered. Replaces old <code>C.hard_pullback</code> / <code>C.slow_pullback</code> in a single depth gate.</p>
+  phase_c_origin_node = "E.pullback_developing_bos"   (Path 2: LTF BoS, slow structural)
+  phase_c_origin_node = "E.pullback_developing_depth"  (Path 3: depth >= 51%, fast flip)</pre>
+        <p>Price grinds counter without ever attempting a pro-HTF MSS. D was never entered. Path 2 fires on a fresh counter BoS leg; Path 3 fires when depth reaches 51% (express fallback).</p>
       </div>
     </details>
 
@@ -666,9 +667,9 @@ entry_policy = "hybrid" if (
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>E.pullback_developing + no D + depth ≥ 51% → C.pullback.</b>
-        The V1 depth path is wired. It requires <code>phase_d.node is None</code> and stamps
-        <code>phase_c_origin_node = "E.pullback_developing_no_pro"</code>.</p>
+        <p><b>E.pullback_developing + no D → C.pullback (two paths).</b>
+        Path 2 (BoS): fresh counter BoS leg after pullback_developing_entered_at → <code>origin_node = "E.pullback_developing_bos"</code>.
+        Path 3 (depth): depth ≥ 51% fallback → <code>origin_node = "E.pullback_developing_depth"</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>

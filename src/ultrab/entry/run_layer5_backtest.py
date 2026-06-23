@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from ultrab.entry.layer5 import EntryIntent, EntryPermissionEngine, SkipIntent
 from ultrab.entry.layer6 import ActiveTrade, TradeAnalyzer, TradeResult
+from ultrab.entry.regime_tags import REGIME_TAG_COLUMNS, regime_tags
 from ultrab.replayer.data_source import ReplayDataConfig, load_app_config, replay_data_config
 from ultrab.runtime.dual_smc import DualSmcRuntime
 
@@ -45,6 +46,7 @@ RESULT_COLUMNS = [
     "budget_spent",
     "stale_marked",
     "skip_reason",
+    *REGIME_TAG_COLUMNS,
 ]
 
 
@@ -69,8 +71,6 @@ SUMMARY_COLUMNS = [
     "trigger_D_watch_pathSA",
     "trigger_D_watch_pathB",
     "trigger_D_watch_pathC2",
-    "trigger_D_watch_pathB_express",
-    "trigger_D_watch_pathC2_express",
     "late_entry_risk_too_wide",
 ]
 
@@ -96,6 +96,7 @@ OBSERVATION_COLUMNS = [
     "path_b_event_at",
     "entry_decision",
     "skip_reason",
+    *REGIME_TAG_COLUMNS,
 ]
 
 
@@ -130,7 +131,7 @@ def _phase_d_observation(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         if value
     ]
     ltf_zone_id = story_facts.get("selected_poi_id")
-    return {
+    row = {
         "cursor_time": snapshot.get("cursor_time"),
         "symbol": snapshot.get("symbol"),
         "timeframe": snapshot.get("timeframe") or snapshot.get("lower_tf"),
@@ -153,6 +154,8 @@ def _phase_d_observation(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         "entry_decision": "",
         "skip_reason": "",
     }
+    row.update(regime_tags(snapshot))
+    return row
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], columns: list[str]) -> None:
@@ -231,8 +234,6 @@ def summarize_results(
                 "trigger_D_watch_pathSA": paths["D.watch_pathSA"],
                 "trigger_D_watch_pathB": paths["D.watch_pathB"],
                 "trigger_D_watch_pathC2": paths["D.watch_pathC2"],
-                "trigger_D_watch_pathB_express": paths["D.watch_pathB_express"],
-                "trigger_D_watch_pathC2_express": paths["D.watch_pathC2_express"],
                 "late_entry_risk_too_wide": skip_reasons["late_entry_risk_too_wide"],
             }
         )
@@ -268,6 +269,7 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
     analyzer = TradeAnalyzer(max_hold_bars=args.max_hold_bars)
     active: list[ActiveTrade] = []
     results: list[TradeResult] = []
+    tags_by_intent_id: dict[str, dict[str, Any]] = {}
     observations: list[dict[str, Any]] = []
     last_bar: dict[str, Any] | None = None
     steps = 0
@@ -294,10 +296,12 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
         observation = _phase_d_observation(snapshot)
         decision = layer5.evaluate(snapshot)
         if isinstance(decision, EntryIntent):
+            tags_by_intent_id[decision.intent_id] = regime_tags(snapshot, decision)
             active.append(analyzer.open_trade(decision))
             if observation is not None:
                 observation["entry_decision"] = "accepted"
         elif isinstance(decision, SkipIntent):
+            tags_by_intent_id[decision.intent_id] = regime_tags(snapshot, decision)
             results.append(analyzer.result_from_skip(decision))
             if observation is not None:
                 observation["entry_decision"] = "skipped"
@@ -314,7 +318,11 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
     for trade in active:
         results.append(analyzer.close_open_end(trade, last_bar))
 
-    rows = [result.to_row() for result in results]
+    rows = []
+    for result in results:
+        row = result.to_row()
+        row.update(tags_by_intent_id.get(result.intent_id, {}))
+        rows.append(row)
     summary = summarize_results(rows, observations)
     output_dir = Path(args.output_dir)
     results_path = output_dir / args.results_file
@@ -354,23 +362,25 @@ def write_markdown_report(
     path_sa_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathSA")
     path_b_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathB")
     path_c2_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathC2")
-    path_b_express_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathB_express")
-    path_c2_express_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathC2_express")
     path_sa_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathSA")
     path_b_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathB")
     path_c2_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathC2")
-    path_b_express_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathB_express")
-    path_c2_express_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathC2_express")
     path_sa_total = path_sa_accepted + path_sa_skipped
     path_b_total = path_b_accepted + path_b_skipped
     path_c2_total = path_c2_accepted + path_c2_skipped
-    path_b_express_total = path_b_express_accepted + path_b_express_skipped
-    path_c2_express_total = path_c2_express_accepted + path_c2_express_skipped
+    htf_zone_decisions = sum(1 for r in rows if r.get("at_htf_sd_zone") is True)
 
     def _path_win_rate(path_tag: str) -> str:
         w = sum(1 for r in accepted if r.get("trigger_path") == path_tag and r.get("outcome") == "win")
         l = sum(1 for r in accepted if r.get("trigger_path") == path_tag and r.get("outcome") == "loss")
         return f"{w / (w + l) * 100:.1f}%" if (w + l) else "n/a"
+
+    def _path_zone_count(path_tag: str) -> int:
+        return sum(
+            1
+            for r in rows
+            if r.get("trigger_path") == path_tag and r.get("at_htf_sd_zone") is True
+        )
 
     skip_reasons = Counter(str(r.get("skip_reason") or "") for r in skipped)
 
@@ -437,8 +447,18 @@ def write_markdown_report(
         f"| SA (D.watch, no zone: iChoCh bar close) | {path_sa_accepted} | {path_sa_skipped} | {path_sa_total} | {_pct(path_sa_accepted, path_sa_total)} | {_path_win_rate('D.watch_pathSA')} |",
         f"| B (D.watch, zone tapped during hold: iChoCh) | {path_b_accepted} | {path_b_skipped} | {path_b_total} | {_pct(path_b_accepted, path_b_total)} | {_path_win_rate('D.watch_pathB')} |",
         f"| C2 (C.pullback from D.watch, no iChoCh cached) | {path_c2_accepted} | {path_c2_skipped} | {path_c2_total} | {_pct(path_c2_accepted, path_c2_total)} | {_path_win_rate('D.watch_pathC2')} |",
-        f"| B_express (express D.watch + iChoCh) | {path_b_express_accepted} | {path_b_express_skipped} | {path_b_express_total} | {_pct(path_b_express_accepted, path_b_express_total)} | {_path_win_rate('D.watch_pathB_express')} |",
-        f"| C2_express (express D.watch + MSS, no iChoCh) | {path_c2_express_accepted} | {path_c2_express_skipped} | {path_c2_express_total} | {_pct(path_c2_express_accepted, path_c2_express_total)} | {_path_win_rate('D.watch_pathC2_express')} |",
+        f"",
+        f"### Regime Tags",
+        f"",
+        f"| Tag | Count | % of decisions |",
+        f"|-----|-------|----------------|",
+        f"| Entry bar inside HTF S/D zone | {htf_zone_decisions} | {_pct(htf_zone_decisions, total_decisions)} |",
+        f"",
+        f"| Path | Decisions at HTF S/D | % of path decisions |",
+        f"|------|----------------------|---------------------|",
+        f"| SA | {_path_zone_count('D.watch_pathSA')} | {_pct(_path_zone_count('D.watch_pathSA'), path_sa_total)} |",
+        f"| B | {_path_zone_count('D.watch_pathB')} | {_pct(_path_zone_count('D.watch_pathB'), path_b_total)} |",
+        f"| C2 | {_path_zone_count('D.watch_pathC2')} | {_pct(_path_zone_count('D.watch_pathC2'), path_c2_total)} |",
         f"",
         f"---",
         f"",

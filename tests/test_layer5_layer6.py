@@ -8,6 +8,7 @@ from ultrab.entry.layer5 import (
     TriggerEvidence,
 )
 from ultrab.entry.layer6 import TradeAnalyzer
+from ultrab.entry.regime_tags import regime_tags
 from ultrab.entry.run_layer5_backtest import summarize_results
 
 _SYM_GEO = {"EURUSD": {"sl_buffer_pips": 2.0, "min_sl_pips": 15.0, "max_sl_pips": 25.0}}
@@ -70,11 +71,29 @@ def _d_watch_bar(*, close: float = 1.2000, range_high: float = 1.2018) -> dict:
 
 
 
-def _d_watch_zone_bar(*, close: float = 1.2000, zone_low: float = 1.2003) -> dict:
-    """D.watch zone-context bar: Path B fires from fresh iChoCh.
+def _d_watch_zone_bar(
+    *,
+    close: float = 1.2000,
+    zone_low: float = 1.1990,
+    itr_high: float | None = 1.2008,
+    itr_confirmed_at: str = "2026-01-01T10:15:00+00:00",
+) -> dict:
+    """D.watch supply-zone context bar: Path B fires after ITR arming + fresh iChoCh.
     prior_direction=long -> trade=short.
-    supply zone proximal low defaults to 1.2003, plus 2 pips = 1.2005.
+    SL = supply zone high + 2 pips, then min floor if compressed.
     """
+    lower_structure = {"range_high": 1.2005, "range_low": 1.1985}
+    if itr_high is not None:
+        lower_structure["latest_itr_high"] = {
+            "level_id": "PE03:itr-high-1",
+            "event_code": "PE03",
+            "tier": "itr",
+            "side": "high",
+            "price": itr_high,
+            "pivot_time": "2026-01-01T10:10:00+00:00",
+            "confirmed_at": itr_confirmed_at,
+            "relation": None,
+        }
     return {
         "symbol": "EURUSD",
         "timeframe": "15M",
@@ -82,7 +101,7 @@ def _d_watch_zone_bar(*, close: float = 1.2000, zone_low: float = 1.2003) -> dic
         "higher_tf": "4H",
         "cursor_time": "2026-01-01T10:20:00+00:00",
         "lower_bars": [{"time": "2026-01-01T10:20:00+00:00", "open": 1.1995, "high": 1.2005, "low": 1.1990, "close": close}],
-        "lower_structure": {"range_high": 1.2005, "range_low": 1.1985},
+        "lower_structure": lower_structure,
         "higher_structure": {"pd_midpoint": 1.1940, "range_high": 1.2100, "range_low": 1.1780},
         "zones": [
             {
@@ -137,6 +156,51 @@ def _d_watch_zone_bar(*, close: float = 1.2000, zone_low: float = 1.2003) -> dic
             },
         ],
     }
+
+
+def _d_watch_demand_zone_bar(
+    *,
+    close: float = 1.2000,
+    zone_high: float = 1.2010,
+    itr_low: float | None = 1.1992,
+    itr_confirmed_at: str = "2026-01-01T10:15:00+00:00",
+) -> dict:
+    """D.watch demand-zone context bar: Path B mirror for long trades."""
+    bar = _d_watch_zone_bar(close=close)
+    bar["higher_structure"]["pd_midpoint"] = 1.2060
+    bar["zones"] = [
+        {
+            "zone_id": "demand-1",
+            "direction": "demand",
+            "timeframe": "4H",
+            "high": zone_high,
+            "low": 1.1990,
+        }
+    ]
+    lower_structure = {"range_high": 1.2015, "range_low": 1.1990}
+    if itr_low is not None:
+        lower_structure["latest_itr_low"] = {
+            "level_id": "PE04:itr-low-1",
+            "event_code": "PE04",
+            "tier": "itr",
+            "side": "low",
+            "price": itr_low,
+            "pivot_time": "2026-01-01T10:10:00+00:00",
+            "confirmed_at": itr_confirmed_at,
+            "relation": None,
+        }
+    bar["lower_structure"] = lower_structure
+    debug = bar["hypothesis"]["debug_facts"]
+    debug["prior_phase_e_direction"] = "short"
+    debug["active_phase_e_direction"] = "short"
+    for candidate in bar["evidence_candidates"]:
+        candidate["direction"] = "short"
+        if candidate["pattern"] == "ltf_counter_choch":
+            candidate["debug_facts"]["ltf_counter_choch_level"] = 1.2008
+            candidate["debug_facts"]["ltf_counter_choch_source_level_id"] = "itr-low-1"
+        if candidate["pattern"] == "htf_counter_reaction":
+            candidate["debug_facts"]["htf_opposing_sd_zone_ids"] = ["demand-1"]
+    return bar
 
 
 def _d_watch_no_internal_bar(*, range_high: float = 1.2018) -> dict:
@@ -293,7 +357,37 @@ def test_path_c_rejects_invalidated_internal_pressure_transition():
     assert result is None
 
 
-def test_path_b_floor_widens_compressed_zone_proximal_sl():
+def test_path_b_requires_itr_arming_before_ichoch_entry():
+    engine = _engine()
+
+    result = engine.evaluate(_d_watch_zone_bar(itr_high=None))
+
+    assert result is None
+
+
+def test_path_b_ignores_unarmed_itr_before_ichoch_entry():
+    engine = _engine()
+
+    result = engine.evaluate(_d_watch_zone_bar(zone_low=1.1700, itr_high=1.1800))
+
+    assert result is None
+
+
+def test_path_b_unarmed_zone_does_not_block_later_armed_episode():
+    engine = _engine()
+
+    assert engine.evaluate(_d_watch_zone_bar(zone_low=1.1700, itr_high=1.1800)) is None
+    later = _d_watch_zone_bar()
+    later["hypothesis"]["debug_facts"]["phase_episode_id"] = "episode-2"
+    later["hypothesis"]["hypothesis_id"] = "hyp-2"
+
+    intent = engine.evaluate(later)
+
+    assert isinstance(intent, EntryIntent)
+    assert intent.phase_episode_id == "episode-2"
+
+
+def test_path_b_enters_after_supply_itr_armed_and_fresh_ichoch():
     engine = _engine()
 
     intent = engine.evaluate(_d_watch_zone_bar())
@@ -301,7 +395,62 @@ def test_path_b_floor_widens_compressed_zone_proximal_sl():
     assert isinstance(intent, EntryIntent)
     assert intent.evidence.evidence_kind == "htf_sd_zone"
     assert intent.trigger.trigger_path == "D.watch_pathB"
+    assert intent.evidence.level == 1.2008
     assert round(intent.stop_loss, 4) == 1.2015
+    assert round(intent.risk_pips, 1) == 15.0
+
+
+def test_regime_tags_mark_entry_bar_inside_htf_sd_zone_and_itr_context():
+    engine = _engine()
+    bar = _d_watch_zone_bar()
+
+    intent = engine.evaluate(bar)
+    assert isinstance(intent, EntryIntent)
+    tags = regime_tags(bar, intent)
+
+    assert tags["at_htf_sd_zone"] is True
+    assert tags["entry_bar_inside_htf_sd_zone"] is True
+    assert tags["htf_sd_zone_id"] == "supply-1"
+    assert tags["htf_sd_zone_direction"] == "supply"
+    assert tags["htf_sd_zone_touch_timing"] == "at_entry"
+    assert tags["itr_inside_htf_sd_zone"] is True
+    assert tags["bars_since_itr_confirmed"] == 1
+    assert tags["entry_session"] == "london"
+
+
+def test_regime_tags_leave_non_zone_sa_trade_unmarked():
+    engine = _engine()
+    bar = _d_watch_bar()
+
+    intent = engine.evaluate(bar)
+    assert isinstance(intent, EntryIntent)
+    tags = regime_tags(bar, intent)
+
+    assert tags["at_htf_sd_zone"] is False
+    assert tags["entry_bar_inside_htf_sd_zone"] is False
+    assert tags["htf_sd_zone_id"] == ""
+    assert tags["itr_inside_htf_sd_zone"] is False
+
+
+def test_path_b_requires_ichoch_after_armed_itr():
+    engine = _engine()
+
+    result = engine.evaluate(_d_watch_zone_bar(itr_confirmed_at="2026-01-01T10:25:00+00:00"))
+
+    assert result is None
+
+
+def test_path_b_long_mirror_enters_after_demand_itr_armed_and_fresh_ichoch():
+    engine = _engine()
+
+    intent = engine.evaluate(_d_watch_demand_zone_bar())
+
+    assert isinstance(intent, EntryIntent)
+    assert intent.direction == "long"
+    assert intent.evidence.evidence_kind == "htf_sd_zone"
+    assert intent.trigger.trigger_path == "D.watch_pathB"
+    assert intent.evidence.level == 1.1992
+    assert round(intent.stop_loss, 4) == 1.1985
     assert round(intent.risk_pips, 1) == 15.0
 
 
@@ -435,76 +584,8 @@ def test_epoch_summary_counts_chances_outcomes_and_evidence_frequency():
             "trigger_D_watch_pathSA": 2,
             "trigger_D_watch_pathB": 0,
             "trigger_D_watch_pathC2": 0,
-            "trigger_D_watch_pathB_express": 0,
-            "trigger_D_watch_pathC2_express": 0,
             "late_entry_risk_too_wide": 1,
         }
     ]
 
 
-def _d_watch_express_bar(
-    *,
-    close: float = 1.2000,
-    express_zone_proximal: float | None = 1.2003,
-) -> dict:
-    """Express D.watch bar: entry_express=True, iChoCh fired — B_express path.
-    prior_direction=long → trade=short.
-    express_zone_proximal=1.2003 → sl_raw=1.2003+0.0002=1.2005 (matches min_sl floor).
-    express_zone_proximal=None → falls back to watch_range_extreme."""
-    bar = _d_watch_bar(close=close, range_high=1.2018)
-    bar["hypothesis"]["debug_facts"]["phase_d_shadow_entry_express"] = True
-    bar["hypothesis"]["debug_facts"]["phase_d_shadow_express_zone_proximal"] = express_zone_proximal
-    return bar
-
-
-def _c_pullback_express_transition_bar(
-    *,
-    express_zone_proximal: float | None = 1.2008,
-) -> dict:
-    """C.pullback transition bar from express D.watch — C2_express path.
-    express_zone_proximal=1.2008 → sl_raw=1.2008+0.0002=1.2010, risk=10 pips → floor → 15 pips.
-    express_zone_proximal=None → falls back to watch_range_extreme (1.2018 → sl=1.2020, risk=20 pips)."""
-    bar = _c_pullback_transition_bar(pressure_seen=False)
-    bar["hypothesis"]["debug_facts"]["phase_d_shadow_entry_express"] = True
-    bar["hypothesis"]["debug_facts"]["phase_d_shadow_express_zone_proximal"] = express_zone_proximal
-    return bar
-
-
-def test_path_b_express_fires_when_entry_express_true():
-    engine = _engine()
-
-    intent = engine.evaluate(_d_watch_express_bar(express_zone_proximal=1.2003))
-
-    assert isinstance(intent, EntryIntent)
-    assert intent.trigger.trigger_path == "D.watch_pathB_express"
-    assert intent.trigger.trigger_kind == "counter_ichoch"
-    assert intent.evidence.evidence_kind == "htf_sd_zone_express"
-    assert intent.evidence.source_store == "phase_d_shadow"
-    assert round(intent.stop_loss, 4) == 1.2015  # min_sl floor: 1.2000 + 15 pips
-    assert round(intent.risk_pips, 1) == 15.0
-
-
-def test_path_b_express_falls_back_to_watch_range_extreme_when_zone_proximal_none():
-    engine = _engine()
-
-    intent = engine.evaluate(_d_watch_express_bar(express_zone_proximal=None))
-
-    assert isinstance(intent, EntryIntent)
-    assert intent.trigger.trigger_path == "D.watch_pathB_express"
-    # fallback: watch_range_extreme=1.2018 → sl=1.2018+0.0002=1.2020, risk=20 pips
-    assert round(intent.stop_loss, 4) == 1.2020
-    assert round(intent.risk_pips, 1) == 20.0
-
-
-def test_path_c2_express_fires_on_express_d_to_c_transition():
-    engine = _engine()
-    assert engine.evaluate(_d_watch_no_internal_bar()) is None
-
-    intent = engine.evaluate(_c_pullback_express_transition_bar(express_zone_proximal=None))
-
-    assert isinstance(intent, EntryIntent)
-    assert intent.trigger.trigger_path == "D.watch_pathC2_express"
-    assert intent.trigger.trigger_kind == "d_watch_mss_plain"
-    # fallback to watch_range_extreme=1.2018 → sl=1.2020, risk=20 pips
-    assert round(intent.stop_loss, 4) == 1.2020
-    assert round(intent.risk_pips, 1) == 20.0

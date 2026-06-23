@@ -6,6 +6,7 @@ ln-notes
 ln-data
 docs/debugging/*
 analysis/*
+tests/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
