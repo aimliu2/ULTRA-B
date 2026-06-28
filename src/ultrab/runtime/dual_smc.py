@@ -189,6 +189,7 @@ class DualSmcRuntime:
         )
         self.hypothesis_bootstrap_bars = self._resolve_hypothesis_bootstrap_bars()
         self._startup_saved_shadow_state = saved_shadow_state
+        self._last_saved_phase: str | None = None
         self.restart_diagnostics: dict[str, Any] = {
             "recovery_mode": None,
             "restore_reject_reason": None,
@@ -263,6 +264,7 @@ class DualSmcRuntime:
         self._last_lower_ce02_events = []
         self._last_hypothesis_lower_index = None
         self._last_hypothesis_payload = None
+        self._last_saved_phase = None
         self._init_engines()
 
     def step(self) -> RuntimeStepResult:
@@ -406,6 +408,12 @@ class DualSmcRuntime:
         ):
             self._last_hypothesis_payload = self.hypothesis_classifier.classify(payload).to_dict()
             self._last_hypothesis_lower_index = self.current_lower_index
+            if self.hypothesis_config.get("persist_shadow_state"):
+                current = self.hypothesis_classifier.state.current_hypothesis
+                new_phase = current.phase if current is not None else None
+                if new_phase != self._last_saved_phase:
+                    self.save_shadow_state()
+                    self._last_saved_phase = new_phase
         return self._last_hypothesis_payload
 
     def metadata(self) -> dict[str, Any]:
@@ -466,7 +474,9 @@ class DualSmcRuntime:
         if target is None:
             return None
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(self.export_shadow_state(), indent=2, sort_keys=True), encoding="utf-8")
+        tmp = target.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.export_shadow_state(), indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(target)
         return target
 
     def _shadow_state_path(self, path: str | Path | None = None) -> Path | None:
@@ -644,6 +654,9 @@ class DualSmcRuntime:
             self._warm_layer3_to_lower_index(self._hypothesis_bootstrap_start_index())
             if self._run_hidden_layer4_bootstrap():
                 return
+            self.hypothesis_classifier = HypothesisClassifier(self.hypothesis_config)
+            self._last_hypothesis_lower_index = None
+            self._last_hypothesis_payload = None
             if self._relocate_hypothesis_from_terrain():
                 return
         else:
@@ -799,7 +812,26 @@ class DualSmcRuntime:
         if self.hypothesis_classifier is None:
             return False
         current = self.hypothesis_classifier.state.current_hypothesis
-        return bool(current and current.phase in {"A", "B", "C", "D", "E"})
+        if not (current and current.phase in {"A", "B", "C", "D", "E"}):
+            return False
+
+        terrain = self._current_terrain_identity()
+        terrain_direction = terrain.get("direction")
+        if terrain_direction == "none":
+            return False
+        classifier_direction = self.hypothesis_classifier.state.active_phase_e_direction
+        if classifier_direction in {None, "none"}:
+            return False
+        if classifier_direction != terrain_direction:
+            return False
+
+        terrain_epoch = terrain.get("htf_pd_epoch_id")
+        classifier_epoch = self.hypothesis_classifier.state.htf_pd_epoch_id
+        if terrain_epoch and not classifier_epoch:
+            return False
+        if terrain_epoch and classifier_epoch and terrain_epoch != classifier_epoch:
+            return False
+        return True
 
     def _relocate_hypothesis_from_terrain(self) -> bool:
         if self.hypothesis_classifier is None:
@@ -823,8 +855,6 @@ class DualSmcRuntime:
 
         rejections["A"] = "a_relocation_requires_reconstructable_b_and_a_anchors"
         rejections["B"] = "b_relocation_requires_reconstructable_commitment_extreme"
-        rejections["D"] = "d_relocation_requires_reconstructable_watch_provenance"
-
         cursor_time = self._current_time_iso(include_hidden=True)
         base_debug = {
             "mode": payload.get("mode", "dual"),
@@ -841,39 +871,7 @@ class DualSmcRuntime:
         }
 
         phase = htf.get("phase")
-        if phase == "pullback_confirmed":
-            phase_c = self.hypothesis_classifier._phase_c_setup(payload, ltf, direction)
-            if phase_c.get("phase_c_story_ready"):
-                c_shadow = self.hypothesis_classifier.state.shadow_thesis.phase_c
-                c_shadow.origin_node = "terrain_relocation"
-                c_shadow.entered_at = cursor_time
-                selected_poi = phase_c.get("phase_c_selected_poi")
-                status = "armed" if selected_poi else "watching"
-                hyp = self.hypothesis_classifier._phase_c(
-                    direction,
-                    selected_poi,
-                    status,
-                    cursor_time,
-                    {
-                        **base_debug,
-                        **phase_c,
-                        "phase_c_origin_node": "terrain_relocation",
-                        "relocation_selected_node": "C.pullback",
-                    },
-                    phase_sub_status="pullback",
-                )
-                self.hypothesis_classifier._commit(hyp)
-                self.restart_diagnostics.update(
-                    {
-                        "recovery_mode": "terrain_relocation",
-                        "relocation_selected_node": "C.pullback",
-                        "relocation_candidate_rejections": rejections,
-                    }
-                )
-                return True
-            rejections["C"] = "phase_c_story_not_ready"
-
-        if phase == "open":
+        if phase in {"pullback_confirmed", "open"}:
             hyp = self.hypothesis_classifier._phase_e(
                 direction,
                 cursor_time,
@@ -893,7 +891,7 @@ class DualSmcRuntime:
             )
             return True
 
-        rejections["E"] = "htf_phase_not_open"
+        rejections["E"] = "htf_phase_not_open_or_pullback_confirmed"
         self.restart_diagnostics["relocation_candidate_rejections"] = rejections
         return False
 

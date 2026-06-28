@@ -345,6 +345,8 @@
     margin-bottom: 6px;
   }
   .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .issue-card.done { background: var(--gray-150); border-color: var(--border); opacity: 0.7; }
+  .issue-card.done .issue-label { color: var(--accent2); }
   .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
 </style>
 </head>
@@ -544,14 +546,15 @@ bearish context:
 
     <h3 id="internal-sc">Internal iSb / iChoCh — SC05–SC08</h3>
     <p>SC01–SC04 fire against the wick-defined range boundary. SC05–SC08 fire against individual confirmed ITR/LTR pivot prices (PE03/PE04 for ITR, PE05/PE06 for LTR). They add a finer layer of micro-swing observation <em>inside</em> the current structural bias without replacing or duplicating the macro range events.</p>
+    <div class="rule-block">
+      Fixed: SC05–SC08 classification is relation-based, not macro-bias-based. iSB fires on continuation relations (HH up, LL down). iChoCh fires on reversal relations (LH up, HL down). These events remain pure observation and do not change bias, phase, or range.
+    </div>
     <pre class="block">ITR tier (structure.tier = "itr"):
-  SC05  itrISb     close > confirmed ITR high (HH progression, pro-bias)
-  SC06  itrIChoCh  close < confirmed ITR low  (breaks HL, counter-bias)
+  SC05  itrISb     close > HH/seed high, or close < LL low
+  SC06  itrIChoCh  close > LH high, or close < HL/seed low
 
 LTR tier (structure.tier = "ltr"):
-  SC07  ltrISb     close < confirmed LTR low  (LL progression, pro-bias bearish)
-                   close > confirmed LTR high (HH progression, pro-bias bullish)
-  SC08  ltrIChoCh  counter-bias close through LTR pivot</pre>
+  SC07 / SC08 reserved but disabled in runtime while structure.tier == "ltr"</pre>
     <p>Key differences from SC01–SC04:</p>
     <pre class="block">SC01–SC04  fires against wick range_high / range_low
            owns bias and phase transitions
@@ -560,11 +563,11 @@ LTR tier (structure.tier = "ltr"):
 SC05–SC08  fires against PE03/PE04 pivot price (confirmed level)
            pure observation — does NOT change bias, phase, range_high, range_low
            fires post-warmup only
-           iSb requires HH/LL progression (no re-firing on same level; not a LH/HL)
+           event type depends on same-side level relation: HH/LH/HL/LL/seed
            co-emit allowed — same bar can return both a SC01–SC04 and a SC05–SC08</pre>
     <div class="callout">
       <span class="ico">i</span>
-      <div><b>Why SC05–SC08 exist.</b> SC01–SC04 already act as the structural BoS/MSS equivalent at the range boundary. But within a bullish leg there can be multiple ITR highs and lows that price reacts to before the range is broken. SC05–SC08 capture those pivot-level reactions — HH progression that confirms the leg is still running (<code>iSb</code>) or a HL break that suggests weakening momentum (<code>iChoCh</code>) — without conflating them with the macro range event. Evidence Compiler and Layer 4 can use these for finer phase qualification.</div>
+      <div><b>Why SC05–SC08 exist.</b> SC01–SC04 are the major structure events at the wick-defined range boundary. They are separate from orderflow BoS/MSS. Within a bullish leg there can be multiple ITR highs and lows that price reacts to before the range is broken. SC05–SC08 capture those pivot-level reactions — HH progression that confirms the leg is still running (<code>iSb</code>) or a HL break that suggests weakening momentum (<code>iChoCh</code>) — without conflating them with the major range event. Evidence Compiler and Layer 5 use these for entry qualification.</div>
     </div>
     <pre class="block"><span class="cm"># SC05 payload example (pure observation — no bias flip)</span>
 {
@@ -895,27 +898,21 @@ def _sb_internal(close, ts):
     if not warmup_complete or bias == "neutral":
         return None
 
-    if bias == "bullish":
-        <span class="cm"># iSb: close above ITR high, AND it is a HH (higher than prev same-side level)</span>
-        if lh and close > lh.price and last_isb_level_id != lh.level_id:
-            if is_hh_or_seed(lh):
-                last_isb_level_id = lh.level_id
-                emit SC05 itrISb (choch=False, biasFlip=False)
-        <span class="cm"># iChoCh: close below ITR low (breaks HL)</span>
-        if ll and close < ll.price and last_ichoch_level_id != ll.level_id:
-            last_ichoch_level_id = ll.level_id
-            emit SC06 itrIChoCh (choch=True, biasFlip=False)
-
-    elif bias == "bearish":
-        <span class="cm"># iSb: close below ITR low, AND it is a LL</span>
-        if ll and close < ll.price and last_isb_level_id != ll.level_id:
-            if is_ll_or_seed(ll):
-                last_isb_level_id = ll.level_id
-                emit SC07 ltrISb / SC05 itrISb (choch=False, biasFlip=False)
-        <span class="cm"># iChoCh: close above ITR high (breaks LH)</span>
-        if lh and close > lh.price and last_ichoch_level_id != lh.level_id:
+    if lh and close > lh.price:
+        if lh.level_relation in {"HH", "seed"}:
+            last_isb_level_id = lh.level_id
+            emit SC05 itrISb up (choch=False, biasFlip=False)
+        else:  <span class="cm"># LH high break</span>
             last_ichoch_level_id = lh.level_id
-            emit SC06 itrIChoCh / SC08 ltrIChoCh (choch=True, biasFlip=False)
+            emit SC06 itrIChoCh up (choch=True, biasFlip=False)
+
+    if ll and close < ll.price:
+        if ll.level_relation in {"HL", "seed"}:
+            last_ichoch_level_id = ll.level_id
+            emit SC06 itrIChoCh down (choch=True, biasFlip=False)
+        else:  <span class="cm"># LL low break</span>
+            last_isb_level_id = ll.level_id
+            emit SC05 itrISb down (choch=False, biasFlip=False)
 
 <span class="cm"># Dedup state resets when a new structural leg starts (_start_bullish/_start_bearish).
 # Warmup pivot is consumed into last_isb_level_id after warmup SC fires,
@@ -1052,8 +1049,8 @@ HTF P/D     pd_value_pct% · premium/mid/discount
     <h2 id="issues"><span class="sec-num">09</span> Open Issues · Edge Cases · Next Milestone</h2>
     <div class="issue-grid">
       <div class="issue-card done">
-        <div class="issue-label">Archived · Completed</div>
-        <p><b>Internal pivot events SC05–SC08 (iSb / iChoCh).</b> SC01–SC04 are conceptually equivalent to BoS/MSS but fire at wick-defined range boundaries. To add pivot-level granularity without conflating with the macro range events, SC05–SC08 were introduced: they fire against confirmed ITR/LTR PE pivot prices, are pure observation (no bias or range change), require HH/LL progression for iSb, and can co-emit alongside a SC01–SC04 on the same bar.</p>
+        <div class="issue-label">Completed · 2026-06-24</div>
+        <p><b>Internal pivot events SC05–SC08 (iSB / iChoCh) now use same-side level relation.</b> The old macro-bias read was wrong: it could classify a bullish-context LL break as iChoCh and miss an LH break entirely. The corrected rule stores <code>level_relation</code> on each <code>StructureLevel</code> and classifies internal SC from HH/LH/HL/LL/seed: HH or seed high break → iSB up; LH high break → iChoCh up; HL or seed low break → iChoCh down; LL low break → iSB down.</p>
       </div>
       <div class="issue-card done">
         <div class="issue-label">Archived · Completed</div>

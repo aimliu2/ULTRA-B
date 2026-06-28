@@ -667,6 +667,18 @@ def advance_trade(trade, bar):
         <div class="issue-label">Fallback</div>
         <p><b>If metrics look too optimistic.</b> Keep the same Layer 5 intents and rerun Layer 6 with spread/slippage and stricter same-bar policy variants.</p>
       </div>
+      <div class="issue-card">
+        <div class="issue-label">Deferred Gate — Phase D EX.entry</div>
+        <p><b>HTF zone context as a suggestion gate.</b> <code>htf_zone_context</code> is currently an analysis tag only on <code>D.watch_pathA</code> entries. After the null-case baseline (fixed <code>watch_range_extreme</code> SL, no zone filter) is stable, zone-distal SL cap and zone-blown rejection can be applied as a tightening filter. Do not add before baseline data is collected.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Inspection Finding — 2024-06-06</div>
+        <p><b>EX.entry sequence fired correctly.</b> Replayed from 2024-06-01. Phase D context was intact. Counter iChoCh → counter iSB confirmed at <code>2024-06-06T14:30Z</code>. Skipped as <code>late_entry_risk_too_wide</code> (29.9 pips vs 25-pip cap). Sequence logic is correct; skip is policy, not a bug.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Blocking — Self-Relocation</div>
+        <p><b>Self-relocation maps Phase D episodes to Phase C.</b> <code>2023-05-01T09:30Z</code> and <code>2023-05-02T11:15Z</code> are confirmed Phase D EX.entry triggers in continuous run, but relay replays starting 2023-04-28 mis-classify both as Phase C. A sideways week before the episode provides enough structural terrain for C.pullback relocation instead of D.watch. Cold start at <code>2023-05-01T00:00Z</code> additionally fails to relocate at all (documented in <code>analysis/restart_self_relocation.md</code>). <b>Self-relocation must be fixed before null-test baseline is reliable.</b></p>
+      </div>
     </div>
   </main>
 </div>

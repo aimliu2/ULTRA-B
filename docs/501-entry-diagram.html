@@ -410,11 +410,10 @@ flowchart TD
       body: `
 <p>Layer 5 does need a Layer 3 contract. It should not inspect raw structure, liquidity, or S/D engines directly. Layer 3/EC emits facts, event IDs, and object IDs; Layer 5 resolves entry permission and geometry from that stable surface.</p>
 <div class="code-block">Existing trigger facts:
-  ltf_counter_choch_seen / event_at / level / event_id
-  ltf_counter_sb_seen    / event_at / level / event_id
-
-Required before full D Path A:
-  ltf_counter_isb_seen / event_at / level / event_id / source_store
+  ltf_counter_ichoch_*       internal counter iChoCh
+  ltf_pro_ichoch_*           internal pro iChoCh
+  ltf_counter_sequence_*     internal counter iChoCh → internal pro iSB
+  ltf_counter_sb_seen        major counter SB quality context
 
 Evidence pointers:
   ltf_counter_story.selected_poi
@@ -494,19 +493,15 @@ No-trade V1:
       num: "05",
       tag: "Layer 5",
       title: "D.watch Trigger Contract",
-      meta: "Phase D-only Path A / Path B trigger after evidence",
+      meta: "Phase D-only D.watch_pathA trigger after evidence",
       body: `
-<p>This node is Phase D-specific. Path A and Path B came from the old <code>D.speculation</code> mechanics and now belong to Layer 5 entry confirmation while the DAG holds <code>D.watch</code>.</p>
-<div class="code-block">Path A:
-  fresh counter iChoCh
-  OR iChoCh followed by same-direction internal iSB
-
-Path B:
-  fresh macro counter SB fallback
+<p>This node is Phase D-specific. Current D has one active entry path while the DAG holds <code>D.watch</code>.</p>
+<div class="code-block">D.watch_pathA:
+  internal counter iChoCh → internal pro iSB sequence
+  ltf_counter_sequence_trade_direction == trade direction
 
 Freshness:
-  trigger.event_at > evidence.presented_at
-  trigger.event_at > phase_d_shadow.watch_entered_at</div>
+  ltf_counter_sequence_isb_event_at > phase_d_shadow.watch_entered_at</div>
 <div class="rule-block">Do not reuse this trigger contract for C, B, or A by default. Those phases need separate entry trigger contracts when their iChoCh rules are decided.</div>
 <div class="rule-block">A valid D trigger is not enough by itself. The geometry gate still rejects late entries whose evidence-based stop is too wide.</div>
 <a class="panel-link" href="./402-hypothesis-phD.html">→ 402 Phase D</a>`
@@ -518,15 +513,19 @@ Freshness:
       title: "Budget + Stale Ledger",
       meta: "spend only on placed/filled orders; skip preserves budget",
       body: `
-<p>Budget is scoped to <code>htf_pd_epoch_id</code>. The stale ledger blocks repeated attempts on the same missed opportunity without consuming the epoch ticket.</p>
+<p>Budget is scoped to <code>htf_pd_epoch_id</code> for Phase D. Phase B additionally uses a per-episode consumption guard so one B.watch episode cannot emit multiple accepted OTE trades.</p>
 <div class="code-block">Default V1 budget:
   D first=1, reentry=0
-  C/B/A first=1, reentry=1
+  B one accepted entry or stale geometry skip per B.watch episode
+  C/A first=1, reentry=1
   E/X first=0, reentry=0
 
 Stale reason:
-  late_entry_risk_too_wide</div>
-<div class="rule-block">Spend budget only when an order is actually placed or filled. A skipped late setup saves budget and waits for the next independent phase episode.</div>
+  late_entry_risk_too_wide
+
+Retryable reason:
+  runway_too_short  ← same trigger only, bounded by trigger_age_bars</div>
+<div class="rule-block">Spend budget only when an order is actually placed or filled. A skipped late setup saves budget, but a stale Phase B geometry skip consumes the B episode to prevent duplicate firing.</div>
 <a class="panel-link" href="./501-entry-details.html#budget">→ Budget details</a>`
     },
 
@@ -538,18 +537,17 @@ Stale reason:
       body: `
 <p>Stop loss is anchored to the evidence, not to a generic fixed distance. The risk band exists to reject late execution, not to force every trade into exactly 20 pips.</p>
 <div class="code-block">SL rule:
-  liquidity evidence: use grabbed high/low + buffer
-  LTF S/D evidence: use other side of zone + buffer
-  HTF S/D evidence: use counter HTF zone boundary + buffer
+  D.watch_pathA: watch_range_extreme ± buffer
+  B.watch_pathA/B: commitment_extreme_level ± buffer
 
 Risk quality:
   preferred EURUSD band: 15-25 pips
   above max_risk_pips: skip stale, no chase
 
 Target:
-  default 2R
-  upgrade 2.5R only when HTF runway supports it</div>
-<div class="rule-block">Future Layer 6 tests can replace fixed R with a Daily ATR shape, but V1 needs a simple measurable baseline.</div>
+  D.watch_pathA: higher_structure.pd_midpoint
+  B.watch_pathA/B: Phase A objective-progress level, capped at 2.5R</div>
+<div class="rule-block">Future Layer 6 tests can replace this with a Daily ATR shape, but V1 target geometry must stay phase-specific and measurable.</div>
 <a class="panel-link" href="./601-trade-analysis-details.html">→ 601 Trade Analysis Details</a>`
     },
 
@@ -571,11 +569,13 @@ Target:
   target_r
   evidence_id
   trigger_event_id
+  trigger_age_bars
 
 SkipIntent:
   skip_reason
   budget_spent = false
-  stale_marked = true|false</div>
+  stale_marked = true|false
+  trigger_age_bars</div>
 <a class="panel-link" href="./501-entry-details.html#algo">→ Layer 5 algorithm</a>`
     },
 

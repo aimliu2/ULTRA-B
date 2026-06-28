@@ -610,7 +610,7 @@ D.watch → C.pullback:
 <p><strong>Layer 5 reads from D.watch snapshot (not DAG gates):</strong></p>
 <ul>
   <li><code>ltf_counter_choch_seen</code> — SC06 iChoCh bounce-failure signal (Path A entry)</li>
-  <li><code>ltf_counter_sb_seen</code> — macro counter SB after pullback_confirmed (Path B entry)</li>
+  <li><code>ltf_counter_sb_seen</code> — major counter SB after pullback_confirmed (quality context; no active D entry path)</li>
   <li><code>phase_d.choch_1.level</code> — SL reference for Layer 5</li>
 </ul>
 <div class="rule-block">D.watch holds through the pro-HTF re-test. The only hard DAG invalidation is HTF close above PD range → E.seeking. iChoCh and SB are Layer 5 territory — see docs/501-entry.html.</div>
@@ -629,7 +629,7 @@ D.watch → C.pullback:
   ltf_counter_orderflow_leg_id != phase_d.consumed_leg_id
   origin_node = "D.watch_mss"
 
-Path 2 structural BoS (from E.pullback_developing, no D):
+Path 2 clean counter orderflow (from E.pullback_developing, no D):
   phase_d.node is None
   ltf_counter_bos_confirmed == true (ltf_counter_story)
   ltf_counter_orderflow_started_at > pullback_developing_entered_at
@@ -697,7 +697,7 @@ Shadow (PhaseBShadow — pointers only):
   <li><strong>C.pullback</strong> (dashed) — counter MSS fires on a fresh leg after B.watch opened (pro attempt failed; pullback resumed). Freshness-guarded: <code>ltf_counter_orderflow_started_at > b_shadow.entered_at</code>.</li>
   <li><strong>C.pullback</strong> (dashed) — B commitment extreme breached. This is checked before the counter-MSS failure path and sets <code>origin_node = "B.watch_commitment_extreme_breached"</code>.</li>
   <li><strong>E.seeking</strong> (dashed) — new HTF extreme invalidates the reclaim thesis</li>
-  <li><strong>A.watch</strong> — fresh pro-HTF structural BoS fires after B.watch opened</li>
+  <li><strong>A.watch</strong> — fresh major pro structure transition fires after B.watch opened</li>
   <li>Hold — no signal; Layer 5 reads shadow facts for entry permission each bar</li>
 </ul>
 <div class="rule-block">B.watch is only reachable from C.pullback (not C.pullback_weaken). C.pullback_weaken → C.pullback re-entry + new pro-SC required. This keeps the depth gate path clean.</div>
@@ -708,8 +708,8 @@ Shadow (PhaseBShadow — pointers only):
       num:   "a1",
       tag:   "Phase A",
       title: "A.watch",
-      meta:  "Fresh pro-HTF BoS after B.watch — watching for objective maturity",
-      body:  `<p><strong>A.watch</strong> opens from B.watch when a fresh pro-HTF structural BoS fires after B opened. It is the final active node in the DAG cycle: the reclaim attempt escaped the B zone and now watches the HTF objective.</p>
+      meta:  "Fresh major pro structure transition after B.watch — watching for objective maturity",
+      body:  `<p><strong>A.watch</strong> opens from B.watch when a fresh major pro structure transition (<code>last_sc</code>) fires after B opened. It is the final active node in the DAG cycle: the reclaim attempt escaped the B zone and now watches the HTF objective.</p>
 <div class="code-block">Entry gate (from B.watch):
   previous_phase == "B"
   last_sc.breakDirection == pro-HTF direction
@@ -733,7 +733,7 @@ Shadow:
       num:   "a2",
       tag:   "Phase A",
       title: "A.watch_weaken",
-      meta:  "Counter MSS weakened A.watch — recover only with pro BoS + new pro extreme",
+      meta:  "Counter MSS weakened A.watch — recover only with major pro structure + new pro extreme",
       body:  `<p><strong>A.watch_weaken</strong> fires when a fresh counter orderflow MSS appears after A.watch opened. It does not immediately end the thesis; it records that the pro attempt weakened and waits for either recovery or hard invalidation.</p>
 <div class="code-block">Gate (from A.watch):
   ltf_counter_orderflow_mss_watch == true

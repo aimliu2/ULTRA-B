@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any, Literal
 from uuid import uuid4
 
@@ -70,6 +71,7 @@ class EntryIntent:
     trigger: TriggerEvidence
     budget_spent: bool = True
     skip_reason: str | None = None
+    trigger_age_bars: int = 0
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,7 @@ class SkipIntent:
     budget_spent: bool = False
     stale_marked: bool = False
     risk_pips: float | None = None
+    trigger_age_bars: int = 0
 
 
 def pip_size_for_symbol(symbol: str) -> float:
@@ -115,6 +118,37 @@ def _float(value: Any) -> float | None:
 
 def _time_gt(left: str | None, right: str | None) -> bool:
     return bool(left and right and str(left) > str(right))
+
+
+def _parse_bar_minutes(tf: Any) -> int:
+    label = str(tf or "").strip().upper()
+    try:
+        if label.endswith("M"):
+            return max(1, int(label[:-1]))
+        if label.endswith("H"):
+            return max(1, int(label[:-1])) * 60
+        if label.endswith("D"):
+            return max(1, int(label[:-1])) * 1440
+    except ValueError:
+        return 15
+    return 15
+
+
+def _trigger_age_bars(
+    cursor_time: str | None,
+    trigger_at: str | None,
+    *,
+    bar_minutes: int = 15,
+) -> int:
+    if not cursor_time or not trigger_at:
+        return 0
+    try:
+        cursor = datetime.fromisoformat(str(cursor_time).replace("Z", "+00:00"))
+        trigger = datetime.fromisoformat(str(trigger_at).replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    minutes = max(1, bar_minutes)
+    return max(0, int((cursor - trigger).total_seconds() / 60 / minutes))
 
 
 def _candidate(snapshot: dict[str, Any], pattern: str, direction: str | None) -> dict[str, Any] | None:
@@ -161,11 +195,11 @@ class EntryBudgetLedger:
 class EntryPermissionEngine:
     """Layer 5 Phase D permission engine — D.lax policy.
 
-    SA:         D.watch, no zone — iChoCh bar close → entry. SL = watch_range_extreme + buffer.
-    B:          D.watch, zone tapped during hold — ITR-armed zone probe + iChoCh → entry.
-                SL = zone distal/invalidation edge.
-    C2:         C.pullback (origin D.watch_mss), no prior iChoCh → entry at transition bar.
-    All:    TP = pd_midpoint (50% HTF PD range). RR >= 1.75 to take.
+    D Path A: D.watch hold — internal counter iChoCh -> internal counter iSB sequence.
+              SL = watch_range_extreme + buffer.
+    B Path A: B.watch hold — internal counter iChoCh -> internal pro iChoCh.
+    B Path B: B.watch -> A.watch transition after B OTE steps 1+2 were armed.
+    D TP:     pd_midpoint (50% HTF PD range). B TP: progress cap toward 90% objective.
     Symbol geometry (sl_band_pips, sl_buffer_pips) is per-symbol from config.yaml asset_geometry.
     Unknown symbol returns None — no silent fallback to EURUSD defaults.
     """
@@ -177,17 +211,21 @@ class EntryPermissionEngine:
         symbol_geometry: dict[str, dict] | None = None,
         min_rr: float = 1.75,
         epoch_budget: int = 1,
+        phase_a_objective_threshold: float = 0.90,
+        max_trigger_age_bars: int = 20,
     ) -> None:
         self.policy_name = policy_name
         self.symbol_geometry: dict[str, dict] = symbol_geometry or {}
         self.min_rr = min_rr
+        self.phase_a_objective_threshold = phase_a_objective_threshold
+        self.max_trigger_age_bars = max_trigger_age_bars
         self.budget = EntryBudgetLedger(epoch_budget=epoch_budget)
         self._stale_opportunities: set[tuple[str, str, str | None]] = set()
         self._processed_opportunities: set[tuple[str, str, str | None]] = set()
         # cache_key = "{epoch_id}:{prior_direction}" — stable across D→C phase transition
         self._d_watch_budget_spent: dict[str, bool] = {}  # True once any path fires and is accepted
-        # zone_id → phase_episode_id of first D.watch episode that armed it; blocks re-trigger from same zone
-        self._zone_first_episode: dict[str, str] = {}
+        self._b_watch_episode_spent: set[str] = set()
+        self._b_watch_pending_trigger: dict[str, str] = {}
 
     def evaluate(self, snapshot: dict[str, Any]) -> EntryIntent | SkipIntent | None:
         hypothesis = snapshot.get("hypothesis") or {}
@@ -205,30 +243,42 @@ class EntryPermissionEngine:
         sl_buffer_pips = float(geom.get("sl_buffer_pips", 2.0))
         pip_size = pip_size_for_symbol(sym)
 
-        # ── Path C: C.pullback from D.watch_mss ───────────────────────────────
-        # Path C is a transition-bar entry. Persistent phase_c_shadow_origin_node
-        # is deliberately ignored so later C.pullback hold bars cannot retry.
-        if (phase == "C" and phase_sub_status == "pullback"
-                and debug.get("phase_c_entry_transition_origin_node") == "D.watch_mss"):
-            prior_direction = debug.get("prior_phase_e_direction") or debug.get("active_phase_e_direction")
-            trade_direction = _opposite(prior_direction)
+        # ── Phase B — OTE.entry ──────────────────────────────────────────────
+        # trade_direction == direction (pro-HTF) — opposite of Phase D counter trades.
+        if phase == "B" and phase_sub_status == "watch":
+            direction = hypothesis.get("direction")
             epoch_id = debug.get("htf_pd_epoch_id") or snapshot.get("evidence_compiler_epoch_id")
             phase_episode_id = str(debug.get("phase_episode_id") or hypothesis.get("hypothesis_id") or "")
-            if not trade_direction or not epoch_id or not phase_episode_id:
+            if not direction or not epoch_id:
                 return None
-            cache_key = f"{epoch_id}:{prior_direction}"
-            self.budget.sync_epoch(str(epoch_id), prior_direction)
-            if not self.budget.available("D", phase_episode_id):
+            if phase_episode_id in self._b_watch_episode_spent:
                 return None
-            if self._d_watch_budget_spent.get(cache_key):
-                return None
-            result = self._try_path_c(
-                snapshot, debug, trade_direction, epoch_id,
-                phase_episode_id, cache_key, pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
+            choch_cand = _candidate(snapshot, "ltf_counter_choch", direction) or {}
+            choch_facts = choch_cand.get("debug_facts") or {}
+            return self._try_b_watch_path_a(
+                snapshot, debug, choch_facts, direction, epoch_id, phase_episode_id,
+                pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
             )
-            if isinstance(result, EntryIntent):
-                self._d_watch_budget_spent[cache_key] = True
-            return result
+
+        # ── Phase B-owned transition entry: B.watch → A.watch ────────────────
+        if (
+            phase == "A"
+            and phase_sub_status == "watch"
+            and debug.get("phase_a_entry_transition_origin_node") == "B.watch"
+        ):
+            direction = hypothesis.get("direction")
+            epoch_id = debug.get("htf_pd_epoch_id") or snapshot.get("evidence_compiler_epoch_id")
+            phase_episode_id = str(debug.get("phase_a_entry_transition_prior_phase_episode_id") or "")
+            if not direction or not epoch_id or not phase_episode_id:
+                return None
+            if phase_episode_id in self._b_watch_episode_spent:
+                return None
+            choch_cand = _candidate(snapshot, "ltf_counter_choch", direction) or {}
+            choch_facts = choch_cand.get("debug_facts") or {}
+            return self._try_b_watch_path_b(
+                snapshot, debug, choch_facts, direction, epoch_id, phase_episode_id,
+                pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
+            )
 
         # ── D.watch phase ──────────────────────────────────────────────────────
         if phase != "D" or phase_sub_status != "watch":
@@ -255,28 +305,16 @@ class EntryPermissionEngine:
         choch_cand = _candidate(snapshot, "ltf_counter_choch", prior_direction) or {}
         choch_facts = choch_cand.get("debug_facts") or {}
 
-        # HTF zone context: sticky E flag (immune to EC clearing on 4H close) OR zone seen during D.watch
-        htf_zone_context = (
-            bool(debug.get("phase_e_shadow_htf_reaction_seen"))
-            or bool(debug.get("phase_d_shadow_htf_zone_seen"))
+        result = self._try_path_a(
+            snapshot, debug, choch_facts, trade_direction, epoch_id, phase_episode_id,
+            watch_entered_at, pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
         )
-
-        if htf_zone_context:
-            result = self._try_path_b(
-                snapshot, choch_facts, prior_direction, trade_direction, watch_entered_at,
-                pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
-            )
-        else:
-            result = self._try_d_watch_path_sa(
-                snapshot, debug, choch_facts, trade_direction, epoch_id, phase_episode_id,
-                watch_entered_at, pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
-            )
 
         if isinstance(result, EntryIntent):
             self._d_watch_budget_spent[cache_key] = True
         return result
 
-    def _try_d_watch_path_sa(
+    def _try_path_a(
         self,
         snapshot: dict[str, Any],
         debug: dict[str, Any],
@@ -290,20 +328,20 @@ class EntryPermissionEngine:
         min_sl_pips: float,
         max_sl_pips: float,
     ) -> EntryIntent | SkipIntent | None:
-        """D.watch_pathSA: iChoCh bar close from D.watch, no HTF zone context.
-        Gate: choch_seen + choch_at > watch_entered_at + watch_range_extreme present.
-        SL = phase_d_shadow.watch_range_extreme + buffer; max_sl_pips rejects fast flush."""
-        choch_seen = bool(choch_facts.get("ltf_counter_choch_seen"))
-        choch_at = choch_facts.get("ltf_counter_choch_event_at")
-        if not choch_seen or not choch_at or not _time_gt(choch_at, watch_entered_at):
+        """D.watch_pathA: internal counter iChoCh -> counter iSB sequence from D.watch."""
+        seq_seen = bool(choch_facts.get("ltf_counter_ichoch_isb_sequence_seen"))
+        if choch_facts.get("ltf_counter_sequence_trade_direction") != trade_direction:
+            return None
+        isb_at = choch_facts.get("ltf_counter_sequence_isb_event_at")
+        if not seq_seen or not isb_at or not _time_gt(isb_at, watch_entered_at):
             return None
 
         watch_extreme = _float(debug.get("phase_d_shadow_watch_range_extreme"))
         if watch_extreme is None:
             return None
 
-        choch_event_id = choch_facts.get("ltf_counter_choch_event_id")
-        choch_level = _float(choch_facts.get("ltf_counter_choch_level"))
+        isb_event_id = choch_facts.get("ltf_counter_sequence_isb_event_id")
+        isb_level = _float(choch_facts.get("ltf_counter_sequence_isb_level"))
 
         buffer = sl_buffer_pips * pip_size
         sl_raw = watch_extreme - buffer if trade_direction == "long" else watch_extreme + buffer
@@ -317,10 +355,10 @@ class EntryPermissionEngine:
 
         evidence = CounterEntryEvidence(
             evidence_kind="watch_extreme",
-            evidence_id=str(choch_event_id or uuid4().hex),
+            evidence_id=str(isb_event_id or uuid4().hex),
             timeframe=None,
             direction=trade_direction,
-            presented_at=choch_at,
+            presented_at=isb_at,
             source_store="phase_d_shadow",
             level=watch_extreme,
             sl_side="above" if trade_direction == "short" else "below",
@@ -330,83 +368,202 @@ class EntryPermissionEngine:
         )
         trigger = TriggerEvidence(
             trigger_kind="counter_ichoch_immediate",
-            trigger_path="D.watch_pathSA",
-            event_at=choch_at,
-            event_id=str(choch_event_id) if choch_event_id is not None else None,
-            level=choch_level,
-            source_level_id=choch_facts.get("ltf_counter_choch_source_level_id"),
-            source_store=choch_facts.get("ltf_counter_choch_source_store") or "structure_isc",
+            trigger_path="D.watch_pathA",
+            event_at=isb_at,
+            event_id=str(isb_event_id) if isb_event_id is not None else None,
+            level=isb_level,
+            source_level_id=choch_facts.get("ltf_counter_sequence_isb_source_level_id"),
+            source_store=choch_facts.get("ltf_counter_sequence_source_store")
+            or "internal_structure_sequence",
         )
+        htf = snapshot.get("higher_structure") or {}
+        tp_price = _float(htf.get("pd_midpoint"))
+        if tp_price is None:
+            return None
         return self._make_intent(
             snapshot, epoch_id, phase_episode_id, trade_direction, sl_price,
-            evidence, trigger, pip_size, min_sl_pips, max_sl_pips, phase_override="D",
+            evidence, trigger, pip_size, min_sl_pips, max_sl_pips,
+            tp_price=tp_price,
+            phase_override="D",
         )
 
-    def _try_path_c(
+    def _try_b_watch_path_a(
         self,
         snapshot: dict[str, Any],
         debug: dict[str, Any],
-        trade_direction: Direction,
+        choch_facts: dict[str, Any],
+        direction: Direction,
         epoch_id: Any,
         phase_episode_id: str,
-        cache_key: str,
         pip_size: float,
         sl_buffer_pips: float,
         min_sl_pips: float,
         max_sl_pips: float,
     ) -> EntryIntent | SkipIntent | None:
-        """Path C2: C.pullback from D.watch_mss. MSS transition alone → entry. SL = watch_range_extreme + buffer."""
-        watch_extreme = _float(debug.get("phase_d_shadow_watch_range_extreme"))
-        sl_extreme = watch_extreme
-        if sl_extreme is None:
+        """B.watch_pathA: internal counter iChoCh -> internal pro iChoCh.
+        trade_direction == direction (pro-HTF). SL = commitment_extreme ± buffer."""
+        entered_at = debug.get("phase_b_shadow_entered_at")
+        commitment_extreme = _float(debug.get("phase_b_shadow_commitment_extreme_level"))
+        commitment_event_id = debug.get("phase_b_shadow_commitment_extreme_event_id")
+        if not entered_at or commitment_extreme is None:
             return None
 
+        counter_break = "down" if direction == "long" else "up"
+        pro_break = "up" if direction == "long" else "down"
+
+        counter_ichoch_at = choch_facts.get("ltf_counter_ichoch_event_at")
+        if (
+            not choch_facts.get("ltf_counter_ichoch_seen")
+            or choch_facts.get("ltf_counter_ichoch_direction") != counter_break
+            or not _time_gt(counter_ichoch_at, entered_at)
+        ):
+            return None
+
+        pro_ichoch_at = choch_facts.get("ltf_pro_ichoch_event_at")
+        if (
+            not choch_facts.get("ltf_pro_ichoch_seen")
+            or choch_facts.get("ltf_pro_ichoch_direction") != pro_break
+            or not _time_gt(pro_ichoch_at, counter_ichoch_at)
+        ):
+            return None
+
+        # SL geometry: commitment_extreme is the invalidation floor (set at C→B entry)
         buffer = sl_buffer_pips * pip_size
-        transition_at = debug.get("phase_c_entry_transition_at")
-        transition_id = debug.get("phase_c_entry_transition_event_id")
-        if not transition_at or not transition_id:
-            return None
-
-        if bool(debug.get("phase_c_entry_transition_internal_pressure_invalidated")):
-            return None
-
-        trigger_path = "D.watch_pathC2"
-
+        sl_raw = (commitment_extreme - buffer if direction == "long"
+                  else commitment_extreme + buffer)
         entry_price_est = self._entry_price(snapshot) or 0.0
-        sl_raw = sl_extreme - buffer if trade_direction == "long" else sl_extreme + buffer
         computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
         if computed_pips < min_sl_pips:
-            sl_price = (entry_price_est - min_sl_pips * pip_size if trade_direction == "long"
+            sl_price = (entry_price_est - min_sl_pips * pip_size if direction == "long"
                         else entry_price_est + min_sl_pips * pip_size)
         else:
             sl_price = sl_raw
+        tp_price = self._phase_b_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
+        if tp_price is None:
+            return None
+
+        pro_ichoch_event_id = choch_facts.get("ltf_pro_ichoch_event_id")
+        pro_ichoch_level = _float(choch_facts.get("ltf_pro_ichoch_level"))
+        timeframe = str(snapshot.get("lower_tf") or snapshot.get("timeframe") or "")
 
         evidence = CounterEntryEvidence(
-            evidence_kind="watch_extreme",
-            evidence_id=str(transition_id),
-            timeframe=None,
-            direction=trade_direction,
-            presented_at=transition_at,
-            source_store="phase_d_shadow",
-            level=sl_extreme,
-            sl_side="above" if trade_direction == "short" else "below",
-            sl_price_raw=sl_extreme,
+            evidence_kind="b_watch_commitment",
+            evidence_id=str(commitment_event_id or uuid4().hex),
+            timeframe=timeframe,
+            direction=direction,
+            presented_at=entered_at,
+            source_store="phase_b_shadow",
+            level=commitment_extreme,
+            sl_side="below" if direction == "long" else "above",
+            sl_price_raw=commitment_extreme,
             sl_buffer_pips=sl_buffer_pips,
             sl_price=sl_price,
         )
         trigger = TriggerEvidence(
-            trigger_kind="d_watch_mss_plain",
-            trigger_path=trigger_path,
+            trigger_kind="pro_ichoch",
+            trigger_path="B.watch_pathA",
+            event_at=pro_ichoch_at,
+            event_id=str(pro_ichoch_event_id) if pro_ichoch_event_id is not None else None,
+            level=pro_ichoch_level,
+            source_level_id=choch_facts.get("ltf_pro_ichoch_source_level_id"),
+            source_store=choch_facts.get("ltf_pro_ichoch_source_store")
+            or "internal_structure_sequence",
+        )
+        if self._b_watch_trigger_locked(phase_episode_id, trigger.event_id):
+            return None
+        result = self._make_intent(
+            snapshot, epoch_id, phase_episode_id, direction, sl_price,
+            evidence, trigger, pip_size, min_sl_pips, max_sl_pips,
+            tp_price=tp_price,
+            phase_override="B",
+        )
+        self._record_b_watch_result(phase_episode_id, trigger.event_id, result)
+        return result
+
+    def _try_b_watch_path_b(
+        self,
+        snapshot: dict[str, Any],
+        debug: dict[str, Any],
+        choch_facts: dict[str, Any],
+        direction: Direction,
+        epoch_id: Any,
+        phase_episode_id: str,
+        pip_size: float,
+        sl_buffer_pips: float,
+        min_sl_pips: float,
+        max_sl_pips: float,
+    ) -> EntryIntent | SkipIntent | None:
+        """B.watch_pathB: B-owned transition entry completed by B.watch -> A.watch."""
+        entered_at = (
+            debug.get("phase_a_entry_transition_prior_entered_at")
+            or debug.get("phase_b_shadow_entered_at")
+        )
+        commitment_extreme = _float(debug.get("phase_a_entry_transition_commitment_extreme_level"))
+        if not entered_at or commitment_extreme is None:
+            return None
+
+        counter_break = "down" if direction == "long" else "up"
+        counter_ichoch_at = choch_facts.get("ltf_counter_ichoch_event_at")
+        if (
+            not choch_facts.get("ltf_counter_ichoch_seen")
+            or choch_facts.get("ltf_counter_ichoch_direction") != counter_break
+            or not _time_gt(counter_ichoch_at, entered_at)
+        ):
+            return None
+
+        transition_at = debug.get("phase_a_entry_transition_at")
+        transition_id = debug.get("phase_a_entry_transition_event_id")
+        if not transition_at or not transition_id:
+            return None
+        if not _time_gt(transition_at, counter_ichoch_at):
+            return None
+
+        buffer = sl_buffer_pips * pip_size
+        entry_price_est = self._entry_price(snapshot) or 0.0
+        sl_raw = commitment_extreme - buffer if direction == "long" else commitment_extreme + buffer
+        computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
+        if computed_pips < min_sl_pips:
+            sl_price = (entry_price_est - min_sl_pips * pip_size if direction == "long"
+                        else entry_price_est + min_sl_pips * pip_size)
+        else:
+            sl_price = sl_raw
+        tp_price = self._phase_b_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
+        if tp_price is None:
+            return None
+
+        commitment_event_id = debug.get("phase_b_shadow_commitment_extreme_event_id")
+        evidence = CounterEntryEvidence(
+            evidence_kind="b_watch_commitment",
+            evidence_id=str(commitment_event_id or transition_id),
+            timeframe=str(snapshot.get("lower_tf") or snapshot.get("timeframe") or ""),
+            direction=direction,
+            presented_at=entered_at,
+            source_store="phase_b_shadow",
+            level=commitment_extreme,
+            sl_side="below" if direction == "long" else "above",
+            sl_price_raw=commitment_extreme,
+            sl_buffer_pips=sl_buffer_pips,
+            sl_price=sl_price,
+        )
+        trigger = TriggerEvidence(
+            trigger_kind="pro_major_structure_transition",
+            trigger_path="B.watch_pathB",
             event_at=transition_at,
             event_id=str(transition_id),
-            level=sl_extreme,
+            level=_float(debug.get("phase_a_entry_transition_level")),
             source_level_id=None,
-            source_store="phase_c_transition",
+            source_store="major_structure",
         )
-        return self._make_intent(
-            snapshot, epoch_id, phase_episode_id, trade_direction, sl_price,
-            evidence, trigger, pip_size, min_sl_pips, max_sl_pips, phase_override="D",
+        if self._b_watch_trigger_locked(phase_episode_id, trigger.event_id):
+            return None
+        result = self._make_intent(
+            snapshot, epoch_id, phase_episode_id, direction, sl_price,
+            evidence, trigger, pip_size, min_sl_pips, max_sl_pips,
+            tp_price=tp_price,
+            phase_override="B",
         )
+        self._record_b_watch_result(phase_episode_id, trigger.event_id, result)
+        return result
 
     def _make_intent(
         self,
@@ -420,6 +577,8 @@ class EntryPermissionEngine:
         pip_size: float,
         min_sl_pips: float,
         max_sl_pips: float,
+        *,
+        tp_price: float,
         phase_override: str | None = None,
     ) -> EntryIntent | SkipIntent | None:
         hypothesis = snapshot.get("hypothesis") or {}
@@ -428,13 +587,18 @@ class EntryPermissionEngine:
         if opportunity_key in self._stale_opportunities or opportunity_key in self._processed_opportunities:
             return None
 
-        entry_price = self._entry_price(snapshot)
-        if entry_price is None or sl_price is None:
+        cursor_time = snapshot.get("cursor_time") or ""
+        tf_label = snapshot.get("lower_tf") or snapshot.get("timeframe") or "15M"
+        age_bars = _trigger_age_bars(
+            str(cursor_time) if cursor_time else None,
+            trigger.event_at,
+            bar_minutes=_parse_bar_minutes(tf_label),
+        )
+        if self.max_trigger_age_bars > 0 and age_bars > self.max_trigger_age_bars:
             return None
 
-        htf = snapshot.get("higher_structure") or {}
-        tp_price = _float(htf.get("pd_midpoint"))
-        if tp_price is None:
+        entry_price = self._entry_price(snapshot)
+        if entry_price is None or sl_price is None:
             return None
 
         sl_pips = abs(entry_price - sl_price) / pip_size
@@ -454,6 +618,7 @@ class EntryPermissionEngine:
                 trigger=trigger,
                 stale=True,
                 risk_pips=sl_pips,
+                trigger_age_bars=age_bars,
                 phase_override=effective_phase,
             )
 
@@ -469,10 +634,11 @@ class EntryPermissionEngine:
                 trigger=trigger,
                 stale=False,
                 risk_pips=sl_pips,
+                trigger_age_bars=age_bars,
                 phase_override=effective_phase,
             )
 
-        self.budget.spend("D", phase_episode_id)
+        self.budget.spend(effective_phase, phase_episode_id)
         self._processed_opportunities.add(opportunity_key)
         return EntryIntent(
             intent_id=uuid4().hex,
@@ -493,145 +659,8 @@ class EntryPermissionEngine:
             created_at=snapshot.get("cursor_time"),
             evidence=evidence,
             trigger=trigger,
+            trigger_age_bars=age_bars,
         )
-
-    def _try_path_b(
-        self,
-        snapshot: dict[str, Any],
-        choch_facts: dict[str, Any],
-        prior_direction: str,
-        trade_direction: Direction,
-        watch_entered_at: str,
-        pip_size: float,
-        sl_buffer_pips: float,
-        min_sl_pips: float,
-        max_sl_pips: float,
-    ) -> EntryIntent | SkipIntent | None:
-        """Path B: HTF SD zone context + ITR-armed probe + fresh iChoCh → entry.
-        SL = zone distal/invalidation edge + buffer."""
-        hypothesis = snapshot.get("hypothesis") or {}
-        epoch_id = (hypothesis.get("debug_facts") or {}).get("htf_pd_epoch_id") or snapshot.get("evidence_compiler_epoch_id")
-        phase_episode_id = str((hypothesis.get("debug_facts") or {}).get("phase_episode_id") or hypothesis.get("hypothesis_id") or "")
-
-        reaction = _candidate(snapshot, "htf_counter_reaction", prior_direction) or {}
-        rfacts = reaction.get("debug_facts") or {}
-        if not rfacts.get("htf_opposing_sd_tapped") and not rfacts.get("htf_opposing_sd_reaction"):
-            return None
-
-        zone_ids = rfacts.get("htf_opposing_sd_zone_ids") or []
-        zone = self._htf_proximal_zone(snapshot, zone_ids, trade_direction)
-        if zone is None:
-            return None
-
-        armed_itr = self._path_b_armed_itr(
-            snapshot, zone, trade_direction, watch_entered_at,
-            pip_size, sl_buffer_pips, max_sl_pips,
-        )
-        if armed_itr is None:
-            return None
-
-        zone_id = str(zone.get("zone_id") or "")
-        if zone_id:
-            prior_ep = self._zone_first_episode.get(zone_id)
-            if prior_ep is not None and prior_ep != phase_episode_id:
-                return None  # same armed zone presented in a prior D.watch episode
-            self._zone_first_episode.setdefault(zone_id, phase_episode_id)
-
-        choch_at = choch_facts.get("ltf_counter_choch_event_at")
-        if not choch_facts.get("ltf_counter_choch_seen") or not _time_gt(choch_at, armed_itr["confirmed_at"]):
-            return None
-
-        # SL = zone distal line (far edge — high for short supply zone, low for long demand zone)
-        distal = self._zone_distal_price(zone, trade_direction)
-        if distal is None:
-            return None
-
-        buffer = sl_buffer_pips * pip_size
-        sl_raw = distal + buffer if trade_direction == "short" else distal - buffer
-        entry_price_est = self._entry_price(snapshot) or 0.0
-        computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
-        if computed_pips < min_sl_pips:
-            sl_price = (entry_price_est - min_sl_pips * pip_size if trade_direction == "long"
-                        else entry_price_est + min_sl_pips * pip_size)
-        else:
-            sl_price = sl_raw
-
-        evidence = CounterEntryEvidence(
-            evidence_kind="htf_sd_zone",
-            evidence_id=str(zone.get("zone_id") or uuid4().hex),
-            timeframe=zone.get("timeframe") or snapshot.get("higher_tf"),
-            direction=trade_direction,
-            presented_at=rfacts.get("htf_opposing_sd_tapped_at") or choch_at,
-            source_store="sd_zone",
-            zone_id=zone.get("zone_id"),
-            high=_float(zone.get("high")),
-            low=_float(zone.get("low")),
-            level=armed_itr["price"],
-            taken_at=armed_itr["confirmed_at"],
-            sl_side="above" if trade_direction == "short" else "below",
-            sl_price_raw=distal,
-            sl_buffer_pips=sl_buffer_pips,
-            sl_price=sl_price,
-        )
-        trigger = TriggerEvidence(
-            trigger_kind="counter_ichoch",
-            trigger_path="D.watch_pathB",
-            event_at=choch_at,
-            event_id=choch_facts.get("ltf_counter_choch_event_id"),
-            level=_float(choch_facts.get("ltf_counter_choch_level")),
-            source_level_id=choch_facts.get("ltf_counter_choch_source_level_id"),
-            source_store=choch_facts.get("ltf_counter_choch_source_store"),
-        )
-        return self._make_intent(
-            snapshot, epoch_id, phase_episode_id, trade_direction, sl_price,
-            evidence, trigger, pip_size, min_sl_pips, max_sl_pips, phase_override="D",
-        )
-
-    def _path_b_armed_itr(
-        self,
-        snapshot: dict[str, Any],
-        zone: dict[str, Any],
-        trade_direction: Direction,
-        watch_entered_at: str,
-        pip_size: float,
-        sl_buffer_pips: float,
-        max_sl_pips: float,
-    ) -> dict[str, Any] | None:
-        lower = snapshot.get("lower_structure") or {}
-        itr = lower.get("latest_itr_low") if trade_direction == "long" else lower.get("latest_itr_high")
-        if not isinstance(itr, dict):
-            return None
-
-        itr_price = _float(itr.get("price"))
-        confirmed_at = itr.get("confirmed_at")
-        zone_low = _float(zone.get("low"))
-        zone_high = _float(zone.get("high"))
-        distal = self._zone_distal_price(zone, trade_direction)
-        if (
-            itr_price is None
-            or not confirmed_at
-            or zone_low is None
-            or zone_high is None
-            or distal is None
-        ):
-            return None
-        if not _time_gt(str(confirmed_at), watch_entered_at):
-            return None
-        if not (zone_low <= itr_price <= zone_high):
-            return None
-
-        buffer = sl_buffer_pips * pip_size
-        sl_edge = distal - buffer if trade_direction == "long" else distal + buffer
-        probe_risk_pips = abs(itr_price - sl_edge) / pip_size if pip_size else 0.0
-        if probe_risk_pips > max_sl_pips:
-            return None
-
-        return {
-            "level_id": itr.get("level_id"),
-            "price": itr_price,
-            "confirmed_at": str(confirmed_at),
-            "probe_risk_pips": probe_risk_pips,
-        }
 
     def _skip(
         self,
@@ -645,6 +674,7 @@ class EntryPermissionEngine:
         trigger: TriggerEvidence | None,
         stale: bool,
         risk_pips: float | None,
+        trigger_age_bars: int = 0,
         phase_override: str | None = None,
     ) -> SkipIntent:
         hypothesis = snapshot.get("hypothesis") or {}
@@ -664,7 +694,55 @@ class EntryPermissionEngine:
             trigger=trigger,
             stale_marked=stale,
             risk_pips=risk_pips,
+            trigger_age_bars=trigger_age_bars,
         )
+
+    def _phase_b_tp(
+        self,
+        snapshot: dict[str, Any],
+        direction: Direction,
+        entry_price: float,
+        sl_price: float,
+        pip_size: float,
+    ) -> float | None:
+        htf = snapshot.get("higher_structure") or {}
+        pd_low = _float(htf.get("range_low"))
+        pd_high = _float(htf.get("range_high"))
+        if pd_low is None or pd_high is None or pip_size <= 0:
+            return None
+        span = pd_high - pd_low
+        if span <= 0:
+            return None
+        sl_pips = abs(entry_price - sl_price) / pip_size
+        threshold = self.phase_a_objective_threshold
+        if direction == "long":
+            progress_level = pd_low + threshold * span
+            progress_pips = max(0.0, (progress_level - entry_price) / pip_size)
+            tp_pips = min(progress_pips, 2.5 * sl_pips)
+            return entry_price + tp_pips * pip_size
+        progress_level = pd_high - threshold * span
+        progress_pips = max(0.0, (entry_price - progress_level) / pip_size)
+        tp_pips = min(progress_pips, 2.5 * sl_pips)
+        return entry_price - tp_pips * pip_size
+
+    def _b_watch_trigger_locked(self, phase_episode_id: str, trigger_id: str | None) -> bool:
+        locked_id = self._b_watch_pending_trigger.get(phase_episode_id)
+        return locked_id is not None and trigger_id != locked_id
+
+    def _record_b_watch_result(
+        self,
+        phase_episode_id: str,
+        trigger_id: str | None,
+        result: EntryIntent | SkipIntent | None,
+    ) -> None:
+        if result is None:
+            return
+        if isinstance(result, SkipIntent) and not result.stale_marked:
+            if trigger_id is not None:
+                self._b_watch_pending_trigger[phase_episode_id] = trigger_id
+            return
+        self._b_watch_episode_spent.add(phase_episode_id)
+        self._b_watch_pending_trigger.pop(phase_episode_id, None)
 
     def _entry_price(self, snapshot: dict[str, Any]) -> float | None:
         bars = snapshot.get("lower_bars") or snapshot.get("bars") or []
@@ -672,28 +750,3 @@ class EntryPermissionEngine:
             return _float(bars[-1].get("close"))
         context = snapshot.get("context_snapshot") or {}
         return _float(context.get("currentPrice"))
-
-    def _htf_proximal_zone(
-        self, snapshot: dict[str, Any], zone_ids: list[str], trade_direction: Direction
-    ) -> dict[str, Any] | None:
-        """Return the first HTF zone matching the trade direction."""
-        zone_direction = "demand" if trade_direction == "long" else "supply"
-        for zone_id in zone_ids:
-            for zone in snapshot.get("zones") or []:
-                if zone.get("zone_id") == zone_id and zone.get("direction") == zone_direction:
-                    return zone
-        return None
-
-    def _zone_by_id(
-        self, snapshot: dict[str, Any], zone_id: str, trade_direction: Direction
-    ) -> dict[str, Any] | None:
-        zone_direction = "demand" if trade_direction == "long" else "supply"
-        if not zone_id:
-            return None
-        for zone in snapshot.get("zones") or []:
-            if zone.get("zone_id") == zone_id and zone.get("direction") == zone_direction:
-                return zone
-        return None
-
-    def _zone_distal_price(self, zone: dict[str, Any], trade_direction: Direction) -> float | None:
-        return _float(zone.get("low") if trade_direction == "long" else zone.get("high"))

@@ -43,6 +43,7 @@ RESULT_COLUMNS = [
     "trigger_kind",
     "trigger_path",
     "trigger_event_at",
+    "trigger_age_bars",
     "budget_spent",
     "stale_marked",
     "skip_reason",
@@ -68,9 +69,7 @@ SUMMARY_COLUMNS = [
     "evidence_ltf_sd_zone",
     "evidence_htf_sd_zone",
     "evidence_watch_extreme",
-    "trigger_D_watch_pathSA",
-    "trigger_D_watch_pathB",
-    "trigger_D_watch_pathC2",
+    "trigger_D_watch_pathA",
     "late_entry_risk_too_wide",
 ]
 
@@ -91,9 +90,6 @@ OBSERVATION_COLUMNS = [
     "has_path_a_trigger",
     "path_a_event_id",
     "path_a_event_at",
-    "has_path_b_trigger",
-    "path_b_event_id",
-    "path_b_event_at",
     "entry_decision",
     "skip_reason",
     *REGIME_TAG_COLUMNS,
@@ -148,9 +144,6 @@ def _phase_d_observation(snapshot: dict[str, Any]) -> dict[str, Any] | None:
         "has_path_a_trigger": path_a_ready,
         "path_a_event_id": trigger_facts.get("ltf_counter_sequence_isb_event_id") if path_a_ready else None,
         "path_a_event_at": trigger_facts.get("ltf_counter_sequence_isb_event_at") if path_a_ready else None,
-        "has_path_b_trigger": bool(trigger_facts.get("ltf_counter_sb_seen")),
-        "path_b_event_id": trigger_facts.get("ltf_counter_sb_event_id"),
-        "path_b_event_at": trigger_facts.get("ltf_counter_sb_event_at"),
         "entry_decision": "",
         "skip_reason": "",
     }
@@ -194,7 +187,7 @@ def summarize_results(
         obs_trigger = sum(
             1
             for row in epoch_obs
-            if row.get("has_path_a_trigger") or row.get("has_path_b_trigger")
+            if row.get("has_path_a_trigger")
         )
         obs_evidence_and_trigger = sum(
             1
@@ -202,7 +195,7 @@ def summarize_results(
             if (
                 row.get("has_liquidity_grab_evidence") or row.get("has_ltf_sd_zone_evidence")
             )
-            and (row.get("has_path_a_trigger") or row.get("has_path_b_trigger"))
+            and row.get("has_path_a_trigger")
         )
         wins = outcomes["win"]
         losses = outcomes["loss"]
@@ -231,9 +224,7 @@ def summarize_results(
                 "evidence_ltf_sd_zone": evidences["ltf_sd_zone"],
                 "evidence_htf_sd_zone": evidences["htf_sd_zone"],
                 "evidence_watch_extreme": evidences["watch_extreme"],
-                "trigger_D_watch_pathSA": paths["D.watch_pathSA"],
-                "trigger_D_watch_pathB": paths["D.watch_pathB"],
-                "trigger_D_watch_pathC2": paths["D.watch_pathC2"],
+                "trigger_D_watch_pathA": paths["D.watch_pathA"],
                 "late_entry_risk_too_wide": skip_reasons["late_entry_risk_too_wide"],
             }
         )
@@ -255,7 +246,10 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
         start_time=args.start_time,
     )
     raw_cfg = load_app_config(config_path)
-    layer5_cfg = raw_cfg.get("replay", {}).get("hypothesis", {}).get("layer5_entry", {})
+    hypothesis_cfg = raw_cfg.get("replay", {}).get("hypothesis", {})
+    layer5_cfg = hypothesis_cfg.get("layer5_entry", {})
+    phase_a_cfg = hypothesis_cfg.get("phase_a", {})
+    objective_threshold = float(phase_a_cfg.get("objective_progress_threshold", 0.90))
     asset_geo_raw = layer5_cfg.get("asset_geometry", {})
     symbol_geometry = {
         sym: {
@@ -265,7 +259,10 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
         }
         for sym, v in asset_geo_raw.items()
     }
-    layer5 = EntryPermissionEngine(symbol_geometry=symbol_geometry)
+    layer5 = EntryPermissionEngine(
+        symbol_geometry=symbol_geometry,
+        phase_a_objective_threshold=objective_threshold,
+    )
     analyzer = TradeAnalyzer(max_hold_bars=args.max_hold_bars)
     active: list[ActiveTrade] = []
     results: list[TradeResult] = []
@@ -352,23 +349,17 @@ def write_markdown_report(
     # --- observation aggregates ---
     obs_total = len(observations)
     obs_path_a = sum(1 for o in observations if o.get("has_path_a_trigger"))
-    obs_path_b = sum(1 for o in observations if o.get("has_path_b_trigger"))
 
     # --- result aggregates (non-skipped and skipped split) ---
     accepted = [r for r in rows if r.get("outcome") in ("win", "loss", "timeout")]
     skipped = [r for r in rows if r.get("outcome") == "skipped"]
     total_decisions = len(accepted) + len(skipped)
 
-    path_sa_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathSA")
-    path_b_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathB")
-    path_c2_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathC2")
-    path_sa_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathSA")
-    path_b_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathB")
-    path_c2_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathC2")
-    path_sa_total = path_sa_accepted + path_sa_skipped
-    path_b_total = path_b_accepted + path_b_skipped
-    path_c2_total = path_c2_accepted + path_c2_skipped
+    path_a_accepted = sum(1 for r in accepted if r.get("trigger_path") == "D.watch_pathA")
+    path_a_skipped = sum(1 for r in skipped if r.get("trigger_path") == "D.watch_pathA")
+    path_a_total = path_a_accepted + path_a_skipped
     htf_zone_decisions = sum(1 for r in rows if r.get("at_htf_sd_zone") is True)
+    htf_zone_context_decisions = sum(1 for r in rows if r.get("htf_zone_context") is True)
 
     def _path_win_rate(path_tag: str) -> str:
         w = sum(1 for r in accepted if r.get("trigger_path") == path_tag and r.get("outcome") == "win")
@@ -422,8 +413,7 @@ def write_markdown_report(
         f"| Metric | Count | % of D.watch bars |",
         f"|--------|-------|-------------------|",
         f"| Total D.watch bars | {obs_total} | — |",
-        f"| Bars with D.watch_pathSA trigger (iChoCh bar close, no zone) | {obs_path_a} | {_pct(obs_path_a, obs_total)} |",
-        f"| Bars with Path B signal (HTF SD zone + iChoCh) | {obs_path_b} | {_pct(obs_path_b, obs_total)} |",
+        f"| Bars with D.watch_pathA trigger (internal counter iChoCh -> internal pro iSB) | {obs_path_a} | {_pct(obs_path_a, obs_total)} |",
         f"",
         f"---",
         f"",
@@ -444,21 +434,18 @@ def write_markdown_report(
         f"",
         f"| Path | Accepted | Skipped | Total seen | Accept% | Win rate |",
         f"|------|----------|---------|------------|---------|----------|",
-        f"| SA (D.watch, no zone: iChoCh bar close) | {path_sa_accepted} | {path_sa_skipped} | {path_sa_total} | {_pct(path_sa_accepted, path_sa_total)} | {_path_win_rate('D.watch_pathSA')} |",
-        f"| B (D.watch, zone tapped during hold: iChoCh) | {path_b_accepted} | {path_b_skipped} | {path_b_total} | {_pct(path_b_accepted, path_b_total)} | {_path_win_rate('D.watch_pathB')} |",
-        f"| C2 (C.pullback from D.watch, no iChoCh cached) | {path_c2_accepted} | {path_c2_skipped} | {path_c2_total} | {_pct(path_c2_accepted, path_c2_total)} | {_path_win_rate('D.watch_pathC2')} |",
+        f"| D.watch_pathA | {path_a_accepted} | {path_a_skipped} | {path_a_total} | {_pct(path_a_accepted, path_a_total)} | {_path_win_rate('D.watch_pathA')} |",
         f"",
         f"### Regime Tags",
         f"",
         f"| Tag | Count | % of decisions |",
         f"|-----|-------|----------------|",
+        f"| HTF zone context observed before/during entry | {htf_zone_context_decisions} | {_pct(htf_zone_context_decisions, total_decisions)} |",
         f"| Entry bar inside HTF S/D zone | {htf_zone_decisions} | {_pct(htf_zone_decisions, total_decisions)} |",
         f"",
         f"| Path | Decisions at HTF S/D | % of path decisions |",
         f"|------|----------------------|---------------------|",
-        f"| SA | {_path_zone_count('D.watch_pathSA')} | {_pct(_path_zone_count('D.watch_pathSA'), path_sa_total)} |",
-        f"| B | {_path_zone_count('D.watch_pathB')} | {_pct(_path_zone_count('D.watch_pathB'), path_b_total)} |",
-        f"| C2 | {_path_zone_count('D.watch_pathC2')} | {_pct(_path_zone_count('D.watch_pathC2'), path_c2_total)} |",
+        f"| D.watch_pathA | {_path_zone_count('D.watch_pathA')} | {_pct(_path_zone_count('D.watch_pathA'), path_a_total)} |",
         f"",
         f"---",
         f"",

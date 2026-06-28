@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,21 @@ def _classify_until(runtime: DualSmcRuntime, target_index: int) -> dict[str, Any
     return snapshot
 
 
+def _index_at_or_after(lower_bars: pd.DataFrame, target_time: str) -> int:
+    target = pd.Timestamp(target_time)
+    if target.tzinfo is None:
+        target = target.tz_localize("UTC")
+    else:
+        target = target.tz_convert("UTC")
+    if target < lower_bars.index[0] or target > lower_bars.index[-1]:
+        pytest.skip(f"Local data does not include {target_time}")
+    return int(lower_bars.index.searchsorted(target, side="left"))
+
+
+def _classify_at_time(runtime: DualSmcRuntime, lower_bars: pd.DataFrame, target_time: str) -> dict[str, Any]:
+    return _classify_until(runtime, _index_at_or_after(lower_bars, target_time))
+
+
 def _first_weekend_gap(lower_bars: pd.DataFrame) -> tuple[int, int]:
     deltas = lower_bars.index.to_series().diff()
     gaps = deltas[deltas > pd.Timedelta(hours=24)]
@@ -69,6 +85,42 @@ def _journal_projection(state: dict[str, Any]) -> dict[str, Any]:
         "phase_a_entered_at": shadow["phase_a"]["entered_at"],
         "phase_a_pro_extreme_at_weaken": shadow["phase_a"]["pro_extreme_at_weaken"],
     }
+
+
+def test_epoch_flip_wakeup_relocates_to_safe_e_and_reaches_d_watch():
+    lower, higher, lower_bars = _configs()
+    restart_time = "2023-04-28T00:00:00+00:00"
+    _index_at_or_after(lower_bars, restart_time)
+
+    runtime = _runtime(lower, higher, restart_time)
+    diagnostics = runtime.restart_diagnostics
+
+    assert diagnostics["bootstrap_bars_used"] > 0
+    assert diagnostics["bootstrap_success"] is False
+    assert diagnostics["recovery_mode"] == "terrain_relocation"
+    assert diagnostics["relocation_selected_node"] == "E.seeking"
+    assert diagnostics["relocation_candidate_rejections"] == {
+        "A": "a_relocation_requires_reconstructable_b_and_a_anchors",
+        "B": "b_relocation_requires_reconstructable_commitment_extreme",
+    }
+
+    first_snapshot = _classify_at_time(runtime, lower_bars, restart_time)
+    first_hyp = first_snapshot.get("hypothesis") or {}
+    assert first_hyp.get("phase") == "E"
+    assert first_hyp.get("direction") == "long"
+    first_debug = first_hyp.get("debug_facts") or {}
+    assert first_debug.get("phase_e_shadow_source_orderflow_leg_id") is None
+
+    d_snapshot = _classify_at_time(runtime, lower_bars, "2023-04-29T00:00:00+00:00")
+    d_hyp = d_snapshot.get("hypothesis") or {}
+    assert d_hyp.get("phase") == "D"
+    assert d_hyp.get("phase_sub_status") == "watch"
+
+    for watch_time in ("2023-05-01T09:30:00+00:00", "2023-05-02T11:15:00+00:00"):
+        snapshot = _classify_at_time(runtime, lower_bars, watch_time)
+        hyp = snapshot.get("hypothesis") or {}
+        assert hyp.get("phase") == "D"
+        assert hyp.get("phase_sub_status") == "watch"
 
 
 def test_weekend_gap_resume_uses_saved_journal_when_epoch_is_unchanged():
@@ -139,3 +191,66 @@ def test_saved_journal_with_missing_b_commitment_anchor_is_rejected_before_boots
 
     assert restarted.restart_diagnostics["restore_reject_reason"] == "missing_b_commitment_extreme_level"
     assert restarted.restart_diagnostics["recovery_mode"] != "resume_saved_journal"
+
+
+def test_journal_restore_to_d_watch_same_timestamp(tmp_path):
+    lower, higher, lower_bars = _configs()
+    save_time = "2023-04-29T00:00:00+00:00"
+    start_index = max(0, _index_at_or_after(lower_bars, "2023-04-01T00:00:00+00:00"))
+
+    continuous = _runtime(lower, higher, lower_bars.index[start_index].isoformat())
+    snapshot = _classify_at_time(continuous, lower_bars, save_time)
+    hyp = snapshot.get("hypothesis") or {}
+    if hyp.get("phase") != "D" or hyp.get("phase_sub_status") != "watch":
+        pytest.skip(f"{save_time} is not D.watch in local data")
+
+    journal_path = tmp_path / "shadow.json"
+    continuous.save_shadow_state(journal_path)
+    saved = json.loads(journal_path.read_text(encoding="utf-8"))
+
+    restored = _runtime(lower, higher, save_time, saved=saved)
+    assert restored.restart_diagnostics["recovery_mode"] == "resume_saved_journal"
+    assert restored.restart_diagnostics["restore_reject_reason"] is None
+    restored_state = restored.export_shadow_state()["classifier_state"]
+    assert restored_state["current_hypothesis"]["phase"] == "D"
+    assert restored_state["current_hypothesis"]["phase_sub_status"] == "watch"
+    assert _journal_projection(restored.export_shadow_state()) == _journal_projection(saved)
+
+
+def test_persist_shadow_state_auto_saves_after_visible_classification(tmp_path):
+    lower, higher, lower_bars = _configs()
+    restart_time = "2023-04-28T00:00:00+00:00"
+    _index_at_or_after(lower_bars, restart_time)
+
+    runtime = _runtime(lower, higher, restart_time)
+    runtime.hypothesis_config["persist_shadow_state"] = True
+    runtime.hypothesis_config["shadow_state_path"] = str(tmp_path)
+
+    snapshot = _classify_at_time(runtime, lower_bars, restart_time)
+    hyp = snapshot.get("hypothesis") or {}
+    assert hyp.get("phase") == "E"
+
+    journal_path = runtime._shadow_state_path()
+    assert journal_path is not None
+    assert journal_path.exists()
+    assert not journal_path.with_suffix(".tmp").exists()
+    saved = json.loads(journal_path.read_text(encoding="utf-8"))
+    assert saved["classifier_state"]["current_hypothesis"]["phase"] == "E"
+
+
+def test_journal_epoch_mismatch_falls_back_to_e_terrain():
+    lower, higher, lower_bars = _configs()
+    restart_time = "2023-04-28T00:00:00+00:00"
+    _index_at_or_after(lower_bars, restart_time)
+
+    source = _runtime(lower, higher, restart_time)
+    _classify_at_time(source, lower_bars, restart_time)
+    saved = source.export_shadow_state(saved_at=restart_time)
+    saved["classifier_state"]["htf_pd_epoch_id"] = "stale-epoch"
+
+    restarted = _runtime(lower, higher, restart_time, saved=saved)
+
+    assert restarted.restart_diagnostics["restore_reject_reason"] == "epoch_mismatch"
+    assert restarted.restart_diagnostics["bootstrap_success"] is False
+    assert restarted.restart_diagnostics["recovery_mode"] == "terrain_relocation"
+    assert restarted.restart_diagnostics["relocation_selected_node"] == "E.seeking"

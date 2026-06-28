@@ -5,6 +5,7 @@ from typing import Any
 
 
 REGIME_TAG_COLUMNS = [
+    "htf_zone_context",
     "at_htf_sd_zone",
     "htf_sd_zone_id",
     "htf_sd_zone_direction",
@@ -19,6 +20,10 @@ REGIME_TAG_COLUMNS = [
     "bars_since_itr_confirmed",
     "htf_pd_range_bucket",
     "entry_session",
+    # Phase B analysis tags (populated only when hypothesis.phase == "B")
+    "b_watch_origin_node",
+    "b_watch_at_extreme_entry",
+    "b_watch_htf_sd_zone_tapped",
 ]
 
 
@@ -42,7 +47,14 @@ def regime_tags(snapshot: dict[str, Any], decision: Any | None = None) -> dict[s
     liquidity_at = _liquidity_grab_time(snapshot, prior_direction)
     itr_confirmed_at, itr_inside = _itr_context(snapshot, trade_direction, zone)
 
+    phase = hypothesis.get("phase")
+    b_tags = _phase_b_tags(debug) if phase == "B" else {"b_watch_origin_node": None, "b_watch_at_extreme_entry": None, "b_watch_htf_sd_zone_tapped": None}
+
     return {
+        "htf_zone_context": bool(
+            debug.get("phase_e_shadow_htf_reaction_seen")
+            or debug.get("phase_d_shadow_htf_zone_seen")
+        ),
         "at_htf_sd_zone": inside_zone,
         "htf_sd_zone_id": zone_id,
         "htf_sd_zone_direction": zone_direction_value,
@@ -57,6 +69,7 @@ def regime_tags(snapshot: dict[str, Any], decision: Any | None = None) -> dict[s
         "bars_since_itr_confirmed": _bars_since(snapshot, itr_confirmed_at),
         "htf_pd_range_bucket": _htf_pd_range_bucket(snapshot),
         "entry_session": _entry_session(snapshot.get("cursor_time")),
+        **b_tags,
     }
 
 
@@ -292,3 +305,11 @@ def _entry_session(cursor_time: Any) -> str:
     if 13 <= hour < 21:
         return "ny"
     return "rollover"
+
+
+def _phase_b_tags(debug: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "b_watch_origin_node": debug.get("phase_b_shadow_origin_node") or debug.get("phase_c_shadow_origin_node"),
+        "b_watch_at_extreme_entry": bool(debug.get("phase_b_shadow_at_extreme_entry")),
+        "b_watch_htf_sd_zone_tapped": bool(debug.get("phase_b_shadow_htf_sd_zone_tapped")),
+    }

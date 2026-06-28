@@ -170,6 +170,7 @@ class PhaseBShadow:
     commitment_extreme_level: float | None = None
     commitment_extreme_event_id: str | None = None
     at_extreme_entry: bool = False
+    phase_episode_id: str | None = None
 
     def reset(self) -> None:
         self.entered_at = None
@@ -183,6 +184,7 @@ class PhaseBShadow:
         self.commitment_extreme_level = None
         self.commitment_extreme_event_id = None
         self.at_extreme_entry = False
+        self.phase_episode_id = None
 
 
 @dataclass
@@ -575,6 +577,9 @@ class HypothesisClassifier:
                 return self._commit(hyp)
 
             if self.state.previous_phase == "A" and self.state.active_phase_e_direction == direction:
+                for key in list(debug.keys()):
+                    if key.startswith("phase_a_entry_transition_"):
+                        del debug[key]
                 a_shadow = self.state.shadow_thesis.phase_a
                 b_shadow = self.state.shadow_thesis.phase_b
                 self._update_phase_a_shadow(snapshot, direction, debug)
@@ -763,6 +768,12 @@ class HypothesisClassifier:
                             if depth is not None and depth >= 51.0:
                                 b_shadow = self.state.shadow_thesis.phase_b
                                 b_shadow.entered_at = cursor_time
+                                b_shadow.phase_episode_id = str(
+                                    debug.get("phase_episode_id")
+                                    or self.state.phase_episode_id
+                                    or self.state.hypothesis_id
+                                    or ""
+                                )
                                 b_shadow.at_extreme_entry = (
                                     c_shadow.origin_node == "A.watch_weaken_invalidated"
                                     and depth >= 90.0
@@ -1029,7 +1040,7 @@ class HypothesisClassifier:
 
             phase_c_from_e = self._phase_c_setup(snapshot, ltf, direction)
 
-            # Path 2: E.pullback_developing, no D entered, LTF BoS counter direction → C.pullback
+            # Path 2: E.pullback_developing, no D entered, LTF counter orderflow → C.pullback
             # Fires when a new orderflow leg (started after pullback_developing_entered_at) reaches
             # directional regime in the counter direction. Gate 1 (D.watch) takes priority — if
             # pro_attempt_seen fires on the same bar, this block is never reached.
@@ -1123,7 +1134,7 @@ class HypothesisClassifier:
 
                 _b_entered_floor = b_shadow.entered_at or ""
 
-                # B.watch → A.watch (pro-HTF BoS fires — price escaped B zone in pro direction)
+                # B.watch → A.watch (major pro structure transition escaped B in pro direction)
                 pro_break_b = "up" if direction == "long" else "down"
                 last_sc_b = (ltf.get("last_sc") or {}) if ltf else {}
                 last_sc_b_at = last_sc_b.get("eventTimestamp")
@@ -1140,6 +1151,14 @@ class HypothesisClassifier:
                             **debug,
                             "phase_a_origin_node": "B.watch",
                             "phase_b_commitment_extreme_level": b_shadow.commitment_extreme_level,
+                            "phase_a_entry_transition_origin_node": "B.watch",
+                            "phase_a_entry_transition_at": last_sc_b_at,
+                            "phase_a_entry_transition_event_id": _sc_event_id(last_sc_b),
+                            "phase_a_entry_transition_prior_phase": "B",
+                            "phase_a_entry_transition_prior_phase_episode_id": b_shadow.phase_episode_id,
+                            "phase_a_entry_transition_prior_entered_at": b_shadow.entered_at,
+                            "phase_a_entry_transition_commitment_extreme_level": b_shadow.commitment_extreme_level,
+                            "phase_a_entry_transition_level": last_sc_b.get("levelPrice"),
                         },
                     )
                     return self._commit(hyp)
@@ -2891,6 +2910,7 @@ class HypothesisClassifier:
             "phase_b_shadow_commitment_extreme_level": s.commitment_extreme_level,
             "phase_b_shadow_commitment_extreme_event_id": s.commitment_extreme_event_id,
             "phase_b_shadow_at_extreme_entry": s.at_extreme_entry,
+            "phase_b_shadow_phase_episode_id": s.phase_episode_id,
         }
 
     def _reset_phase_a_shadow(self) -> None:
@@ -2915,9 +2935,9 @@ class HypothesisClassifier:
             poi_id=None,
             poi_type=None,
             reason=(
-                "Bullish A.watch: pro-HTF BoS fired from B zone; watching for HTF objective"
+                "Bullish A.watch: major pro structure transition fired from B; watching for HTF objective"
                 if bullish
-                else "Bearish A.watch: pro-HTF BoS fired from B zone; watching for HTF objective"
+                else "Bearish A.watch: major pro structure transition fired from B; watching for HTF objective"
             ),
             required_evidence=["entry_protocol_permission"],
             invalidation="Counter MSS breaches B commitment extreme → C.pullback; new HTF extreme → E.seeking",

@@ -365,6 +365,8 @@
     margin-bottom: 6px;
   }
   .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .issue-card.done { background: var(--gray-150); border-color: var(--border); opacity: 0.7; }
+  .issue-card.done .issue-label { color: var(--accent2); }
 
   .hl  { color: var(--accent); }
   .hl2 { color: var(--accent2); }
@@ -385,7 +387,7 @@
   <a href="#phase-e" class="l2">ltf_counter_choch (E)</a>
   <a href="#phase-d" class="ph-d">Phase D</a>
   <a href="#phase-d" class="l2">htf_counter_reaction</a>
-  <a href="#phase-d" class="l2">ltf_counter_choch (D)</a>
+  <a href="#phase-d" class="l2">ltf_counter_choch (trade)</a>
   <a href="#phase-c" class="ph-c">Phase C</a>
   <a href="#phase-c" class="l2">ltf_counter_story</a>
   <a href="#phase-b" class="ph-b">Phase B</a>
@@ -425,15 +427,16 @@
   <p>
     Each row below is one EC candidate pattern. The right column names every
     <code>hypothesis.py</code> method that calls <code>_ec_candidate(snapshot, "…")</code>
-    on it. <code>ltf_counter_choch</code> is the only pattern consumed by two phases.
+    on it. <code>ltf_counter_choch</code> is still emitted by EC, but its internal
+    structure facts are now consumed by Layer 5 trade logic rather than by a D phase gate.
   </p>
 
   <pre class="block"><span class="hl">Pattern</span>                   <span class="cm">Phase   hypothesis.py consumer(s)</span>
 ──────────────────────────────────────────────────────────────────
 htf_expansion_context     E       _phase_e_reaction(), _phase_e_shadow_facts()
 phase_e_context           E       compat alias — identical copy of above
-ltf_counter_choch         D + E   _phase_d_setup(), _phase_e_reaction()
-htf_counter_reaction      D       _phase_d_setup()
+ltf_counter_choch         E + L5  _phase_e_reaction(); Layer 5 D/B entry paths
+htf_counter_reaction      D       D.watch supporting quality/liquidity facts
 ltf_counter_story         C       _phase_c_setup()
 htf_b_phase_setup         B       _phase_b_setup()
 htf_b_initiation          B       _phase_b_initiation_setup()
@@ -541,7 +544,7 @@ htf_pd_objective          A       _phase_a_finale()</pre>
         <code>E.HTF_reaction → E.pullback_developing</code>.
         It fires when the orderflow engine reports <code>regime = "mss_watch"</code>
         with all four conditions simultaneously true.
-        The same flag is also the <code>D.speculation → C.pullback</code> gate
+        The same flag is also the <code>D.watch → C.pullback</code> gate
         (fresh leg required there via <code>consumed_leg_id</code>).
       </p>
       <div class="facts"><span class="fk">ltf_counter_orderflow_mss_watch                    </span><span class="ft">bool     </span>  PRIMARY gate — all 4 MSS conditions met:
@@ -637,7 +640,7 @@ E.pullback_dev.  (holds — Layer 4 selects D or C)          → held</pre>
 
   <p>
     Read before <code>phase_e_context</code> inside <code>_phase_e_reaction()</code>.
-    Its 5 keys are re-exposed with the <code>phase_e_context_</code> prefix in the debug dict
+    Its top-level counter-iChoCh keys are re-exposed with the <code>phase_e_context_</code> prefix in the debug dict
     so <code>_phase_e_shadow_facts()</code> can read them alongside the expansion context keys.
   </p>
   <div class="facts"><span class="fk">ltf_counter_choch_seen              </span><span class="ft">bool      </span>  last_sc is a ChoCh in the counter break direction
@@ -724,19 +727,115 @@ E.pullback_dev.  (holds — Layer 4 selects D or C)          → held</pre>
   </details>
 
   <!-- ltf_counter_choch read for D -->
-  <h3>ltf_counter_choch — structural event stream for Phase D</h3>
+  <h3>ltf_counter_choch — structural event stream for trade</h3>
   <p>
-    Layer 4 reads <code>_ec_candidate(snapshot, "ltf_counter_choch")</code> for
-    structural event chronology. The target D.watch gate also requires event
-    provenance and Phase E pro-attempt separation; a fresh ChoCh alone is no longer
-    enough to open D.watch.
+    Layer 5 reads <code>_candidate(snapshot, "ltf_counter_choch", direction)</code> for
+    internal structure chronology. The DAG no longer uses this candidate as a D phase gate.
+    Phase D trade entry uses the internal counter iChoCh → internal pro iSB sequence; Phase B
+    uses counter iChoCh → ITR → pro iChoCh.
   </p>
 
   <div class="rule-block">
-    Layer 4 owns D-node selection. <code>_phase_d_setup()</code> derives
-    <code>liq_selected_node</code> from <code>liquidity_reclaim_candidates</code> +
-    <code>liquidity_reclaim_ready_event_ids</code> — EC emits no <code>phase_d_*</code> keys.
+    Layer 4 owns D-node selection. EC emits no <code>phase_d_*</code> keys, and
+    <code>ltf_counter_choch</code> does not advance the DAG.
   </div>
+
+  <h3>ltf_counter_choch — sub-routine facts (merged into same candidate)</h3>
+  <p>
+    <code>_compile_ltf_counter_choch()</code> calls two sub-routines and spreads their output
+    into the same <code>debug_facts</code> dict alongside the 8 top-level
+    <code>ltf_counter_choch_*</code> keys. Total emitted keys: ~40.
+  </p>
+
+  <!-- explicit internal iChoCh facts -->
+  <details>
+    <summary>ltf_counter_ichoch_* and ltf_pro_ichoch_* <span class="chip">Layer 5 B paths</span> <span class="where">internal_structure_sequence</span></summary>
+    <div class="body">
+      <p>Explicit internal SC06 facts scanned from <code>internal_structure_sequence</code>.
+      Layer 5 B.watch_pathA and B.watch_pathB consume these instead of reading raw
+      <code>last_isc</code>. Standalone <code>ltf_counter_isb_*</code> was removed.</p>
+      <div class="facts"><span class="fk">ltf_counter_ichoch_seen             </span><span class="ft">bool      </span>  latest internal counter iChoCh exists
+<span class="fk">ltf_counter_ichoch_event_at         </span><span class="ft">str|None  </span>  eventTimestamp
+<span class="fk">ltf_counter_ichoch_direction        </span><span class="ft">str|None  </span>  counter break direction
+<span class="fk">ltf_counter_ichoch_level            </span><span class="ft">float|None</span>  levelPrice
+<span class="fk">ltf_counter_ichoch_event_id         </span><span class="ft">str|None  </span>  structural event id
+<span class="fk">ltf_counter_ichoch_source_level_id  </span><span class="ft">str|None  </span>  structural level id
+<span class="fk">ltf_counter_ichoch_source_store     </span><span class="ft">str|None  </span>  "internal_structure_sequence" if seen
+<span class="fk">ltf_pro_ichoch_seen                 </span><span class="ft">bool      </span>  latest internal pro iChoCh exists
+<span class="fk">ltf_pro_ichoch_event_at             </span><span class="ft">str|None  </span>  eventTimestamp
+<span class="fk">ltf_pro_ichoch_direction            </span><span class="ft">str|None  </span>  pro break direction
+<span class="fk">ltf_pro_ichoch_level                </span><span class="ft">float|None</span>  levelPrice
+<span class="fk">ltf_pro_ichoch_event_id             </span><span class="ft">str|None  </span>  structural event id
+<span class="fk">ltf_pro_ichoch_source_level_id      </span><span class="ft">str|None  </span>  structural level id
+<span class="fk">ltf_pro_ichoch_source_store         </span><span class="ft">str|None  </span>  "internal_structure_sequence" if seen</div>
+    </div>
+  </details>
+
+  <!-- sb -->
+  <details>
+    <summary>ltf_counter_sb_* <span class="chip">Phase E diagnostic</span> <span class="where">macro counter SB fallback from last_sc</span></summary>
+    <div class="body">
+      <p>Macro counter SB (SC03/SC04) from <code>last_sc</code>. Coarser than the iChoCh primary signal.
+      Consumer: <code>phase_e_context_ltf_counter_sb_seen</code> in Phase E shadow (annotation-only, no gate).
+      Also referenced in orphaned <code>_phase_d_setup()</code> (dead code, not called).</p>
+      <div class="facts"><span class="fk">ltf_counter_sb_seen             </span><span class="ft">bool      </span>  last_sc is a counter SB (SC03/SC04)
+<span class="fk">ltf_counter_sb_event_at         </span><span class="ft">str|None  </span>  eventTimestamp
+<span class="fk">ltf_counter_sb_level            </span><span class="ft">float|None</span>  levelPrice
+<span class="fk">ltf_counter_sb_event_id         </span><span class="ft">str|None  </span>  structural event id
+<span class="fk">ltf_counter_sb_source_level_id  </span><span class="ft">str|None  </span>  structural level id
+<span class="fk">ltf_counter_sb_source_store     </span><span class="ft">str|None  </span>  "structure_sequence" if seen</div>
+    </div>
+  </details>
+
+  <!-- sequence -->
+  <details>
+    <summary>ltf_counter_sequence_* <span class="chip">backtest observation</span> <span class="where">_compile_internal_ichoch_isb_sequence()</span></summary>
+    <div class="body">
+      <p>Scans <code>internal_structure_sequence</code> for the Path A pair: counter SC06 iChoCh → pro SC05 iSB,
+      with iSB level strictly beyond iChoCh level. Pro-direction iChoCh between the pair is a no-op (EC Bug 1 fixed 2026-06-25).
+      Consumer: Layer 5 <code>D.watch_pathA</code> and the D.watch observation report.</p>
+      <div class="facts"><span class="fk">ltf_counter_ichoch_isb_sequence_seen       </span><span class="ft">bool      </span>  PRIMARY — counter iChoCh → pro iSB pair confirmed
+<span class="fk">ltf_counter_sequence_trade_direction       </span><span class="ft">str       </span>  "short" (long bias) | "long" (short bias)
+<span class="fg">iChoCh leg</span><span class="fk">ltf_counter_sequence_ichoch_event_at       </span><span class="ft">str|None  </span>  eventTimestamp of counter iChoCh
+<span class="fk">ltf_counter_sequence_ichoch_direction      </span><span class="ft">str|None  </span>  breakDirection of counter iChoCh
+<span class="fk">ltf_counter_sequence_ichoch_level          </span><span class="ft">float|None</span>  levelPrice of counter iChoCh
+<span class="fk">ltf_counter_sequence_ichoch_event_id       </span><span class="ft">str|None  </span>
+<span class="fk">ltf_counter_sequence_ichoch_source_level_id</span><span class="ft">str|None  </span>
+<span class="fg">iSB leg</span><span class="fk">ltf_counter_sequence_isb_event_at          </span><span class="ft">str|None  </span>  eventTimestamp of pro iSB
+<span class="fk">ltf_counter_sequence_isb_direction         </span><span class="ft">str|None  </span>  breakDirection of pro iSB
+<span class="fk">ltf_counter_sequence_isb_level             </span><span class="ft">float|None</span>  levelPrice of pro iSB
+<span class="fk">ltf_counter_sequence_isb_event_id          </span><span class="ft">str|None  </span>
+<span class="fk">ltf_counter_sequence_isb_source_level_id   </span><span class="ft">str|None  </span>
+<span class="fg">validity</span><span class="fk">ltf_counter_sequence_source_store          </span><span class="ft">str|None  </span>  "internal_structure_sequence"
+<span class="fk">ltf_counter_sequence_invalidated           </span><span class="ft">bool      </span>  True if pair was broken mid-scan
+<span class="fk">ltf_counter_sequence_invalid_reason        </span><span class="ft">str|None  </span>  "isb_not_after_ichoch" | "missing_sequence_level" | "isb_level_not_beyond_ichoch"</div>
+    </div>
+  </details>
+
+  <!-- pressure -->
+  <details>
+    <summary>ltf_counter_internal_pressure_* <span class="chip">C2 gate</span> <span class="where">_compile_internal_pullback_pressure()</span></summary>
+    <div class="body">
+      <p>Classifies the counter internal structure that built up during D.watch before the MSS fired.
+      Journaled into <code>phase_c_entry_transition_internal_pressure_*</code> at the D.watch→C.pullback transition bar.
+      <code>ltf_counter_internal_pressure_invalidated</code> is the live C2 gate in
+      <code>layer5.py _try_path_c()</code> line 471. SC06 pro iChoCh is no longer a contradiction (EC Bug 2 fixed 2026-06-25);
+      only SC05 pro iSB (HH break) sets <code>contradicted</code>.</p>
+      <div class="facts"><span class="fk">ltf_counter_internal_pressure_seen             </span><span class="ft">bool      </span>  True when qualifying counter events found AND not invalidated
+<span class="fk">ltf_counter_internal_pressure_event_count      </span><span class="ft">int       </span>  number of qualifying counter SC events
+<span class="fk">ltf_counter_internal_pressure_first_at         </span><span class="ft">str|None  </span>  eventTimestamp of first qualifying event
+<span class="fk">ltf_counter_internal_pressure_last_at          </span><span class="ft">str|None  </span>  eventTimestamp of last qualifying event
+<span class="fk">ltf_counter_internal_pressure_last_action      </span><span class="ft">str|None  </span>  eventAction of last qualifying event
+<span class="fk">ltf_counter_internal_pressure_last_direction   </span><span class="ft">str|None  </span>  breakDirection of last qualifying event
+<span class="fk">ltf_counter_internal_pressure_event_ids        </span><span class="ft">list      </span>  event ids of qualifying events
+<span class="fk">ltf_counter_internal_pressure_source_level_ids </span><span class="ft">list      </span>  source level ids
+<span class="fk">ltf_counter_internal_pressure_levels           </span><span class="ft">list      </span>  levelPrices of qualifying events
+<span class="fk">ltf_counter_internal_pressure_class            </span><span class="ft">str       </span>  "none" | "single_ichoch" | "single_isb" | "repeated_isb"
+                                                              "messy_reasserted" | "contradicted"
+<span class="fk">ltf_counter_internal_pressure_invalidated      </span><span class="ft">bool      </span>  C2 gate — True only when SC05 pro iSB was the last event
+<span class="fk">ltf_counter_internal_pressure_invalid_reason   </span><span class="ft">str|None  </span>  "final_internal_contradiction"</div>
+    </div>
+  </details>
 
   <!-- ═══════════════════════════════════════════════════ §03 PHASE C -->
   <h2 id="phase-c"><span class="sec-num">03</span> Phase C</h2>
@@ -908,23 +1007,46 @@ E.pullback_dev.  (holds — Layer 4 selects D or C)          → held</pre>
   <h2 id="issues"><span class="sec-num">06</span> Open Issues</h2>
 
   <div class="issue-grid">
-    <div class="issue-card">
-      <div class="issue-label">Next Milestone</div>
-      <p><b>Phase D new model (D.watch / D.speculation) not yet coded.</b>
-      Design settled in AGENTS.md. <code>_phase_d_setup()</code> still uses
-      the old 4-variant model. <code>PhaseDShadow</code> dataclass, the
-      <code>ltf_itr_level_run</code> EC fact, and same-bar ChoCh guard
-      must be added before the new transitions can be wired.</p>
+
+    <!-- ── Open Bugs (highest priority) ── -->
+    <div class="issue-card done">
+      <div class="issue-label">Archived · Completed · 2026-06-25</div>
+      <p><b><code>_compile_internal_ichoch_isb_sequence</code> — pro-direction iChoCh no longer
+      invalidates sequence.</b> Removed <code>elif active_ichoch is not None</code> block;
+      pro SC06 iChoCh between counter iChoCh and pro iSB is now a no-op.
+      <code>ltf_counter_ichoch_isb_sequence_seen</code> now fires correctly.
+      Tests: renamed + flipped to accept; short-direction mirror added. 54 passed.</p>
+    </div>
+    <div class="issue-card done">
+      <div class="issue-label">Archived · Completed · 2026-06-25</div>
+      <p><b><code>_compile_internal_pullback_pressure</code> — pro-direction iChoCh no longer
+      contradicts counter pressure.</b> Added <code>_structure_isb_seen(event)</code> guard;
+      only SC05 pro iSB now triggers <code>contradiction_after_last</code>.
+      SC06 pro iChoCh is silently skipped. The old C2 gate was later removed from the active Layer 5 D policy.
+      Tests: <code>messy_reasserted</code> → <code>repeated_isb</code>; final pro iChoCh → <code>single_isb</code>;
+      new SC05 pro iSB contradiction test added. 196 passed / 32 skipped.</p>
+    </div>
+
+    <!-- ── Open Issues ── -->
+    <div class="issue-card done">
+      <div class="issue-label">Updated · Completed · 2026-06-26</div>
+      <p><b><code>ltf_counter_choch</code> sub-facts documented.</b>
+      Groups under §02 now match the implemented contract: <code>ltf_counter_ichoch_*</code> /
+      <code>ltf_pro_ichoch_*</code> for Phase B entries, <code>ltf_counter_sb_*</code> as diagnostic
+      quality context, <code>ltf_counter_sequence_*</code> for <code>D.watch_pathA</code>, and
+      <code>ltf_counter_internal_pressure_*</code> as archived C-transition context. Standalone
+      <code>ltf_counter_isb_*</code> was removed.</p>
+    </div>
+    <div class="issue-card done">
+      <div class="issue-label">Archived · Closed · 2026-06-25</div>
+      <p><b>Same-timestamp ChoCh guard for D.watch — non-issue.</b>
+      The MSS that opens <code>E.pullback_developing</code> is counter-direction;
+      the ChoCh that opens <code>D.watch</code> is pro-HTF direction. Same-bar firing
+      is structurally impossible. Code already uses strict <code>&gt;</code>
+      (<code>last_sc_at &gt; pullback_developing_entered_at</code>) at line 2463.</p>
     </div>
     <div class="issue-card">
-      <div class="issue-label">Next Milestone</div>
-      <p><b>Phase C new model (C.pullback / C.pullback_weaken) not yet coded.</b>
-      Old sub-statuses superseded by design. Phase C gates are currently
-      commented out in <code>hypothesis.py</code> (~line 436 and ~line 456).
-      Re-enable after D model is confirmed and working.</p>
-    </div>
-    <div class="issue-card">
-      <div class="issue-label">Next Milestone</div>
+      <div class="issue-label">Open Issue</div>
       <p><b>Phase A setup candidate missing.</b>
       <code>_phase_a_setup()</code> still reads flat LTF/pro-zone snapshot
       fields directly. EC does not emit a dedicated Phase A setup candidate.
@@ -932,29 +1054,43 @@ E.pullback_dev.  (holds — Layer 4 selects D or C)          → held</pre>
       cannot be narrowed to a pure candidate list.</p>
     </div>
     <div class="issue-card">
-      <div class="issue-label">Open Issue · Chronology</div>
-      <p><b>Same-timestamp ChoCh guard for D.watch.</b>
-      The new D model requires a ChoCh after <code>E.pullback_developing</code>.
-      Using <code>&gt;=</code> on eventTimestamp allows the same LTF bar
-      that triggered the pullback to also provide the confirming ChoCh.
-      Strict <code>&gt;</code> or an event-id guard may be needed.</p>
+      <div class="issue-label">Open Issue</div>
+      <p><b>Migrate <code>_phase_a_setup()</code> to read an EC candidate.</b>
+      <code>_phase_a_setup()</code> is the only method in
+      <code>HypothesisClassifier</code> that still reads raw snapshot fields
+      directly (<code>zones</code>, <code>ltf.bias</code>, <code>ltf.last_sc</code>).
+      All other phase gates (E/D/C/B) use <code>_ec_candidate_for_direction()</code>.
+      Goal: add a dedicated Phase A setup EC candidate that wraps these fields,
+      then migrate <code>_phase_a_setup()</code> to read it.
+      Note: <code>classify(snapshot: dict)</code> cannot become a pure
+      <code>evidence_candidates: list[dict]</code> signature — it also reads
+      <code>cursor_time</code>, HTF/LTF bars, and other raw fields throughout the DAG.
+      Blocked on Phase A EC candidate creation.</p>
     </div>
-    <div class="issue-card">
-      <div class="issue-label">Next Milestone</div>
-      <p><b>classify() signature narrowing.</b>
-      Once all phase methods read EC candidates, the public interface of
-      <code>HypothesisClassifier.classify()</code> should accept
-      <code>evidence_candidates: list[dict]</code> instead of the raw
-      snapshot dict, severing the direct Layer 3 dependency from Layer 4.</p>
+
+    <!-- ── Archived ── -->
+    <div class="issue-card done">
+      <div class="issue-label">Archived · Completed · 2026-06-24</div>
+      <p><b>Phase D new model (D.watch / D.speculation) coded and stable.</b>
+      <code>D.watch</code>-only model implemented; <code>D.speculation</code>
+      removed from DAG. <code>PhaseDShadow</code> wired with
+      <code>watch_range_extreme</code>, <code>htf_zone_seen</code>, and
+      <code>commitment_extreme_level</code>. Phase D declared stable 2026-06-23.</p>
     </div>
-    <div class="issue-card">
+    <div class="issue-card done">
+      <div class="issue-label">Archived · Completed · 2026-06-15</div>
+      <p><b>Phase C new model (C.pullback / C.pullback_weaken) coded and validated.</b>
+      2-state model active. <code>PhaseCshadow</code> wired. V1 (depth shortcut)
+      and V2 (D.watch MSS) entry paths implemented and replay-validated.
+      Phase C gates live in <code>hypothesis.py</code>.</p>
+    </div>
+    <div class="issue-card done">
       <div class="issue-label">Archived · Completed</div>
       <p><b>All detection methods migrated to EC candidates.</b>
-      <code>_phase_b_initiation_setup()</code>, <code>_phase_d_setup()</code>,
-      <code>_phase_c_setup()</code>, <code>_phase_b_setup()</code>,
-      <code>_phase_a_finale()</code>, and <code>_phase_e_reaction()</code>
-      all consume EC candidates. <code>contextLedger.py</code> deleted.
-      139 tests pass.</p>
+      <code>_phase_b_initiation_setup()</code>, <code>_phase_c_setup()</code>,
+      <code>_phase_b_setup()</code>, <code>_phase_a_finale()</code>, and
+      <code>_phase_e_reaction()</code> all consume EC candidates.
+      <code>contextLedger.py</code> deleted. 194 tests pass.</p>
     </div>
   </div>
 

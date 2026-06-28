@@ -342,6 +342,61 @@ class HypothesisNoneCaseTests(unittest.TestCase):
         self.assertEqual(hyp.phase_sub_status, "X.no_direction")
 
 
+class HypothesisPhaseBToATransitionTests(unittest.TestCase):
+    def test_b_to_a_emits_one_shot_entry_transition_metadata(self):
+        classifier = HypothesisClassifier()
+        epoch_id = "2024-01-01T00:00:00+00:00|SC01|up|2024-01-01T00:00:00+00:00"
+        classifier.state.htf_pd_epoch_id = epoch_id
+        classifier.state.active_phase_e_direction = "long"
+        b_shadow = classifier.state.shadow_thesis.phase_b
+        b_shadow.entered_at = "2024-01-01T10:00:00+00:00"
+        b_shadow.commitment_extreme_level = 1.105
+        b_shadow.commitment_extreme_event_id = "commit-1"
+        classifier._commit(  # noqa: SLF001 - focused state-machine handoff regression
+            classifier._phase_b_watch(
+                "long",
+                b_shadow.entered_at,
+                {"cursor_time": b_shadow.entered_at, "htf_pd_epoch_id": epoch_id},
+            )
+        )
+        b_shadow.phase_episode_id = classifier.state.phase_episode_id
+
+        htf = structure("bullish", "open", high=1.150, low=1.10)
+        ltf = structure("bullish", "open", high=1.121, low=1.106)
+        ltf["last_sc"] = {
+            "eventTimestamp": "2024-01-01T10:30:00+00:00",
+            "eventCode": "SC01",
+            "eventAction": "structure_choch",
+            "breakDirection": "up",
+            "levelPrice": 1.119,
+            "event_id": "major-pro-1",
+        }
+        bars = [
+            {"time": "2024-01-01T08:00:00+00:00", "open": 1.11, "high": 1.12, "low": 1.105, "close": 1.118},
+            {"time": "2024-01-01T12:00:00+00:00", "open": 1.118, "high": 1.122, "low": 1.108, "close": 1.119},
+        ]
+
+        hyp = classifier.classify(dual_snapshot(htf, bars, ltf=ltf))
+
+        self.assertEqual(hyp.phase, "A")
+        self.assertEqual(hyp.phase_sub_status, "watch")
+        debug = hyp.debug_facts
+        self.assertEqual(debug["phase_a_entry_transition_origin_node"], "B.watch")
+        self.assertEqual(debug["phase_a_entry_transition_event_id"], "major-pro-1")
+        self.assertEqual(debug["phase_a_entry_transition_prior_phase"], "B")
+        self.assertEqual(debug["phase_a_entry_transition_prior_phase_episode_id"], b_shadow.phase_episode_id)
+        self.assertEqual(debug["phase_a_entry_transition_prior_entered_at"], "2024-01-01T10:00:00+00:00")
+        self.assertEqual(debug["phase_a_entry_transition_commitment_extreme_level"], 1.105)
+        self.assertEqual(debug["phase_a_entry_transition_level"], 1.119)
+
+        held = classifier.classify(dual_snapshot(htf, bars, ltf=ltf))
+
+        self.assertEqual(held.phase, "A")
+        self.assertFalse(
+            any(key.startswith("phase_a_entry_transition_") for key in held.debug_facts)
+        )
+
+
 class HypothesisPathCTransitionTests(unittest.TestCase):
     def test_d_watch_to_c_pullback_emits_one_shot_transition_pressure_context(self):
         classifier = HypothesisClassifier()

@@ -334,7 +334,7 @@
       <div class="eyebrow">Layer 4 · Hypothesis Classifier · Phase C</div>
       <h1>Phase C — Counter Pullback</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> — Phase C is the counter-pullback phase. Two DAG states: <code>C.pullback</code> and <code>C.pullback_weaken</code>. Entry origin tracked via <code>phase_c_origin_node</code> metadata (not new states). All structural transitions use MSS (<code>last_sc</code>); iChoCh (<code>last_isc</code>) is Layer 5 territory. V1: E.pullback_developing + no D + depth ≥ 51%. V2: D.watch + counter MSS (LL break). Weaken: pro-HTF MSS breaks pullback LH. Recovery: counter MSS re-fires.
+        <b>TL;DR</b> — Phase C is the counter-pullback phase. Two DAG states: <code>C.pullback</code> and <code>C.pullback_weaken</code>. Entry origin tracked via <code>phase_c_origin_node</code> metadata (not new states). Major structure transitions read <code>last_sc</code>; orderflow MSS reads <code>ltf_counter_orderflow_*</code>; iChoCh (<code>last_isc</code>) is Layer 5 territory. V1: E.pullback_developing + no D + depth ≥ 51%. V2: D.watch + counter orderflow MSS. Weaken: major pro structure transition against the pullback. Recovery: counter orderflow MSS re-fires.
       </div>
       <a class="panel-link" href="./401-hypothesis.html">→ Back to 401 Hypothesis Dataflow</a>
       <a class="panel-link" href="./401-hypothesis-DAG.html">→ Open 401 Hypothesis DAG</a>
@@ -419,14 +419,14 @@ otherwise:
 
     <h2 id="nodes"><span class="sec-num">02</span> State Machine</h2>
     <p>
-      Phase C uses two DAG states. Entry origin is tracked via <code>phase_c_origin_node</code> metadata — it does not add new states. All structural transitions use MSS (<code>last_sc</code>, macro ChoCh). iChoCh (<code>last_isc</code>) is reserved for Layer 5 entry confirmation.
+      Phase C uses two DAG states. Entry origin is tracked via <code>phase_c_origin_node</code> metadata — it does not add new states. Major structure transitions use <code>last_sc</code>. Orderflow MSS transitions use <code>ltf_counter_orderflow_*</code>. iChoCh (<code>last_isc</code>) is reserved for Layer 5 entry confirmation.
     </p>
 
     <details open>
       <summary>C.pullback <span class="where">active state</span></summary>
       <div class="body">
 <pre class="block">C.pullback
-  + pro-HTF MSS breaks pullback LH
+  + major pro structure transition breaks pullback LH
     (bullish HTF: last_sc fires pro-HTF direction = LH broken upward)
   → C.pullback_weaken
 
@@ -446,7 +446,7 @@ C.pullback
       <summary>C.pullback_weaken <span class="where">active sub-state</span></summary>
       <div class="body">
         <p>
-          Enters when the counter pullback shows a pro-HTF MSS (LH break). The <em>recovery</em> condition is: the pro-attempt within the pullback itself fails — counter MSS re-fires in the pullback direction (LL break). Not "LL confirmed"; not "floor tested." The same MSS mechanic that opened <code>C.pullback</code> fires again.
+          Enters when the counter pullback shows a major pro structure transition (LH break). The <em>recovery</em> condition is: the pro-attempt within the pullback itself fails — counter orderflow MSS re-fires in the pullback direction. Not "LL confirmed"; not "floor tested." The same orderflow MSS mechanic that opened <code>C.pullback</code> fires again.
         </p>
 <pre class="block">C.pullback_weaken
   + counter-HTF MSS re-fires in pullback direction (LL break)
@@ -495,9 +495,9 @@ C.pullback.after_inducement  — B.initiation_watch rejection</pre>
 
 Result:
   → C.pullback
-  phase_c_origin_node = "E.pullback_developing_bos"   (Path 2: LTF BoS, slow structural)
+  phase_c_origin_node = "E.pullback_developing_bos"   (legacy name: clean counter orderflow path)
   phase_c_origin_node = "E.pullback_developing_depth"  (Path 3: depth >= 51%, fast flip)</pre>
-        <p>Price grinds counter without ever attempting a pro-HTF MSS. D was never entered. Path 2 fires on a fresh counter BoS leg; Path 3 fires when depth reaches 51% (express fallback).</p>
+        <p>Price grinds counter without ever attempting a major pro structure transition. D was never entered. Path 2 fires on a clean counter orderflow leg; Path 3 fires when depth reaches 51% (express fallback).</p>
       </div>
     </details>
 
@@ -511,7 +511,7 @@ Result:
 Result:
   → C.pullback
   phase_c_origin_node = "D.watch_mss"</pre>
-        <p>Pro-attempt (first pro-HTF MSS) opened D.watch, then the counter MSS breaks LL — pro-attempt definitively failed. Replaces old <code>D.speculation → C.pullback</code> gate.</p>
+        <p>Pro-attempt (first major pro structure transition after E.pullback_developing) opened D.watch, then the counter orderflow MSS breaks the protected anchor — pro-attempt definitively failed. This is the current <code>D.watch → C.pullback</code> handoff.</p>
       </div>
     </details>
 
@@ -520,7 +520,7 @@ Result:
       <div class="body">
 <pre class="block">C.pullback        + depth >= 50%          → B.xxx
 C.pullback        + new HTF extreme       → E.seeking
-C.pullback        + pro-HTF MSS (LH)      → C.pullback_weaken
+C.pullback        + major pro structure (LH) → C.pullback_weaken
 
 C.pullback_weaken + counter MSS (LL)      → C.pullback
 C.pullback_weaken + new HTF extreme       → E.seeking
@@ -668,7 +668,7 @@ entry_policy = "hybrid" if (
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
         <p><b>E.pullback_developing + no D → C.pullback (two paths).</b>
-        Path 2 (BoS): fresh counter BoS leg after pullback_developing_entered_at → <code>origin_node = "E.pullback_developing_bos"</code>.
+        Path 2 (legacy name "bos"): clean counter orderflow leg after pullback_developing_entered_at → <code>origin_node = "E.pullback_developing_bos"</code>.
         Path 3 (depth): depth ≥ 51% fallback → <code>origin_node = "E.pullback_developing_depth"</code>.</p>
       </div>
       <div class="issue-card">

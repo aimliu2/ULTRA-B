@@ -352,7 +352,7 @@
         macro ChoCh (<code>last_sc</code>) fires while in C.pullback AND the pullback depth has
         reached the discount zone (≥ 51%). At entry, <code>commitment_extreme_level</code> is
         locked to <code>ltf_struct.range_low</code> (long) / <code>range_high</code> (short) — the
-        commitment extreme of the pullback. Exits (priority order): new HTF extreme → E.seeking; pro-HTF BoS
+        commitment extreme of the pullback. Exits (priority order): new HTF extreme → E.seeking; major pro structure transition
         → A.watch; commitment extreme breached → C.pullback; counter MSS → C.pullback.
         Direct E → B is DAG-blocked; B entry requires C.pullback depth gate.
       </div>
@@ -534,11 +534,11 @@ at_extreme_entry              bool         <span class="cm"># True when origin==
   OR e_ctx.get("new_htf_extreme") == True
 → E.seeking   <span class="cm"># HTF continuation resumes; B.watch invalidated</span></pre>
 
-    <h3>Exit 2 — A.watch (pro-HTF BoS, freshness-guarded)</h3>
+    <h3>Exit 2 — A.watch (major pro structure, freshness-guarded)</h3>
     <p>When a pro-HTF structural SC fires after B.watch opened, price has escaped the B zone in
     the pro direction — the pro attempt is progressing. <code>commitment_extreme_level</code> was
     already locked at B.watch entry; it is carried forward unchanged.</p>
-    <pre class="block"><span class="hl">last_sc.breakDirection == pro-HTF direction</span>   <span class="cm"># pro BoS (SC01/SC02)</span>
+    <pre class="block"><span class="hl">last_sc.breakDirection == pro-HTF direction</span>   <span class="cm"># major pro structure transition</span>
 AND <span class="hl">last_sc.eventTimestamp &gt; b_shadow.entered_at</span>   <span class="cm"># freshness guard</span>
 → A.watch
   a_shadow.entered_at = cursor_time
@@ -673,7 +673,7 @@ if _new_htf_extreme_b:
 
 _b_floor = b_shadow.entered_at or ""
 
-<span class="cm"># B.watch → A.watch (pro-HTF BoS, freshness-guarded)</span>
+<span class="cm"># B.watch → A.watch (major pro structure, freshness-guarded)</span>
 <span class="cm"># commitment_extreme_level already locked at C→B entry — not reassigned here</span>
 pro_break_b  = "up" if direction == "long" else "down"
 last_sc_b    = (ltf.get("last_sc") or {}) if ltf else {}
@@ -842,11 +842,22 @@ def _phase_b_watch_shadow_debug(self) -&gt; dict:
       </div>
 
       <div class="issue-card">
-        <div class="issue-label">Out of Scope</div>
-        <p><b>Layer 5 B.watch entry permission.</b> Layer 5 has not been built yet. When built,
-        it will read <code>phase_b_shadow.*</code> IDs and resolve zone/orderflow details from the
-        EC snapshot. The shadow pointer-only design is intentional — Layer 5 decides entry
-        quality, not the DAG.</p>
+        <div class="issue-label">Archived · Completed</div>
+        <p><b>Layer 5 B.watch entry permission.</b> Implemented as <code>B.watch_pathA</code>
+        (counter iChoCh → pro iChoCh while B.watch holds) and <code>B.watch_pathB</code>
+        (counter iChoCh, then one-shot B.watch → A.watch transition). Layer 5 reads
+        <code>phase_b_shadow.*</code> for commitment SL, computes TP from the Phase A
+        objective-progress level capped at 2.5R, and uses a B episode-consumption guard to
+        prevent duplicate accepted trades.</p>
+      </div>
+
+      <div class="issue-card">
+        <div class="issue-label">Open Issue</div>
+        <p><b>Phase B quality gate.</b> Current integrity samples show valid OTE executions,
+        but the accepted <code>B.watch_pathA</code> trades failed to follow through and returned
+        toward <code>C.pullback</code>. Next analysis should split accepted B trades by HTF S/D
+        context, MFE before C return, counter-iChoCh depth, and failure reason before adding a
+        gate.</p>
       </div>
 
       <div class="issue-card">

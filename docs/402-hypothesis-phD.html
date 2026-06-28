@@ -377,7 +377,7 @@ D.watch hold — debug output (every bar while holding):
   phase_d_node                       "D.watch"
   phase_e_shadow_htf_reaction_seen   bool  ← PhaseEShadow.htf_reaction_seen
     sticky: set once at E.stalling zone tap, never cleared within epoch
-    Layer 5 reads this for Path B context detection; immune to EC clearing on 4H close</pre>
+    Layer 5 reads this for htf_zone_context analysis tagging; immune to EC clearing on 4H close</pre>
       </div>
     </details>
 
@@ -385,7 +385,7 @@ D.watch hold — debug output (every bar while holding):
       <summary>Archive — D.speculation <span class="where">removed from DAG · 2026-06-10</span></summary>
       <div class="body">
         <p>
-          <code>D.speculation</code> was removed from the DAG as of commit 10dff12. Its two entry paths (Path A — LTF counter iChoCh SC06; Path B — counter SB after pullback_confirmed) and the subsequent MSS→C.pullback gate are now <b>Layer 5 territory</b>. See <code>docs/501-entry.html</code> for the full iChoCh mechanics documentation.
+          <code>D.speculation</code> was removed from the DAG as of commit 10dff12. Its old entry paths (immediate counter iChoCh and counter SB after pullback_confirmed) are archived. Current Layer 5 Phase D has one active path: <code>D.watch_pathA</code>, the internal counter iChoCh → internal counter iSB sequence (EX.entry — both breaks counter-HTF). The MSS→C.pullback transition is a DAG handoff, not a D trade. See <code>docs/501-entry-details.html</code>.
         </p>
 <pre class="block">Former Path A (LTF counter-HTF iChoCh — bounce failed):
   ltf_counter_choch_seen == True   ← SC06 itrIChoCh, last_isc, break_direction == counter-HTF
@@ -397,10 +397,10 @@ Former Path B (LTF counter SB after pullback_confirmed):
 
 Former choch_2 snapshot (stamped by both paths — now Layer 5 quality metadata):
   trigger_type  "choch" | "sb"
-  level         ← ChoCh floor (Path A) or BOS floor (Path B) → SL reference for Layer 5
+  level         ← archived quality metadata; no active D SL reference
 
-Former D.speculation → C.pullback gate (now Layer 5):
-  ltf_counter_orderflow_mss_watch AND fresh leg → entry</pre>
+Former D.speculation → C.pullback gate:
+  archived; current D.watch → C.pullback uses orderflow MSS as a DAG handoff only</pre>
       </div>
     </details>
 
@@ -420,17 +420,18 @@ Former D.speculation → C.pullback gate (now Layer 5):
   → C.pullback      ltf_counter_orderflow_mss_watch fires on a fresh leg
                     (orderflow engine: anchor swing low broken after pro-attempt)
                     AND orderflow_leg_id != phase_d_shadow.consumed_leg_id
-                    c_shadow.origin_node = "D.watch_mss"   ← Path C gate in Layer 5
+                    c_shadow.origin_node = "D.watch_mss"   ← Phase C provenance
   → E.seeking       HTF close above PD range (expansion resumed)
 
 D.watch — epoch boundary:
   → shadow cleared, DAG resets to E.seeking
 
 Layer 5 reads from D.watch snapshot (not DAG transitions):
-  ltf_counter_choch_seen              ← SC06 iChoCh: bounce failed at ITR pivot → entry signal
-  ltf_counter_isb_seen                ← SC05 iSB same counter direction → Path A trigger
+  ltf_counter_ichoch_isb_sequence_seen← internal counter iChoCh → internal counter iSB → D.watch_pathA
+  ltf_counter_sequence_trade_direction← must match the Layer 5 trade direction
+  ltf_counter_sequence_isb_event_at   ← must be fresh after D.watch opened
   ltf_counter_sb_seen                 ← macro SB counter-HTF → quality context
-  phase_e_shadow_htf_reaction_seen    ← sticky bool: zone tapped before or during D.watch
+  phase_e_shadow_htf_reaction_seen    ← sticky bool: htf_zone_context analysis tag
   phase_d_shadow.pro_attempt          ← quality grading context</pre>
       </div>
     </details>
@@ -446,10 +447,9 @@ Layer 5 reads from D.watch snapshot (not DAG transitions):
 <pre class="block"><span class="cm"># ── EC facts in scope ──────────────────────────────────────────────────────</span>
 <span class="cm"># phase_e.pro_attempt_seen        — last_sc SC01/SC02 macro ChoCh, break_direction==pro-HTF direction</span>
 <span class="cm">#                                   D.watch trigger.</span>
-<span class="cm"># ltf_counter_choch_seen          — SC06 itrIChoCh last_isc, break_direction==counter-HTF direction</span>
-<span class="cm">#                                   Layer 5 entry confirmation (Path A). Not a DAG gate.</span>
-<span class="cm"># ltf_counter_sb_seen             — SC01/SC02 last_sc macro SB, break_direction==counter-HTF direction</span>
-<span class="cm">#                                   Layer 5 entry confirmation (Path B). Not a DAG gate.</span>
+<span class="cm"># ltf_counter_ichoch_isb_sequence_seen — internal counter iChoCh → internal counter iSB (EX.entry)</span>
+<span class="cm">#                                        Layer 5 D.watch_pathA trigger. Not a DAG gate.</span>
+<span class="cm"># ltf_counter_sb_seen                  — major counter SB quality context. Not a D entry path.</span>
 <span class="cm"># ltf_counter_orderflow_mss_watch — orderflow MSS: LTF orderflow anchor swing broken on fresh leg</span>
 <span class="cm">#                                   D.watch → C.pullback gate.</span>
 <span class="cm"># new_htf_extreme                 — phase_e_context: price made a new HTF extreme (expansion resumed)</span>
@@ -511,6 +511,14 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
     <h2 id="issues"><span class="sec-num">05</span> Open Issues</h2>
     <div class="issue-grid">
       <div class="issue-card">
+        <div class="issue-label">Open · Migration Deferred</div>
+        <p><b>HTF S/D zone context demoted from entry gate to analysis tag — completed.</b>
+        <code>phase_e_shadow_htf_reaction_seen</code> and <code>phase_d_shadow_htf_zone_seen</code>
+        now feed Layer 5's <code>htf_zone_context</code> regime tag only. They do not select a
+        separate D path and do not provide the SL anchor. Current Phase D entry is
+        <code>D.watch_pathA</code> only.</p>
+      </div>
+      <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
         <p><b>Phase D upgraded to iChoCh (SC06) — squeeze edge case documented.</b>
         D.watch and D.speculation both upgraded to use SC06 itrIChoCh (<code>last_isc</code>) as primary trigger instead of macro SC01/SC02 ChoCh (<code>last_sc</code>). In normal market structure, ITR pivot sits inside the PD range — SC06 fires first (finer/earlier signal). Discovered edge case: when the PD range contracts inside the ITR high/low (squeezed relationship), the range boundary is tighter than the ITR pivot level and macro SC01/SC02 fires before SC06 has a chance. Fallback to <code>last_sc</code> handles this correctly. Confirmed in replay: EURUSD 15m/4h 2026-01-28T22:30 UTC.</p>
@@ -531,10 +539,10 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b><code>D.speculation → C.pullback</code> trigger: LTF MSS on fresh leg.</b>
+        <p><b><code>D.watch → C.pullback</code> trigger: LTF orderflow MSS on fresh leg.</b>
         Gate: <code>ltf_counter_orderflow_mss_watch == True</code> and
         <code>ltf_counter_orderflow_leg_id != phase_d_shadow.consumed_leg_id</code>.
-        The anchor swing low (below the second ChoCh level) is broken after the pro-attempt.
+        The protected orderflow anchor is broken after the pro-attempt.
         Bounce height is not a condition — a shallow grind-down with a minimal bounce still
         fires. <code>consumed_leg_id</code> prevents the same MSS that opened
         <code>E.pullback_developing</code> from also triggering C.</p>
@@ -555,7 +563,7 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
         <code>last_sc.eventAction == "structure_sb"</code> or <code>last_sc.structure_sb == True</code>
         AND <code>last_sc.breakDirection == counter-HTF direction</code>.
         Implies structureEngine <code>phase == "pullback_confirmed"</code> at time of emit
-        for the Layer 4 Path B gate.
+        for the archived Layer 4 Path B gate.
         Separate from <code>ltf_counter_choch_seen</code> (which requires <code>choch=True</code>).
         Added to <code>_compile_ltf_counter_choch()</code> as additional debug facts:
         <code>ltf_counter_sb_seen</code> and <code>ltf_counter_sb_level</code>. Layer 4 reads both
@@ -579,12 +587,12 @@ def __init__(self, config: dict[str, Any] | None = None) -> None:
       <div class="issue-card">
         <div class="issue-label">Completed · 2026-06-10</div>
         <p><b><code>D.speculation</code> removed from DAG — Layer 5 owns iChoCh entry timing.</b>
-        Commit <code>10dff12</code>. Path A (SC06 iChoCh → D.speculation) and Path B
-        (counter SB + pullback_confirmed → D.speculation) removed from <code>hypothesis.py</code>.
+        Commit <code>10dff12</code>. Old Path A (SC06 iChoCh → D.speculation) and Path B
+        (counter SB + pullback_confirmed → D.speculation) were removed from <code>hypothesis.py</code>.
         <code>D.watch</code> now holds until counter MSS fires → <code>C.pullback</code>
-        directly. DAG uses <code>last_sc</code> (macro ChoCh) only for all structural transitions.
-        iChoCh (<code>last_isc</code>, SC06) is exclusively Layer 5 entry confirmation.
-        Mechanics documented in <code>docs/501-entry.html</code>.</p>
+        directly. DAG uses <code>last_sc</code> major structure only for structural transitions.
+        Current Layer 5 D entry is <code>D.watch_pathA</code>: internal counter iChoCh → internal counter iSB (EX.entry).
+        Mechanics documented in <code>docs/501-entry-details.html</code>.</p>
       </div>
     </div>
 

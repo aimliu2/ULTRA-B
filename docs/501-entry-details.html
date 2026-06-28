@@ -352,7 +352,7 @@
       <div class="eyebrow">Layer 5 · Entry Protocol · MP-only V1</div>
       <h1>501 - Layer 5 Entry — MP Entry, Budgets, iChoCh</h1>
       <div class="tldr" id="tldr">
-        <b>TL;DR</b> — Layer 5 V1 is an MP-only entry permission layer over the DAG snapshot. Phase D is the first fully implemented entry phase. <code>D.watch</code> has three trigger paths: <b>SA</b> — no HTF zone context, fresh iChoCh fires during D.watch, SL = <code>phase_d_shadow.watch_range_extreme</code> + buffer; <b>Path B</b> — HTF SD zone context, direction-correct LTF ITR pivot arms the zone probe, then fresh iChoCh confirms entry, SL = HTF zone distal/invalidation edge + buffer; <b>C2</b> — <code>C.pullback</code> from <code>D.watch_mss</code>, transition-bar entry, SL = D.watch extreme. Phase E and Phase X are no-trade by default. Risk above 25 pips (EURUSD) marks the opportunity stale and saves budget. Symbol geometry (<code>sl_band_pips</code>, <code>sl_buffer_pips</code>) is per-symbol from <code>config.yaml asset_geometry</code> — unknown symbol returns None, no silent fallback. TP = <code>pd_midpoint</code> (50% HTF PD range); RR ≥ 1.75 to take.
+        <b>TL;DR</b> — Layer 5 V1 is an MP-only entry permission layer over the DAG snapshot. Phase D has one active D.watch hold-entry path: <code>D.watch_pathA</code>, internal counter iChoCh → internal counter iSB (EX.entry — both breaks in counter-HTF direction), SL = <code>phase_d_shadow.watch_range_extreme</code> + buffer with the configured minimum floor, TP = <code>pd_midpoint</code>. HTF S/D zone context is an analysis tag, not a separate trigger or SL anchor. <code>D.watch → C.pullback</code> MSS is a handoff, not a D trade. <b>Phase B</b> is implemented with <code>B.watch_pathA</code> (counter iChoCh → retracement any form, not gated → pro iChoCh) and <code>B.watch_pathB</code> (one-shot B.watch → A.watch major pro structure transition after step 1 was armed). Phase B uses the B commitment extreme for SL, the Phase A objective-progress level capped at 2.5R for TP, and a per-B-episode consumption guard. Phase E and Phase X are no-trade by default. Risk above 25 pips (EURUSD) marks the opportunity stale and saves budget. Symbol geometry (<code>sl_band_pips</code>, <code>sl_buffer_pips</code>) is per-symbol from <code>config.yaml asset_geometry</code> — unknown symbol returns None, no silent fallback. RR ≥ 1.75 to take; <code>runway_too_short</code> may retry the same trigger within the trigger-age cap.
       </div>
       <a class="panel-link" href="./402-hypothesis-phD.html">→ Related: 402 Phase D</a>
       <a class="panel-link" href="./402-hypothesis-phC.html">→ Related: 402 Phase C</a>
@@ -363,7 +363,7 @@
       The DAG (Layer 4) owns phase state transitions. It uses only macro structural events (<code>last_sc</code>, SC01–SC04) because these fire reliably against the wick-defined range boundary and are structurally unambiguous. iChoCh (SC05/SC06, <code>last_isc</code>) fires against confirmed internal ITR pivot levels — earlier and finer, but not a DAG gate.
     </p>
     <p>
-      Layer 5 reads the snapshot after the DAG has committed phase. At <code>D.watch</code>, the DAG is holding — the bounce started but no counter MSS has fired yet to force <code>C.pullback</code>. Layer 5 reads the same EC candidate facts to decide if iChoCh or a macro SB is present and whether that is enough confirmation to enter.
+      Layer 5 reads the snapshot after the DAG has committed phase. At <code>D.watch</code>, the DAG is holding — the bounce started but no counter orderflow MSS has fired yet to force <code>C.pullback</code>. Layer 5 reads EC internal-structure sequence facts to decide if the D.watch exhaustion entry is allowed.
     </p>
 
     <pre class="block">DAG (Layer 4) uses:
@@ -371,10 +371,11 @@
   ← all DAG phase transitions gated on last_sc only
 
 Layer 5 uses additionally:
-  last_isc (SC05/SC06)            — internal iChoCh, confirmed ITR pivot break
-  ltf_counter_choch_seen          — EC debug fact (from ltf_counter_choch candidate)
-  ltf_counter_isb_seen            — proposed EC debug fact for same-direction internal iSB continuation
-  ltf_counter_sb_seen             — EC debug fact (from same candidate)
+  internal_structure_sequence      — internal iChoCh/iSB chronology
+  ltf_counter_ichoch_*             — EC debug facts for internal counter iChoCh
+  ltf_pro_ichoch_*                 — EC debug facts for internal pro iChoCh
+  ltf_counter_sequence_*           — EC debug facts for counter iChoCh → counter iSB
+  ltf_counter_sb_seen              — major counter SB quality context, not a D trigger
   counter_entry_evidence          — Layer 5 evidence object resolved from EC/context facts
 
 Layer 4 and Layer 5 read different keys from the same EC candidates.
@@ -383,6 +384,58 @@ Layer 5 may also resolve raw zone/liquidity IDs from the context snapshot for SL
     <div class="rule-block">
       The boundary is not about signal strength — it is about responsibility. The DAG holds structural commitment memory; Layer 5 holds entry permission state. iChoCh is an entry confirmation signal, not a phase-advance signal.
     </div>
+
+    <details open>
+      <summary>Regular entry patterns <span class="where">Layer 5 vocabulary</span></summary>
+      <div class="body">
+<pre class="block">OTE.entry:
+  A reusable Layer 5 regular pattern, not a Phase B-only special case.
+
+  Shape:
+    1. phase opens with a fixed commitment / invalidation extreme
+    2. counter-side internal structure appears
+       minimum: SC06 counter iChoCh
+    3. retracement (any form, not gated explicitly)
+       accepts: ITR pivot, sideways chop, iSB chain in counter direction, or immediate reversal
+       temporal ordering enforced by step 4 (pro signal must be after step 2)
+    4. pro-side resumption signal fires after step 2
+       minimum: SC06 pro iChoCh while the phase still holds
+       stronger: major pro structure transition may move the DAG to A; counter MSS may move the DAG to C
+    5. entry uses the phase's commitment extreme as SL anchor
+
+  Budget ownership:
+    if step 1 was not observable before the phase transition,
+      skip this phase and let the next phase own any trade
+    if step 1 was observable and the transition is step 4,
+      this is still the prior phase's OTE.entry and spends prior-phase budget
+
+  Current concrete instance:
+    B.watch_pathA / B.watch_pathB use commitment_extreme_level.
+    Future A/C variants should reuse this pattern only after defining their
+    phase-specific commitment extreme, retracement evidence, and budget owner.
+
+EX.entry:
+  Phase D's entry pattern (D.watch_pathA). Named for the exhaustion sequence
+  — the counter move stalls via iChoCh→iSB before the pro resumption.
+
+  Shape:
+    1. D.watch holds; watch_range_extreme tracks the counter-side running extreme
+    2. Counter SC06 iChoCh fires (counter internal ChoCh — sequence starts)
+    3. Counter SC05 iSB fires after the iChoCh (same counter-HTF direction)
+       (second structural break in counter direction confirms exhaustion of the pro move)
+    4. entry at iSB bar close
+       SL = watch_range_extreme ± buffer (always)
+       HTF zone context is recorded as a regime tag only; it is not an SL anchor
+
+  Budget ownership:
+    spends Phase D budget; tagged D.watch_pathA.
+
+  Key distinction from OTE.entry:
+    OTE: counter iChoCh → retracement (any form) → pro iChoCh (direction flips at step 4).
+    EX: counter iChoCh → counter iSB (same counter-HTF direction, no retracement step).
+    EX is the Phase D signal; OTE is the Phase B signal.</pre>
+      </div>
+    </details>
 
     <details open id="regime-tags">
       <summary>Regime tags <span class="where">analysis-only Layer 5 context</span></summary>
@@ -412,7 +465,7 @@ Compact tag columns:
   htf_pd_range_bucket
   entry_session</pre>
         <p>
-          The first use is empirical: compare <code>SA</code>, <code>B</code>, and <code>C2</code> decisions that occur inside a direction-correct HTF S/D zone against the same paths elsewhere. If the regime split is meaningful, the same helper can later become a Layer 5 policy filter without promoting the tag into a new Phase E or Phase D branch.
+          The first use is empirical: compare current Phase D hold entries and Phase C transition candidates that occur inside a direction-correct HTF S/D zone against the same paths elsewhere. Legacy samples may still label these rows as <code>SA</code>, <code>B</code>, or <code>C2</code>; the new ownership model treats boundary entries as next-phase trades.
         </p>
       </div>
     </details>
@@ -454,72 +507,49 @@ Prerequisite:
   phase_d_shadow.watch_entered_at is not None
   symbol geometry resolved from config.yaml asset_geometry (unknown symbol → None)
 
-First-entry signals:
-  SA:     no HTF zone context
-          fresh iChoCh fires counter-HTF → entry at iChoCh bar close
+First-entry signal:
+  Path A: counter iChoCh → counter iSB sequence while D.watch still holds
+          ltf_counter_ichoch_isb_sequence_seen == True
           SL = phase_d_shadow.watch_range_extreme + buffer
-          !! floor at min_sl_pips — widen SL outward, do NOT skip on compressed range
-  Path B: HTF zone context (phase_e_shadow_htf_reaction_seen OR phase_d_shadow_htf_zone_seen)
-          direction-correct LTF ITR pivot inside the zone arms the setup
-          iChoCh after the armed ITR confirms initiation fade → entry
-          SL = HTF SD zone distal/invalidation edge + buffer
-  C2:     C.pullback bar, origin_node == "D.watch_mss" → immediate entry at transition bar
-          SL = phase_d_shadow.watch_range_extreme + buffer (shadow survives D→C)
-          !! floor at min_sl_pips same as SA
+          HTF S/D zone context is an analysis tag, not a separate trigger
 
 Re-entry:
   disabled by default in V1
   only reconsider after a new D.watch phase episode and remaining epoch budget
 
-Cross-path budget guard:
-  _d_watch_budget_spent[cache_key] set to True after any path returns EntryIntent
-  Prevents C2 from firing if SA or Path B already accepted an entry this epoch</pre>
+Boundary handoff:
+  D.watch → C.pullback MSS is not a D trade trigger
+  phase_c_entry_transition_* metadata is preserved for Phase C
+  any entry on or after that transition spends Phase C budget</pre>
       </div>
     </details>
 
     <details>
       <summary>D.medium policy <span class="where">default Phase D entry mode</span></summary>
       <div class="body">
-<pre class="block">SA (D.watch, no HTF zone context):
-  trigger: iChoCh fires counter-HTF (SC06, last_isc)
-           ltf_counter_choch_seen == True
-           ltf_counter_choch_event_at > watch_entered_at
+<pre class="block">Path A (D.watch hold):
+  trigger: counter SC06 iChoCh → counter SC05 iSB sequence
+           ltf_counter_ichoch_isb_sequence_seen == True
+           ltf_counter_sequence_isb_event_at > watch_entered_at
   SL: phase_d_shadow.watch_range_extreme + buffer
       ← running max of ltf lower_structure.range_high during D.watch hold (short trade)
       ← running min of ltf lower_structure.range_low during D.watch hold (long trade)
-      !! if computed sl_pips < 15: widen SL to floor (entry ± 15 pips), do NOT skip
-  trigger_path = "D.watch_pathSA"
+  trigger_path = "D.watch_pathA"
 
-Path B (D.watch, HTF zone context):
-  context: phase_e_shadow_htf_reaction_seen == True
-           OR phase_d_shadow_htf_zone_seen == True (htf_opposing_sd_tapped during hold)
-  arming evidence:
-      short/supply: latest_itr_high is inside the HTF supply zone
-                    zone.high + buffer - latest_itr_high <= max_sl_pips
-      long/demand:  latest_itr_low is inside the HTF demand zone
-                    latest_itr_low - (zone.low - buffer) <= max_sl_pips
-      itr.confirmed_at > watch_entered_at
-  trigger: iChoCh fires counter-HTF after the armed ITR
-           ltf_counter_choch_seen == True
-           ltf_counter_choch_event_at > itr.confirmed_at
-  SL: HTF SD zone distal/invalidation edge + buffer
-      ← zone_high for short trade (far edge of supply zone)
-      ← zone_low  for long trade  (far edge of demand zone)
-  trigger_path = "D.watch_pathB"
+HTF S/D zone context:
+  zone context is not a separate Phase D trigger
+  htf_zone_context is emitted for analysis only; no zone-distal SL branch
 
-C2 (C.pullback from D.watch_mss):
-  gate: phase == "C", phase_sub_status == "pullback"
-        phase_c_entry_transition_origin_node == "D.watch_mss"
-  fires immediately at C.pullback transition bar
-  trigger_path = "D.watch_pathC2"
-  SL: phase_d_shadow.watch_range_extreme + buffer (shadow survives D→C)
-      !! floor widen same as SA (min_sl_pips)
+D.watch_mss handoff:
+  gate: phase_c_entry_transition_origin_node == "D.watch_mss"
+  Phase D does not spend on this transition
+  Phase C may define a C.transition entry using this provenance
 
-All paths — execution quality:
+Execution quality:
   symbol geometry from config.yaml asset_geometry[symbol]
   EURUSD: sl_buffer_pips = 2.0, sl_band_pips.min = 15, sl_band_pips.max = 25
   sl_pips > max: skip_reason = "late_entry_risk_too_wide", stale = True
-  sl_pips < min: skip_reason = "risk_too_tight" (only Path B — SA/C2 apply floor widen first)
+  compressed LTF P/D range can make the current phase entry invalid; skip current phase, preserve next phase quota
   rr < 1.75: skip_reason = "runway_too_short"</pre>
       </div>
     </details>
@@ -527,24 +557,18 @@ All paths — execution quality:
     <details>
       <summary>D policy variants <span class="where">Lax / Medium / Hard</span></summary>
       <div class="body">
-<pre class="block">SA (D.watch, no HTF zone):
-  fresh iChoCh fires counter-HTF → entry at iChoCh bar close
+<pre class="block">Path A (D.watch hold):
+  counter iChoCh → counter iSB sequence fires before D.watch exits
   SL = phase_d_shadow.watch_range_extreme + buffer
-       floor at min_sl_pips (widen, not skip)
-  trigger_path = "D.watch_pathSA"
+  trigger_path = "D.watch_pathA"
 
-Path B (D.watch, HTF zone context):
-  direction-correct LTF ITR pivot arms the HTF SD zone probe
-  iChoCh after the armed ITR confirms initiation fade — no iSB required
-  SL = HTF SD zone distal/invalidation edge + buffer
-  trigger_path = "D.watch_pathB"
+HTF zone context:
+  validity/cap/tag input only; not a separate trigger path
 
-C2 (C.pullback, origin_node == "D.watch_mss"):
-  immediate entry at C.pullback transition bar
-  SL = phase_d_shadow.watch_range_extreme + buffer, floor at min_sl_pips
-  trigger_path = "D.watch_pathC2"
+D.watch_mss transition:
+  not a Phase D trade; Phase C owns any transition-bar entry
 
-All paths:
+All Phase D entries:
   no chase after risk exceeds max_sl_pips (>25 pips EURUSD) → stale, save budget
   no budget spend unless EntryIntent returned (not on SkipIntent)
   symbol geometry from config.yaml asset_geometry — unknown symbol returns None</pre>
@@ -555,12 +579,12 @@ All paths:
       <summary>Layer 5 evidence object <span class="where">resolved from EC + context snapshot</span></summary>
       <div class="body">
 <pre class="block">counter_entry_evidence:
-  evidence_kind       liquidity_grab | ltf_sd_zone | htf_sd_zone
+  evidence_kind       watch_extreme | b_watch_commitment
   evidence_id         str
   timeframe           str
   direction           long | short
   presented_at        str
-  source_store        liquidity | sd_zone | evidence_compiler
+  source_store        phase_d_shadow | phase_b_shadow
 
   <span class="cm"># Zone evidence</span>
   zone_id             str | None
@@ -584,9 +608,13 @@ All paths:
     </details>
 
     <details>
-      <summary>Path SA — iChoCh immediate <span class="where">D.watch snapshot</span></summary>
+      <summary>Legacy Path SA — iChoCh immediate <span class="where">archived D.watch snapshot</span></summary>
       <div class="body">
-<pre class="block">Market sequence:
+<pre class="block">Archived behavior:
+  SA was the pre-tightening D.watch immediate iChoCh path.
+  Current design replaces it with Path A: counter iChoCh → counter iSB.
+
+Market sequence:
   D.watch opens (pro-HTF macro ChoCh — bounce initiated)
   iChoCh fires counter-HTF (bounce starting to fail) → immediate entry at iChoCh bar close
   (DAG still holds D.watch — MSS has NOT fired yet)
@@ -614,9 +642,13 @@ Available EC debug fields:
     </details>
 
     <details>
-      <summary>Path B — ITR-armed HTF SD zone probe, then iChoCh <span class="where">D.watch snapshot</span></summary>
+      <summary>Legacy Path B — ITR-armed HTF SD zone probe <span class="where">archived D.watch snapshot</span></summary>
       <div class="body">
-<pre class="block">Context:
+<pre class="block">Archived behavior:
+  Path B was the pre-collapse HTF zone branch.
+  Current design treats HTF zone context as analysis-only tag input for Path A.
+
+Context:
   D.watch opened at a strong HTF SD zone
   no separate liquidity_grab or LTF zone evidence required
   the HTF SD zone is the invalidation anchor
@@ -653,7 +685,7 @@ SL reference — HTF zone distal / invalidation edge:
   if computed sl_pips &lt; min_sl_pips: widen outward to the min floor
   if computed sl_pips &gt; max_sl_pips: late_entry_risk_too_wide, save budget
 
-Path B is active when:
+Legacy Path B was active when:
   htf_zone_context == True
     (phase_e_shadow_htf_reaction_seen OR htf_opposing_sd_tapped during D.watch hold)
   ITR arming evidence exists
@@ -665,7 +697,7 @@ Path B is active when:
     <details>
       <summary>D.watch quality fields <span class="where">phase_d_shadow</span></summary>
       <div class="body">
-<pre class="block"><span class="cm"># SA/C2 SL anchor: phase_d_shadow.watch_range_extreme (PhaseDShadow, emitted in debug_facts)</span>
+<pre class="block"><span class="cm"># Path A SL anchor: phase_d_shadow.watch_range_extreme (PhaseDShadow, emitted in debug_facts)</span>
 phase_d_shadow.watch_range_extreme:  float | None
   ← running max of lower_structure.range_high during D.watch hold (short trade)
   ← running min of lower_structure.range_low during D.watch hold (long trade)
@@ -673,7 +705,7 @@ phase_d_shadow.watch_range_extreme:  float | None
   ← read by Layer 5 from debug_facts["phase_d_shadow_watch_range_extreme"]
 
 <span class="cm"># phase_d_shadow.commitment_extreme_level: still exists in PhaseDShadow but</span>
-<span class="cm"># not used as SA/C2 SL anchor — watch_range_extreme is more conservative (wider)</span>
+<span class="cm"># not used as Path A SL anchor — watch_range_extreme is more conservative (wider)</span>
 
 phase_d_shadow.pro_attempt:
   htf_reaction_status   ← htf_counter_reaction EC status ("ready" | "collecting" | None)
@@ -682,7 +714,7 @@ phase_d_shadow.pro_attempt:
 phase_e_shadow_htf_reaction_seen:  bool  (emitted in D.watch hold debug_facts)
   ← PhaseEShadow.htf_reaction_seen — set once at E.stalling zone tap
   ← sticky: never cleared within epoch; immune to EC clearing on 4H close
-  ← Layer 5 reads this for Path B context gate
+  ← Layer 5 reads this for htf_zone_context analysis tagging
 
 Quality interpretation:
   htf_reaction_status == "ready"   → meaningful HTF reaction
@@ -692,7 +724,7 @@ Quality interpretation:
     </details>
 
     <div class="rule-block">
-      Phase D spends its ticket only when a fresh SA or Path B signal passes the active policy and MP geometry. A late signal with valid evidence does not spend budget, but it marks the current phase episode as stale so Layer 5 cannot chase the same move.
+      Phase D spends its ticket only when <code>D.watch_pathA</code> passes the active policy and MP geometry. A late signal with valid evidence does not spend budget, but it marks the current phase episode as stale so Layer 5 cannot chase the same move.
     </div>
 
     <h2 id="phase-e"><span class="sec-num">02</span> Phase E No Trade</h2>
@@ -741,7 +773,7 @@ Layer 5 behavior:
 Phase shadow:
   phase_c_shadow.origin_node:
     "D.watch_mss"                   <span class="cm"># structural path from D</span>
-    "E.pullback_developing_bos"    <span class="cm"># slow structural BoS path from E</span>
+    "E.pullback_developing_bos"    <span class="cm"># legacy name: clean counter orderflow path from E</span>
     "E.pullback_developing_depth"  <span class="cm"># fast depth flip (>=51%) from E</span>
   phase_c_shadow.entered_at        <span class="cm"># freshness floor candidate</span>
   phase_c_shadow.weaken_at
@@ -770,53 +802,159 @@ Draft re-entry shape:
       <code>C.pullback_weaken</code> is not automatically invalid. It marks a pro-HTF bounce attempt inside the counter pullback. Layer 5 should treat it as context, then wait for the C-specific iChoCh rule before spending a C ticket.
     </div>
 
+    <div class="rule-block">
+      <b>Edge case — boundary skip is intentional.</b> When the LTF P/D range is so compressed or fast-moving that the current phase did not arm its own entry setup, Layer 5 should skip that phase instead of forcing a boundary trade. An early skip is correct behavior: it prevents a FOMO entry and leaves the next phase quota available. Example: <code>D.watch → C.pullback</code> MSS hands ownership to Phase C; Phase D does not spend just because the transition bar exists.
+    </div>
+
     <h2 id="phase-b"><span class="sec-num">04</span> Phase B Entry</h2>
     <p>
-      Phase B starts the pro-HTF return attempt after C has reached the required pullback depth. The DAG exposes <code>B.watch</code> plus a <code>PhaseBShadow</code> ledger. V1 should not invent the B iChoCh rule yet; this section records the resources that the upcoming rule can use.
+      Phase B is the pro-HTF return attempt after C has reached the required pullback depth. <code>B.watch_pathA</code> and <code>B.watch_pathB</code> implement OTE.entry with one trade attempt per B.watch episode after an accepted entry or stale geometry skip. Trade direction is <b>pro-HTF</b> — the same as <code>direction</code>, opposite of Phase D's counter-HTF convention.
     </p>
 
     <details open>
-      <summary>B.watch resources <span class="where">PhaseBShadow</span></summary>
+      <summary>B.watch budget and permission <span class="where">Layer 5 episode guard</span></summary>
       <div class="body">
-<pre class="block"><span class="cm"># SL reference — B commitment extreme locked at C→B entry</span>
-phase_b_shadow_commitment_extreme_level   float | None
-phase_b_shadow_commitment_extreme_event_id  str | None
+<pre class="block">B.watch:
+  policy: B.lax (measurement mode)
+  budget: not D-ledger gated
+  episode guard: first EntryIntent or stale SkipIntent consumes phase_episode_id
 
-<span class="cm"># Entry advisory — extreme re-entry signal</span>
-phase_b_shadow_at_extreme_entry   bool
-  ← True when prior B+A failed and C→B re-opens from extreme depth
-  ← Layer 5 should require htf_sd_zone_tapped OR liquidity_pool_run
+Prerequisite:
+  phase == "B"
+  phase_sub_status == "watch"
+  phase_b_shadow_entered_at is not None
+  phase_b_shadow_commitment_extreme_level is not None
+  symbol geometry resolved from config.yaml asset_geometry (unknown symbol → None)
 
-<span class="cm"># Zone and liquidity taps accumulated while in B.watch</span>
-phase_b_shadow_htf_sd_zone_tapped       bool
-phase_b_shadow_htf_sd_zone_id           str | None
-phase_b_shadow_ltf_sd_zone_tapped       bool
-phase_b_shadow_ltf_sd_zone_id           str | None
-phase_b_shadow_liquidity_pool_run       bool
-phase_b_shadow_liquidity_pool_id        str | None
+First-entry signal — B.watch_pathA:
+  trade_direction = direction  ← pro-HTF (B returns toward the HTF objective)
+  ltf_counter_ichoch_seen == True and event_at > phase_b_shadow_entered_at
+  ← retracement any form (not gated explicitly)
+  ltf_pro_ichoch_seen == True and event_at > counter_ichoch_event_at
+  SL = commitment_extreme_level − buffer (long) / + buffer (short)
+  !! floor: if sl_pips < min_sl_pips → widen SL outward (do NOT skip)
+  !! if sl_pips > max_sl_pips → SkipIntent("late_entry_risk_too_wide"), save budget
+  TP = Phase A objective-progress level capped at 2.5R
 
-<span class="cm"># Origin context</span>
-phase_b_origin_node      str
-phase_b_entry_depth_pct  float</pre>
+Retry behavior:
+  runway_too_short → not stale, same trigger may retry while within max_trigger_age_bars
+  pending trigger locks the episode so a different pro iChoCh cannot replace it
+  EntryIntent or late_entry_risk_too_wide → episode consumed
+
+HTF S/D zone:
+  NOT a gate — analysis tag only
+  phase_b_shadow_htf_sd_zone_tapped recorded on trade row for later regime split
+</pre>
       </div>
     </details>
 
     <details>
-      <summary>B entry placeholder <span class="where">pending phase-specific iChoCh rule</span></summary>
+      <summary>B.watch_pathA gate sequence <span class="where">_try_b_watch_path_a()</span></summary>
       <div class="body">
-<pre class="block">Draft first-entry shape:
-  phase == "B"
-  phase_sub_status == "watch"
-  B-specific iChoCh confirmation fires
-  phase_b_shadow_commitment_extreme_level is available
-  execution_quality_valid == True
-  B budget remains
+<pre class="block">Market sequence (bullish / long trade):
+  1. B.watch opens (C.pullback → B.watch via major pro structure transition)
+     phase_b_shadow_entered_at set — freshness floor
+     commitment_extreme_level = ltf.range_low at C→B (locked, never updated)
 
-Draft re-entry shape:
-  B re-entry budget remains
-  if phase_b_shadow_at_extreme_entry:
-    require htf_sd_zone_tapped OR liquidity_pool_run
-  require stronger B-specific iChoCh confirmation</pre>
+  2. Counter internal iChoCh appears after B.watch opens
+     ltf_counter_ichoch_event_at > entered_at
+
+  3. Retracement (any form, not gated)
+     accepts: ITR low pivot, sideways chop, iSB chain in counter direction, or immediate reversal
+     ← no explicit check; temporal ordering enforced by step 4
+
+  4. Pro-HTF internal SC06 iChoCh fires after step 2
+     ltf_pro_ichoch_direction == "up"
+     ltf_pro_ichoch_event_at > counter_ichoch_event_at
+     ← resumption signal
+
+  5. Entry at bar close (MP mode)
+     SL = commitment_extreme_level − sl_buffer_pips
+     ← commitment extreme is the fixed floor from C→B; not the latest_itr_low
+
+Bearish mirror:
+  commitment_extreme_level is the fixed ceiling from C→B
+  ltf_pro_ichoch_direction == "down"
+  SL = commitment_extreme_level + sl_buffer_pips
+
+Freshness chain:
+  counter_ichoch_at > entered_at
+  pro_ichoch_at > counter_ichoch_at
+
+Available debug fields (from phase_b_shadow):
+  phase_b_shadow_entered_at
+  phase_b_shadow_commitment_extreme_level
+  phase_b_shadow_commitment_extreme_event_id   ← used as evidence_id</pre>
+      </div>
+    </details>
+
+    <details>
+      <summary>B.watch quality fields <span class="where">PhaseBShadow + analysis tags</span></summary>
+      <div class="body">
+<pre class="block"><span class="cm"># SL reference — locked at C→B entry, never updated during B.watch</span>
+phase_b_shadow_commitment_extreme_level   float | None
+  ← ltf.range_low  (long trade:  C→B entry bar's LTF range low)
+  ← ltf.range_high (short trade: C→B entry bar's LTF range high)
+  ← read from debug_facts["phase_b_shadow_commitment_extreme_level"]
+  ← sl_raw = commitment_extreme − buffer (long) / + buffer (short)
+
+phase_b_shadow_commitment_extreme_event_id  str | None
+  ← used as CounterEntryEvidence.evidence_id
+  ← evidence_kind = "b_watch_commitment", source_store = "phase_b_shadow"
+
+<span class="cm"># Freshness floor</span>
+phase_b_shadow_entered_at  str | None
+  ← set when C.pullback → B.watch transition fires (major pro structure transition)
+  ← all ITR and iChoCh timestamps must post-date this
+
+<span class="cm"># Analysis tags (regime_tags.py — not entry gates)</span>
+b_watch_origin_node         str | None   ← phase_c_shadow_origin_node at C→B
+                                            what C.pullback path fed B (e.g. D.watch_mss)
+b_watch_at_extreme_entry    bool         ← prior B+A failed; re-entry from extreme depth
+b_watch_htf_sd_zone_tapped  bool         ← HTF S/D zone was tapped during B.watch hold
+
+<span class="cm"># Zone/liquidity advisory (not entry gates in measurement mode)</span>
+phase_b_shadow_htf_sd_zone_tapped       bool
+phase_b_shadow_htf_sd_zone_id           str | None
+phase_b_shadow_ltf_sd_zone_tapped       bool
+phase_b_shadow_liquidity_pool_run       bool
+phase_b_shadow_liquidity_pool_id        str | None</pre>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Phase B trade direction is <b>pro-HTF</b> — the same <code>direction</code> field, not opposite. Phase D enters counter-HTF (fade the pullback); Phase B enters pro-HTF (join the return). SL anchors to <code>commitment_extreme_level</code> (locked at C→B), not the running ITR low/high.
+    </div>
+
+    <details>
+      <summary>B→A transition edge case <span class="where">armed OTE vs next-phase quota</span></summary>
+      <div class="body">
+<pre class="block">B.watch → A.watch is the Phase B mirror of D.watch → C.pullback:
+  ownership depends on whether B.watch had an observable OTE setup before transition
+
+Do NOT dispatch from persistent phase_a_origin_node == "B.watch" alone.
+Add one-shot transition markers:
+  phase_a_entry_transition_origin_node == "B.watch"
+  phase_a_entry_transition_at
+  phase_a_entry_transition_event_id
+  phase_a_entry_transition_prior_phase == "B"
+  phase_a_entry_transition_prior_phase_episode_id
+  phase_a_entry_transition_prior_entered_at
+  phase_a_entry_transition_commitment_extreme_level
+
+Case 1 — no armed OTE:
+  LTF P/D range is too tight or too fast
+  no observable step 1 counter iChoCh + step 2 retracement before major pro structure transition
+  shift to A.watch; any trade is Phase A-owned and spends A quota
+
+Case 2 — armed OTE:
+  step 1 counter iChoCh was observed during B.watch
+  step 2 retracement was observed after step 1 (not explicitly ITR-gated)
+  step 3 becomes the major pro structure transition and causes B.watch → A.watch
+  this still follows OTE.entry and spends Phase B budget
+
+This distinction prevents FOMO handoff trades while preserving valid B OTE entries whose
+final signal is strong enough to move the DAG into A.watch.</pre>
       </div>
     </details>
 
@@ -963,22 +1101,26 @@ X:
   re-entry: disabled
 
 D.watch:
-  SA:     fresh iChoCh → entry from D.watch (no HTF zone)
+  Path A: counter iChoCh → counter iSB sequence while D.watch holds
           SL = phase_d_shadow.watch_range_extreme + buffer, floor at 15 pips
-  Path B: HTF zone context + direction-correct ITR arms the probe + iChoCh confirms fade
-          SL = HTF SD zone distal/invalidation edge + buffer, floor at 15 pips
-  C2:     C.pullback (origin_node=="D.watch_mss") → immediate entry at transition bar
-          SL = phase_d_shadow.watch_range_extreme (shadow survives D→C) + buffer, floor at 15 pips
+  D.watch_mss: handoff to C.pullback; no D budget spend on the transition bar
   late entry: risk > 25 pips saves budget and blocks same phase episode (EURUSD)
   re-entry: disabled by default unless a new D.watch episode opens inside remaining epoch budget
 
 C.pullback / C.pullback_weaken:
   first entry: phase-specific iChoCh confirmation after phase_c_shadow.entered_at
+  transition entry: may read phase_c_entry_transition_origin_node == "D.watch_mss"
+                    but spends Phase C quota
   re-entry: allowed only from remaining C re-entry budget and stronger confirmation
 
-B.watch:
-  first entry: pending user-defined iChoCh rule over B shadow resources
-  re-entry: remaining B budget + zone/liquidity quality gate
+B.watch — B.watch_pathA / B.watch_pathB:
+  trade_direction = direction (pro-HTF)
+  pathA: counter iChoCh → pro iChoCh while B.watch holds
+  pathB: counter iChoCh, then one-shot B.watch → A.watch major pro structure transition
+  SL = commitment_extreme_level ± buffer, floor at min_sl_pips
+  TP = Phase A objective-progress level capped at 2.5R
+  episode guard: EntryIntent or stale geometry skip consumes the B episode
+  runway_too_short: retry same trigger only; different trigger is locked out while pending
 
 A.watch:
   first entry: pending user-defined iChoCh rule over A/B shadow resources
@@ -992,7 +1134,7 @@ A.watch:
 
     <h2 id="risk"><span class="sec-num">08</span> MP Risk Geometry</h2>
     <p>
-      V1 supports only MP entry. The entry protocol does not define limit ladders, controlled chase, partial fills, or alternate execution modes yet. It reads the current snapshot, validates phase-specific evidence and trigger order, computes SL from the selected evidence invalidation boundary, and accepts only trades whose execution quality is still inside the configured asset risk band. <code>2R</code> is the general target profile and <code>2.5R</code> is reserved for wide HTF runway or outside-range invalidation; later Layer 6 tests may replace fixed RR with a Daily ATR geometry shape per asset.
+      V1 supports only MP entry. The entry protocol does not define limit ladders, controlled chase, partial fills, or alternate execution modes yet. It reads the current snapshot, validates phase-specific evidence and trigger order, computes SL from the selected evidence invalidation boundary, and accepts only trades whose execution quality is still inside the configured asset risk band. Phase D targets <code>pd_midpoint</code>. Phase B targets the configured Phase A objective-progress level, capped at 2.5R. Later Layer 6 tests may replace these target shapes with a Daily ATR geometry shape per asset.
     </p>
 
     <details open>
@@ -1005,16 +1147,18 @@ A.watch:
     sl_pips > 25: skip — late_entry_risk_too_wide, save budget, block episode
     sl_pips < 15: widen SL outward to the configured minimum floor
 
-TP geometry:
+D TP geometry:
   take_profit = higher_structure.pd_midpoint   ← 50% of HTF PD range
-                already in snapshot: (range_high + range_low) / 2
-  tp_pips     = abs(entry_price - take_profit) / pip_size
-  rr          = tp_pips / sl_pips
+
+B TP geometry:
+  progress_level = pd_low + threshold * span       (long)
+                 = pd_high - threshold * span      (short)
+  threshold = replay.hypothesis.phase_a.objective_progress_threshold
+  tp_pips = min(abs(progress_level - entry_price), 2.5 * sl_pips)
 
 RR gate:
-  rr < 1.75: skip — pd_midpoint too close, not worth the risk
-  rr >= 1.75: accept — TP stays at pd_midpoint, no upper cap
-              rr > 2.5 means wider runway, still a better trade
+  rr < 1.75: skip — runway_too_short, retryable while trigger age is valid
+  rr >= 1.75: accept
 
 Snapshot fields used (higher_structure):
   range_high    float   ← top of active HTF PD range
@@ -1024,14 +1168,19 @@ Snapshot fields used (higher_structure):
     </details>
 
     <details>
-      <summary>Target profile <span class="where">2R / 2.5R / ATR later</span></summary>
+      <summary>Target profile <span class="where">D midpoint / B objective cap</span></summary>
       <div class="body">
-<pre class="block">TP = higher_structure.pd_midpoint   ← 50% of active HTF PD range, always fixed
-     rr = tp_pips / sl_pips         ← derived from geometry, not chosen by policy
+<pre class="block">D.watch_pathA:
+  TP = higher_structure.pd_midpoint   ← 50% of active HTF PD range
+  rr = tp_pips / sl_pips
 
-     rr < 1.75: skip — pd_midpoint too close, not worth the risk
-     rr >= 1.75: take — TP stays at pd_midpoint, no upper cap
-                 rr > 2.5 means wider runway; still a better trade, not a reason to cut the target
+B.watch_pathA / B.watch_pathB:
+  TP = Phase A objective-progress level, capped at 2.5R
+  threshold = replay.hypothesis.phase_a.objective_progress_threshold
+
+Shared gate:
+  rr < 1.75: runway_too_short
+  rr >= 1.75: take
 
 Layer 6 test hook:
   daily_atr_shape:
@@ -1047,43 +1196,37 @@ Layer 6 test hook:
     <details>
       <summary>SL reference by phase <span class="where">shadow fields</span></summary>
       <div class="body">
-<pre class="block">D.watch — SA (no HTF zone):
+<pre class="block">D.watch — D.watch_pathA:
   SL = phase_d_shadow.watch_range_extreme + sl_buffer_pips
        ← running max of lower_structure.range_high during D.watch hold (short trade)
        ← running min of lower_structure.range_low during D.watch hold (long trade)
        !! floor: if computed sl_pips < min_sl_pips → widen SL outward to floor
   evidence_kind = "watch_extreme"
 
-D.watch — Path B (HTF zone context):
-  Arm first:
-       short/supply -> latest_itr_high inside zone and close enough to zone.high + buffer
-       long/demand  -> latest_itr_low inside zone and close enough to zone.low - buffer
-  Trigger:
-       iChoCh must fire after the armed ITR confirmation
-  SL = HTF SD zone distal/invalidation edge + sl_buffer_pips
-       ← zone_high for short (far edge of supply zone)
-       ← zone_low  for long  (far edge of demand zone)
-       floor widen if sl_pips < min_sl_pips; late skip if sl_pips > max_sl_pips
-  evidence_kind = "htf_sd_zone"
-
-C.pullback from D.watch_mss — C2:
+C.pullback from D.watch_mss — Phase C transition candidate:
   SL = phase_d_shadow.watch_range_extreme + sl_buffer_pips
        shadow field survives D→C phase transition
-       !! floor widen same as SA
+       !! provenance only; Phase C owns budget and policy
   evidence_kind = "watch_extreme"
 
-All Phase D paths — TP:
+All Phase D hold entries — TP:
   TP = higher_structure.pd_midpoint   ← 50% of active HTF PD range
 
-All Phase D paths — EURUSD validity gate:
+All Phase D hold entries — EURUSD validity gate:
   sl_buffer_pips: 2.0, min_sl_pips: 15, max_sl_pips: 25 (from config.yaml asset_geometry)
   sl_pips > 25: late_entry_risk_too_wide → stale, save budget, block episode
   sl_pips < 15: widen SL outward to min_sl_pips
   rr < 1.75:    runway_too_short → skip
 
-B.watch:
-  primary SL:   phase_b_shadow_commitment_extreme_level
-  quality:      htf_sd_zone_tapped OR ltf_sd_zone_tapped OR liquidity_pool_run
+B.watch — B.watch_pathA / B.watch_pathB:
+  trade_direction = direction  ← pro-HTF (not counter-HTF)
+  SL = commitment_extreme_level − buffer (long) / + buffer (short)
+       ← locked at C→B entry from ltf.range_low / ltf.range_high
+       !! floor: if sl_pips < min_sl_pips → widen outward
+       !! if sl_pips > max_sl_pips → late_entry_risk_too_wide, save budget
+  TP = Phase A objective-progress level, capped at 2.5R
+  evidence_kind = "b_watch_commitment"
+  quality:      htf_sd_zone_tapped analysis tag only — not an entry gate yet
 
 A.watch / A.watch_weaken:
   primary SL:   phase_b_shadow_commitment_extreme_level
@@ -1094,7 +1237,7 @@ A.watch / A.watch_weaken:
     </details>
 
     <div class="rule-block">
-      SL and TP are both anchored to measurable market geometry — no discretionary R target. SL comes from the evidence extreme + 2 pip buffer; TP comes from <code>pd_midpoint</code> (50% HTF PD range). The RR is derived, not chosen: if rr &lt; 1.75 skip; if rr &ge; 1.75 take with TP at pd_midpoint. A wider runway (&gt; 2.5) is a better trade, not a reason to reduce the target.
+      SL and TP are both anchored to measurable market geometry — no discretionary R target. SL comes from the evidence extreme + 2 pip buffer. Phase D TP comes from <code>pd_midpoint</code>; Phase B TP comes from the Phase A objective-progress level capped at 2.5R. The RR is derived, then gated: if rr &lt; 1.75, emit <code>runway_too_short</code>; if rr &ge; 1.75, accept.
     </div>
 
     <h2 id="config"><span class="sec-num">09</span> Config Contract</h2>
@@ -1111,6 +1254,8 @@ A.watch / A.watch_weaken:
 <span class="cm"># Unknown symbol → None (no silent EURUSD fallback).</span>
 replay:
   hypothesis:
+    phase_a:
+      objective_progress_threshold: 0.90
     layer5_entry:
       asset_geometry:
         EURUSD:
@@ -1119,23 +1264,28 @@ replay:
             min: 15
             max: 25
 
-<span class="cm"># Design contract (pending full implementation):</span>
+<span class="cm"># Current policy shape:</span>
       execution_mode: MP
       target_profile:
-        tp_source: pd_midpoint            # higher_structure.pd_midpoint (50% HTF PD range)
+        D:
+          tp_source: pd_midpoint
+        B:
+          tp_source: phase_a_objective_progress
+          cap_r: 2.5
         rr_gate:
           min: 1.75
       phase_policy:
         D:
-          path_sa:
-            trigger: ichoch_immediate     # fresh iChoCh → immediate entry from D.watch (no zone)
-            sl_source: watch_range_extreme # phase_d_shadow.watch_range_extreme (shadow field)
+          path_a:
+            trigger: counter_ichoch_to_counter_isb
+            sl_source: watch_range_extreme
+        B:
+          path_a:
+            trigger: counter_ichoch_to_pro_ichoch
+            sl_source: commitment_extreme
           path_b:
-            trigger: ichoch_at_htf_zone   # iChoCh confirming initiation fade at HTF zone
-            sl_source: htf_sd_zone_proximal # zone_low (short) / zone_high (long)  [near edge]
-          path_c2:
-            trigger: d_watch_mss_pullback # C.pullback from D.watch_mss; immediate entry
-            sl_source: watch_range_extreme # same shadow field, survives D→C
+            trigger: counter_ichoch_then_b_to_a_transition
+            sl_source: commitment_extreme
       hard_gates:
         E:
           budget: 0
@@ -1155,6 +1305,8 @@ replay:
       stale_guards:
         same_phase_budget_spent: skip
         late_entry_risk_too_wide: save_budget_and_block_episode
+        runway_too_short: retry_same_trigger_until_max_age
+        max_trigger_age_bars: 20
         require_new_phase_episode_after_sl: true</pre>
 <pre>class EntryProtocol:
     def __init__(self, config):
@@ -1167,6 +1319,12 @@ replay:
         self.execution_mode = layer5.get("execution_mode", "MP")
         self.target_profile = layer5.get("target_profile", {})
         self.asset_geometry = layer5.get("asset_geometry", {})
+        self.phase_a_objective_threshold = (
+            config.get("replay", {})
+            .get("hypothesis", {})
+            .get("phase_a", {})
+            .get("objective_progress_threshold", 0.90)
+        )
         self.phase_policy = layer5.get("phase_policy", {})
         self.hard_gates = layer5.get("hard_gates", {})
         self.epoch_budget = layer5.get("epoch_budget", {})
@@ -1182,9 +1340,9 @@ replay:
       <div class="tabbar">
         <button class="on" data-t="0">policy loop</button>
         <button data-t="1">snapshot read</button>
-        <button data-t="2">Path SA gate</button>
-        <button data-t="3">Path B gate</button>
-        <button data-t="4">Path C2 gate</button>
+        <button data-t="2">Path A gate</button>
+        <button data-t="3">zone context</button>
+        <button data-t="4">C transition</button>
       </div>
 <pre class="on"><span class="cm"># Layer 5 outer loop — policy before signal</span>
 hypothesis = snapshot["hypothesis"]
@@ -1239,21 +1397,17 @@ htf_zone_seen      = debug_facts.get("phase_d_shadow_htf_zone_seen", False)
 
 <span class="cm"># EC facts from ltf_counter_choch candidate</span>
 choch_seen   = choch_facts.get("ltf_counter_choch_seen", False)
-choch_at     = choch_facts.get("ltf_counter_choch_event_at")
+seq_seen = choch_facts.get("ltf_counter_ichoch_isb_sequence_seen")
+isb_at   = choch_facts.get("ltf_counter_sequence_isb_event_at")
+trade_ok = choch_facts.get("ltf_counter_sequence_trade_direction") == trade_direction
 
-<span class="cm"># --- Path routing ---</span>
-htf_zone_ctx = htf_reaction_seen or htf_zone_seen
-if htf_zone_ctx:
-    result = _try_path_b(...)    <span class="cm"># HTF zone context → Path B only</span>
-else:
-    result = _try_path_sa(...)   <span class="cm"># no zone → SA (iChoCh immediate)</span>
+<span class="cm"># --- Current routing: D has one active hold-entry path ---</span>
+result = _try_path_a(...)
 if isinstance(result, EntryIntent):
     _d_watch_budget_spent[cache_key] = True   <span class="cm"># set AFTER EntryIntent confirmed, not on SkipIntent</span></pre>
-<pre><span class="cm"># Path SA — iChoCh immediate, fires from D.watch (no HTF zone context)</span>
-<span class="cm"># No iSB required; no Layer 5 iChoCh caching — fires the same bar as iChoCh</span>
+<pre><span class="cm"># D.watch_pathA — internal counter iChoCh → internal counter iSB</span>
 
-<span class="cm"># iChoCh freshness: must post-date watch_entered_at</span>
-if not (choch_seen and choch_at and choch_at &gt; watch_entered_at):
+if not (seq_seen and trade_ok and isb_at and isb_at &gt; watch_entered_at):
     return None
 
 <span class="cm"># SL from phase_d_shadow.watch_range_extreme (updated by hypothesis.py each bar)</span>
@@ -1268,36 +1422,10 @@ if computed_pips &lt; min_sl_pips:
     sl_price = entry_price + min_sl_pips * pip_size if short else entry_price - min_sl_pips * pip_size
 else:
     sl_price = sl_raw
-<span class="cm"># evidence_kind = "watch_extreme", trigger_path = "D.watch_pathSA"</span></pre>
-<pre><span class="cm"># Path B — ITR-armed HTF zone probe, then iChoCh (HTF zone context present)</span>
-<span class="cm"># Context: phase_e_shadow_htf_reaction_seen OR htf_opposing_sd_tapped during D.watch hold</span>
-<span class="cm"># Note: htf_reaction_seen is immune to EC clearing on 4H close (read from PhaseEShadow)</span>
-
-htf_zone_ctx = (
-    bool(debug_facts.get("phase_e_shadow_htf_reaction_seen"))
-    or bool(debug_facts.get("phase_d_shadow_htf_zone_seen"))
-)
-if not htf_zone_ctx:
-    return None   <span class="cm"># Path B requires zone context</span>
-
-zone = _htf_zone(snapshot, trade_direction)
-if zone is None:
-    return None
-
-armed_itr = _path_b_armed_itr(snapshot, zone, trade_direction)
-if armed_itr is None:
-    return None   <span class="cm"># zone was tapped, but the probe is not deep enough yet</span>
-
-<span class="cm"># Trigger: iChoCh fresh after armed ITR (no iSB required)</span>
-choch_at = ltf_counter_choch_event_at
-if not (ltf_counter_choch_seen and choch_at &gt; armed_itr.confirmed_at):
-    return None
-
-distal = zone.high if short else zone.low
-sl_raw = distal + buffer if short else distal - buffer
-<span class="cm"># evidence_kind = "htf_sd_zone", trigger_path = "D.watch_pathB"</span></pre>
-<pre><span class="cm"># Path C2 — C.pullback from D.watch_mss (fires at MSS → C.pullback DAG transition bar)</span>
-<span class="cm"># guard: _d_watch_budget_spent[cache_key] must be False</span>
+<span class="cm"># evidence_kind = "watch_extreme", trigger_path = "D.watch_pathA"</span>
+<span class="cm"># htf_zone_context is emitted by regime_tags.py for analysis only.</span></pre>
+<pre><span class="cm"># Phase C transition entry — C.pullback from D.watch_mss</span>
+<span class="cm"># provenance comes from D.watch, but budget ownership is Phase C</span>
 
 if phase != "C" or phase_sub_status != "pullback":
     return None
@@ -1309,8 +1437,9 @@ watch_extreme = debug_facts.get("phase_d_shadow_watch_range_extreme")
 if watch_extreme is None:
     return None   <span class="cm"># no D.watch hold was observed (safety skip)</span>
 
-<span class="cm"># C2: immediate entry at C.pullback transition bar — no iSB required</span>
-<span class="cm"># trigger_path = "D.watch_pathC2"</span>
+<span class="cm"># Optional C.transition policy: immediate entry at C.pullback transition bar</span>
+<span class="cm"># trigger_path = "C.pullback_transition_from_D"</span>
+<span class="cm"># spends Phase C quota; D budget is not consumed here</span>
 
 sl_raw = watch_extreme + buffer if short else watch_extreme - buffer
 computed_pips = abs(entry_price - sl_raw) / pip_size
@@ -1324,32 +1453,36 @@ else:
     <h2 id="issues"><span class="sec-num">11</span> Open Issues</h2>
     <div class="issue-grid">
       <div class="issue-card">
-        <div class="issue-label">Completed · 2026-06-18</div>
-        <p><b>Layer 5 Phase D implemented and stable.</b> <code>EntryPermissionEngine</code> in <code>src/ultrab/entry/layer5.py</code> with SA/B/C2 paths, per-symbol geometry from <code>config.yaml asset_geometry</code>, <code>phase_d_shadow.watch_range_extreme</code> SL source, <code>_d_watch_budget_spent</code> cross-path guard, and stale-opportunity ledger. Express gate dead code removed. Phase D integrity confirmed across SA/B/C2 samples; losses are regime losses, not path failures. Backtest adapter in <code>run_layer5_backtest.py</code>. Suite: 172 passed / 32 skipped.</p>
+        <div class="issue-label">Archived · 2026-06-18</div>
+        <p><b>Legacy Layer 5 Phase D implementation.</b> The earlier implementation used SA/B/C2 paths with <code>phase_d_shadow.watch_range_extreme</code>, <code>_d_watch_budget_spent</code>, and stale-opportunity guards. That history remains useful for sample comparison, but the current design tightens D to hold-entry Path A and moves boundary transition entries to the next phase budget.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Completed · 2026-06-24</div>
+        <p><b>Phase B OTE.entry implemented with episode guard.</b> <code>_try_b_watch_path_a()</code> and <code>_try_b_watch_path_b()</code> in <code>src/ultrab/entry/layer5.py</code>: counter iChoCh → pro iChoCh for B.watch hold entries, plus a one-shot B.watch → A.watch major pro structure transition after the counter iChoCh was already observable. SL = <code>phase_b_shadow_commitment_extreme_level</code> ± buffer. TP = Phase A objective-progress level capped at 2.5R. The first accepted entry or stale geometry skip consumes the B episode; <code>runway_too_short</code> may retry only the same pending trigger within the trigger-age cap. Analysis tags in <code>regime_tags.py</code>: <code>b_watch_origin_node</code>, <code>b_watch_at_extreme_entry</code>, <code>b_watch_htf_sd_zone_tapped</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Open Issue</div>
-        <p><b>B.watch and A.watch iChoCh rules are intentionally incomplete.</b> V1 now defines the budget and hard-gate policy, but the exact first-entry and re-entry confirmations for B/A still need the next user-described iChoCh rules.</p>
+        <p><b>A.watch iChoCh rule is intentionally incomplete.</b> Phase B OTE.entry is wired. A.watch first-entry and re-entry confirmations still pending — SL anchor will be <code>phase_a_shadow_pro_extreme_at_weaken</code> (not commitment_extreme), and re-entry after weaken requires objective-touch or liquidity run confirmation.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
-        <p><b>Freshness floor relies on timestamp comparison.</b> <code>watch_entered_at</code> is the <code>eventTimestamp</code> of <code>choch_1</code>, not <code>cursor_time</code>. If the SC event timestamp is slightly mismatched against the LTF bar close time, SA may miss a valid iChoCh on the exact opening bar of D.watch.</p>
+        <p><b>Freshness floor relies on timestamp comparison.</b> <code>watch_entered_at</code> is the D.watch entry time. <code>D.watch_pathA</code> requires <code>ltf_counter_sequence_isb_event_at &gt; watch_entered_at</code>. Same-timestamp events are stale by design.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Design Note</div>
-        <p><b>SA and Path B are mutually exclusive: routing is determined by HTF zone context.</b> If <code>phase_e_shadow_htf_reaction_seen</code> or <code>phase_d_shadow_htf_zone_seen</code> is True → Path B only, but Path B must first be armed by a direction-correct ITR pivot inside the zone. Otherwise SA handles fresh iChoCh without zone context. Path B SL = HTF zone distal/invalidation edge + buffer.</p>
+        <p><b>HTF zone context is analysis-only.</b> <code>phase_e_shadow_htf_reaction_seen</code> or <code>phase_d_shadow_htf_zone_seen</code> now emits <code>htf_zone_context</code> in trade analysis. It does not select a separate D path and does not provide an SL anchor.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Completed</div>
-        <p><b><code>ltf_counter_isb_*</code> facts emitted by EC.</b> <code>_compile_ltf_counter_choch()</code> in <code>evidence_compiler.py</code> exposes <code>ltf_counter_isb_seen</code>, <code>ltf_counter_isb_event_at</code>, <code>ltf_counter_isb_event_id</code>, <code>ltf_counter_isb_level</code>, <code>ltf_counter_isb_source_store</code>. SA (iChoCh-immediate) no longer consumes iSB; facts remain available for future B/A entry engines.</p>
+        <p><b>EC internal structure facts updated.</b> <code>_compile_ltf_counter_choch()</code> no longer emits standalone <code>ltf_counter_isb_*</code>. It emits <code>ltf_counter_ichoch_*</code>, <code>ltf_pro_ichoch_*</code>, and <code>ltf_counter_sequence_*</code>. Phase D reads the sequence fields; Phase B reads the explicit counter/pro iChoCh fields.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Out of Scope</div>
-        <p><b>SC07/SC08 LTR variants disabled.</b> SC07 (ITR range LTR ChoCh) and SC08 (ITR range LTR SB) are disabled in the current structureEngine. SA uses SC06 only. If LTR is re-enabled, the iChoCh gate would need to cover both SC06 and SC07.</p>
+        <p><b>SC07/SC08 LTR variants disabled.</b> SC07 (ITR range LTR ChoCh) and SC08 (ITR range LTR SB) are disabled in the current structureEngine. Current D.watch_pathA uses the ITR-tier internal counter iChoCh → internal counter iSB sequence. If LTR is re-enabled, the sequence gate would need to define whether SC07/SC08 can participate.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Moved</div>
-        <p><b>D.speculation mechanics.</b> Path A and Path B were formerly DAG gates that stamped <code>choch_2</code> and advanced to <code>D.speculation</code>. Removed from DAG in commit <code>10dff12</code>. Mechanics documented here (Layer 5 territory). <code>choch_2</code> and <code>speculation_entered_at</code> fields removed from <code>PhaseDShadow</code>.</p>
+        <p><b>D.speculation mechanics.</b> Old Path A and Path B were formerly DAG gates that stamped <code>choch_2</code> and advanced to <code>D.speculation</code>. Removed from DAG in commit <code>10dff12</code>. Current Layer 5 Phase D uses <code>D.watch_pathA</code> only. <code>choch_2</code> and <code>speculation_entered_at</code> fields were removed from <code>PhaseDShadow</code>.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Archived · Moved</div>

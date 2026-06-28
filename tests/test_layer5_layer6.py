@@ -19,7 +19,7 @@ def _engine() -> EntryPermissionEngine:
 
 
 def _d_watch_bar(*, close: float = 1.2000, range_high: float = 1.2018) -> dict:
-    """D.watch bar: iChoCh seen — D.watch_pathSA fires immediately at bar close.
+    """D.watch bar: internal counter iChoCh -> internal pro iSB sequence.
     SL = watch_range_extreme + 2 pips; max_sl_pips gate rejects fast flush.
     For range_high=1.2018 and close=1.2000: sl=1.2020, risk=20 pips, RR≥1.75.
     For range_high=1.2003: sl=1.2015 (min floor), risk=15 pips.
@@ -56,14 +56,14 @@ def _d_watch_bar(*, close: float = 1.2000, range_high: float = 1.2018) -> dict:
                 "status": "ready",
                 "direction": "long",
                 "debug_facts": {
-                    "ltf_counter_choch_seen": True,
-                    "ltf_counter_choch_event_at": "2026-01-01T10:20:00+00:00",
-                    "ltf_counter_choch_event_id": "ichoch-1",
-                    "ltf_counter_choch_level": 1.1992,
-                    "ltf_counter_choch_source_level_id": "itr-high-1",
-                    "ltf_counter_choch_source_store": "structure_isc",
-                    "ltf_counter_isb_seen": False,
-                    "ltf_counter_sb_seen": False,
+                    "ltf_counter_ichoch_isb_sequence_seen": True,
+                    "ltf_counter_sequence_trade_direction": "short",
+                    "ltf_counter_sequence_ichoch_event_at": "2026-01-01T10:05:00+00:00",
+                    "ltf_counter_sequence_isb_event_at": "2026-01-01T10:20:00+00:00",
+                    "ltf_counter_sequence_isb_event_id": "isb-1",
+                    "ltf_counter_sequence_isb_level": 1.1992,
+                    "ltf_counter_sequence_isb_source_level_id": "isb-level-1",
+                    "ltf_counter_sequence_source_store": "internal_structure_sequence",
                 },
             },
         ],
@@ -212,7 +212,7 @@ def _d_watch_no_internal_bar(*, range_high: float = 1.2018) -> dict:
             "direction": "long",
             "debug_facts": {
                 "ltf_counter_choch_seen": False,
-                "ltf_counter_isb_seen": False,
+                "ltf_counter_ichoch_isb_sequence_seen": False,
                 "ltf_counter_internal_pressure_seen": False,
                 "ltf_counter_internal_pressure_class": "none",
             },
@@ -295,7 +295,7 @@ def test_phase_d_lax_emits_entry_intent_from_d_watch_ichoch():
     assert intent.direction == "short"
     assert intent.evidence.evidence_kind == "watch_extreme"
     assert intent.evidence.source_store == "phase_d_shadow"
-    assert intent.trigger.trigger_path == "D.watch_pathSA"
+    assert intent.trigger.trigger_path == "D.watch_pathA"
     assert intent.trigger.trigger_kind == "counter_ichoch_immediate"
     assert round(intent.stop_loss, 4) == 1.2020   # 1.2018 + 2 pips
     assert round(intent.risk_pips, 1) == 20.0
@@ -309,105 +309,60 @@ def test_d_watch_ichoch_floor_widens_compressed_sl():
     intent = engine.evaluate(_d_watch_bar(range_high=1.2003))
 
     assert isinstance(intent, EntryIntent)
-    assert intent.trigger.trigger_path == "D.watch_pathSA"
+    assert intent.trigger.trigger_path == "D.watch_pathA"
     assert round(intent.stop_loss, 4) == 1.2015  # min_sl floor: 1.2000 + 15 pips
     assert round(intent.risk_pips, 1) == 15.0
 
 
-def test_path_c2_fires_on_plain_d_to_c_transition_without_internal_pressure():
+def test_d_watch_zone_context_does_not_create_separate_path():
     engine = _engine()
-    assert engine.evaluate(_d_watch_no_internal_bar()) is None
+    bar = _d_watch_bar()
+    debug = bar["hypothesis"]["debug_facts"]
+    debug["phase_d_shadow_htf_zone_seen"] = True
+    debug["phase_e_shadow_htf_reaction_seen"] = True
+    bar["zones"] = [
+        {
+            "zone_id": "supply-1",
+            "direction": "supply",
+            "timeframe": "4H",
+            "high": 1.2010,
+            "low": 1.1990,
+        }
+    ]
 
-    intent = engine.evaluate(_c_pullback_transition_bar(pressure_seen=False))
+    intent = engine.evaluate(bar)
 
     assert isinstance(intent, EntryIntent)
-    assert intent.phase == "D"
-    assert intent.phase_sub_status == "pullback"
-    assert intent.trigger.trigger_path == "D.watch_pathC2"
-    assert intent.trigger.trigger_kind == "d_watch_mss_plain"
-    assert intent.trigger.event_id == "OF:transition:1"
-    assert round(intent.risk_pips, 1) == 20.0
-
-
-
-def test_path_c_ignores_persistent_c_hold_bar_without_transition_marker():
-    engine = _engine()
-    assert engine.evaluate(_d_watch_no_internal_bar()) is None
-
-    result = engine.evaluate(_c_pullback_hold_bar())
-
-    assert result is None
-
-
-def test_path_c_rejects_invalidated_internal_pressure_transition():
-    engine = _engine()
-    assert engine.evaluate(_d_watch_no_internal_bar()) is None
-
-    result = engine.evaluate(
-        _c_pullback_transition_bar(
-            pressure_seen=False,
-            pressure_class="contradicted",
-            pressure_event_ids=["SC05:isb-1"],
-            pressure_first_at="2026-01-01T10:05:00+00:00",
-            pressure_last_at="2026-01-01T10:05:00+00:00",
-            pressure_invalidated=True,
-        )
-    )
-
-    assert result is None
-
-
-def test_path_b_requires_itr_arming_before_ichoch_entry():
-    engine = _engine()
-
-    result = engine.evaluate(_d_watch_zone_bar(itr_high=None))
-
-    assert result is None
-
-
-def test_path_b_ignores_unarmed_itr_before_ichoch_entry():
-    engine = _engine()
-
-    result = engine.evaluate(_d_watch_zone_bar(zone_low=1.1700, itr_high=1.1800))
-
-    assert result is None
-
-
-def test_path_b_unarmed_zone_does_not_block_later_armed_episode():
-    engine = _engine()
-
-    assert engine.evaluate(_d_watch_zone_bar(zone_low=1.1700, itr_high=1.1800)) is None
-    later = _d_watch_zone_bar()
-    later["hypothesis"]["debug_facts"]["phase_episode_id"] = "episode-2"
-    later["hypothesis"]["hypothesis_id"] = "hyp-2"
-
-    intent = engine.evaluate(later)
-
-    assert isinstance(intent, EntryIntent)
-    assert intent.phase_episode_id == "episode-2"
-
-
-def test_path_b_enters_after_supply_itr_armed_and_fresh_ichoch():
-    engine = _engine()
-
-    intent = engine.evaluate(_d_watch_zone_bar())
-
-    assert isinstance(intent, EntryIntent)
-    assert intent.evidence.evidence_kind == "htf_sd_zone"
-    assert intent.trigger.trigger_path == "D.watch_pathB"
-    assert intent.evidence.level == 1.2008
-    assert round(intent.stop_loss, 4) == 1.2015
-    assert round(intent.risk_pips, 1) == 15.0
+    assert intent.evidence.evidence_kind == "watch_extreme"
+    assert intent.trigger.trigger_path == "D.watch_pathA"
 
 
 def test_regime_tags_mark_entry_bar_inside_htf_sd_zone_and_itr_context():
     engine = _engine()
-    bar = _d_watch_zone_bar()
+    bar = _d_watch_bar()
+    bar["lower_structure"]["latest_itr_high"] = {
+        "price": 1.2008,
+        "confirmed_at": "2026-01-01T10:15:00+00:00",
+    }
+    bar["zones"] = [
+        {
+            "zone_id": "supply-1",
+            "direction": "supply",
+            "timeframe": "4H",
+            "high": 1.2010,
+            "low": 1.1990,
+        }
+    ]
+    debug = bar["hypothesis"]["debug_facts"]
+    debug["phase_d_shadow_htf_zone_seen"] = True
+    debug["phase_d_shadow_htf_zone_seen_id"] = "supply-1"
+    debug["phase_e_shadow_htf_reaction_seen"] = True
 
     intent = engine.evaluate(bar)
     assert isinstance(intent, EntryIntent)
     tags = regime_tags(bar, intent)
 
+    assert tags["htf_zone_context"] is True
     assert tags["at_htf_sd_zone"] is True
     assert tags["entry_bar_inside_htf_sd_zone"] is True
     assert tags["htf_sd_zone_id"] == "supply-1"
@@ -426,33 +381,11 @@ def test_regime_tags_leave_non_zone_sa_trade_unmarked():
     assert isinstance(intent, EntryIntent)
     tags = regime_tags(bar, intent)
 
+    assert tags["htf_zone_context"] is False
     assert tags["at_htf_sd_zone"] is False
     assert tags["entry_bar_inside_htf_sd_zone"] is False
     assert tags["htf_sd_zone_id"] == ""
     assert tags["itr_inside_htf_sd_zone"] is False
-
-
-def test_path_b_requires_ichoch_after_armed_itr():
-    engine = _engine()
-
-    result = engine.evaluate(_d_watch_zone_bar(itr_confirmed_at="2026-01-01T10:25:00+00:00"))
-
-    assert result is None
-
-
-def test_path_b_long_mirror_enters_after_demand_itr_armed_and_fresh_ichoch():
-    engine = _engine()
-
-    intent = engine.evaluate(_d_watch_demand_zone_bar())
-
-    assert isinstance(intent, EntryIntent)
-    assert intent.direction == "long"
-    assert intent.evidence.evidence_kind == "htf_sd_zone"
-    assert intent.trigger.trigger_path == "D.watch_pathB"
-    assert intent.evidence.level == 1.1992
-    assert round(intent.stop_loss, 4) == 1.1985
-    assert round(intent.risk_pips, 1) == 15.0
-
 
 def test_make_intent_no_longer_emits_risk_too_tight_skip():
     engine = _engine()
@@ -472,7 +405,7 @@ def test_make_intent_no_longer_emits_risk_too_tight_skip():
     )
     trigger = TriggerEvidence(
         trigger_kind="counter_ichoch_immediate",
-        trigger_path="D.watch_pathSA",
+        trigger_path="D.watch_pathA",
         event_at="2026-01-01T10:20:00+00:00",
         event_id="tight-trigger",
         level=1.1992,
@@ -491,6 +424,7 @@ def test_make_intent_no_longer_emits_risk_too_tight_skip():
         0.0001,
         15.0,
         25.0,
+        tp_price=1.1940,
         phase_override="D",
     )
 
@@ -581,11 +515,7 @@ def test_epoch_summary_counts_chances_outcomes_and_evidence_frequency():
             "evidence_ltf_sd_zone": 0,
             "evidence_htf_sd_zone": 0,
             "evidence_watch_extreme": 2,
-            "trigger_D_watch_pathSA": 2,
-            "trigger_D_watch_pathB": 0,
-            "trigger_D_watch_pathC2": 0,
+            "trigger_D_watch_pathA": 2,
             "late_entry_risk_too_wide": 1,
         }
     ]
-
-

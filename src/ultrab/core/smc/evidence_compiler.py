@@ -1304,7 +1304,6 @@ class EvidenceCompiler:
         direction: Direction,
     ) -> dict[str, Any]:
         expected_counter_break = "down" if direction == "long" else "up"
-        pro_break = "up" if direction == "long" else "down"
         trade_direction = "short" if direction == "long" else "long"
 
         active_ichoch: dict[str, Any] | None = None
@@ -1322,18 +1321,12 @@ class EvidenceCompiler:
                     last_invalid_reason = None
                     last_invalid_ichoch = None
                     last_invalid_isb = None
-                elif active_ichoch is not None:
-                    last_invalidated = True
-                    last_invalid_reason = "opposite_ichoch_between"
-                    last_invalid_ichoch = active_ichoch
-                    last_invalid_isb = None
-                    active_ichoch = None
                 continue
 
             if not (
                 active_ichoch is not None
                 and _structure_isb_seen(event)
-                and break_direction == pro_break
+                and break_direction == expected_counter_break
             ):
                 continue
 
@@ -1442,7 +1435,7 @@ class EvidenceCompiler:
                 qualifying.append(event)
                 contradiction_after_last = False
                 continue
-            if qualifying:
+            if qualifying and _structure_isb_seen(event):
                 contradiction_after_last = True
                 saw_contradiction = True
 
@@ -1523,13 +1516,33 @@ class EvidenceCompiler:
 
         ltf_label = _execution_tf(fused)
         expected_counter_break = "down" if direction == "long" else "up"
+        pro_break = "up" if direction == "long" else "down"
+        internal_events = [event for event in internal_sequence if isinstance(event, dict)]
         sequence_facts = self._compile_internal_ichoch_isb_sequence(
-            [event for event in internal_sequence if isinstance(event, dict)],
+            internal_events,
             direction,
         )
         pressure_facts = self._compile_internal_pullback_pressure(
-            [event for event in internal_sequence if isinstance(event, dict)],
+            internal_events,
             direction,
+        )
+        counter_ichoch = next(
+            (
+                event
+                for event in reversed(internal_events)
+                if _structure_ichoch_seen(event)
+                and event.get("breakDirection") == expected_counter_break
+            ),
+            None,
+        )
+        pro_ichoch = next(
+            (
+                event
+                for event in reversed(internal_events)
+                if _structure_ichoch_seen(event)
+                and event.get("breakDirection") == pro_break
+            ),
+            None,
         )
 
         # PRIMARY: internal iChoCh (SC06) against confirmed ITR pivot
@@ -1542,18 +1555,6 @@ class EvidenceCompiler:
         choch_direction       = last_isc.get("breakDirection")      if choch_seen else None
         choch_event_id        = _structure_event_id(last_isc)       if choch_seen else None
         choch_source_level_id = _structure_source_level_id(last_isc) if choch_seen else None
-
-        # iSB (SC05) — fires in PRO direction (opposite of iChoCh counter direction).
-        # last_isc holds either SC05 or SC06; they are mutually exclusive per bar.
-        # Use direct field check — _structure_event_action() does not handle "structure_isb".
-        pro_break = "up" if direction == "long" else "down"
-        isb_seen = bool(
-            (last_isc.get("eventAction") == "structure_isb" or last_isc.get("structure_isb") is True)
-            and last_isc.get("breakDirection") == pro_break
-        )
-        isb_at       = last_isc.get("eventTimestamp") if isb_seen else None
-        isb_level    = last_isc.get("levelPrice")     if isb_seen else None
-        isb_event_id = _structure_event_id(last_isc)  if isb_seen else None
 
         # FALLBACK: macro counter SB from last_sc (Path B — pullback_confirmed gate in DAG)
         sb_seen = bool(
@@ -1587,11 +1588,24 @@ class EvidenceCompiler:
                 "ltf_counter_choch_event_id": choch_event_id,
                 "ltf_counter_choch_source_level_id": choch_source_level_id,
                 "ltf_counter_choch_source_store": "structure_isc" if choch_seen else None,
-                "ltf_counter_isb_seen": isb_seen,
-                "ltf_counter_isb_event_at": isb_at,
-                "ltf_counter_isb_level": isb_level,
-                "ltf_counter_isb_event_id": isb_event_id,
-                "ltf_counter_isb_source_store": "structure_isc" if isb_seen else None,
+                "ltf_counter_ichoch_seen": counter_ichoch is not None,
+                "ltf_counter_ichoch_event_at": (counter_ichoch or {}).get("eventTimestamp"),
+                "ltf_counter_ichoch_direction": (counter_ichoch or {}).get("breakDirection"),
+                "ltf_counter_ichoch_level": _safe_float((counter_ichoch or {}).get("levelPrice")),
+                "ltf_counter_ichoch_event_id": _structure_event_id(counter_ichoch or {}),
+                "ltf_counter_ichoch_source_level_id": _structure_source_level_id(counter_ichoch or {}),
+                "ltf_counter_ichoch_source_store": (
+                    "internal_structure_sequence" if counter_ichoch is not None else None
+                ),
+                "ltf_pro_ichoch_seen": pro_ichoch is not None,
+                "ltf_pro_ichoch_event_at": (pro_ichoch or {}).get("eventTimestamp"),
+                "ltf_pro_ichoch_direction": (pro_ichoch or {}).get("breakDirection"),
+                "ltf_pro_ichoch_level": _safe_float((pro_ichoch or {}).get("levelPrice")),
+                "ltf_pro_ichoch_event_id": _structure_event_id(pro_ichoch or {}),
+                "ltf_pro_ichoch_source_level_id": _structure_source_level_id(pro_ichoch or {}),
+                "ltf_pro_ichoch_source_store": (
+                    "internal_structure_sequence" if pro_ichoch is not None else None
+                ),
                 "ltf_counter_sb_seen": sb_seen,
                 "ltf_counter_sb_level": sb_level,
                 "ltf_counter_sb_event_at": sb_at,

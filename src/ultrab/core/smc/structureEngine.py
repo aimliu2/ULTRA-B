@@ -89,6 +89,7 @@ class StructureLevel:
     pivot_time: pd.Timestamp
     confirmed_at: pd.Timestamp
     relation: str | None = None
+    level_relation: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -100,6 +101,7 @@ class StructureLevel:
             "pivot_time": self.pivot_time.isoformat(),
             "confirmed_at": self.confirmed_at.isoformat(),
             "relation": self.relation,
+            "level_relation": self.level_relation,
         }
 
 
@@ -669,6 +671,17 @@ class StructureEngine:
         )
 
     def _remember_structure_level(self, pe: PivotEvent, side: str) -> StructureLevel:
+        prev = next(
+            (level for level in reversed(self._recent_levels) if level.side == side),
+            None,
+        )
+        if prev is None:
+            level_relation = "seed"
+        elif side == "high":
+            level_relation = "HH" if float(pe.pivot_price) > prev.price else "LH"
+        else:
+            level_relation = "HL" if float(pe.pivot_price) > prev.price else "LL"
+
         level = StructureLevel(
             level_id=self._level_id(pe),
             event_code=pe.event_code,
@@ -678,6 +691,7 @@ class StructureEngine:
             pivot_time=pe.pivot_timestamp,
             confirmed_at=pe.event_timestamp,
             relation=pe.relation,
+            level_relation=level_relation,
         )
         self._recent_levels.append(level)
         if len(self._recent_levels) > self._recent_level_limit:
@@ -1066,11 +1080,11 @@ class StructureEngine:
     def _sb_internal(self, close: float, ts: pd.Timestamp) -> ScEvent | None:
         """Post-warmup: fire iSb or iChoCh against confirmed ITR/LTR pivot levels.
 
-        iSb   — pro-bias close through a confirmed pivot (HH for bullish, LL for bearish).
-        iChoCh — counter-bias close through the opposite confirmed pivot (breaks HL/LH).
+        iSb    — close through a continuation pivot relation (HH up, LL down).
+        iChoCh — close through a reversal pivot relation (LH up, HL down).
 
         Pure observation: does not change bias, phase, or P/D range.
-        At most one internal SC per bar; iSb is checked before iChoCh.
+        At most one internal SC per bar; high break is checked before low break.
         """
         if not self._warmup_complete or self._bias == "neutral":
             return None
@@ -1080,36 +1094,34 @@ class StructureEngine:
         lh = self._latest_level_high
         ll = self._latest_level_low
 
-        if self._bias == "bullish":
-            # iSb: close above latest confirmed ITR high AND it is a HH
-            if lh and close > lh.price and self._last_isb_level_id != lh.level_id:
-                if self._is_hh_or_seed(lh):
+        if lh and close > lh.price:
+            relation = lh.level_relation or "seed"
+            if relation in {"HH", "seed"}:
+                if self._last_isb_level_id != lh.level_id:
                     self._last_isb_level_id = lh.level_id
                     sc = self._make_isc(ts, lh, "high", "up", choch=False)
                     self._last_isc = sc
                     self._remember_internal_structure_event(sc)
                     return sc
-            # iChoCh: close below latest confirmed ITR low (breaks HL)
-            if ll and close < ll.price and self._last_ichoch_level_id != ll.level_id:
-                self._last_ichoch_level_id = ll.level_id
-                sc = self._make_isc(ts, ll, "low", "down", choch=True)
+            elif self._last_ichoch_level_id != lh.level_id:
+                self._last_ichoch_level_id = lh.level_id
+                sc = self._make_isc(ts, lh, "high", "up", choch=True)
                 self._last_isc = sc
                 self._remember_internal_structure_event(sc)
                 return sc
 
-        elif self._bias == "bearish":
-            # iSb: close below latest confirmed ITR low AND it is a LL
-            if ll and close < ll.price and self._last_isb_level_id != ll.level_id:
-                if self._is_ll_or_seed(ll):
-                    self._last_isb_level_id = ll.level_id
-                    sc = self._make_isc(ts, ll, "low", "down", choch=False)
+        if ll and close < ll.price:
+            relation = ll.level_relation or "seed"
+            if relation in {"HL", "seed"}:
+                if self._last_ichoch_level_id != ll.level_id:
+                    self._last_ichoch_level_id = ll.level_id
+                    sc = self._make_isc(ts, ll, "low", "down", choch=True)
                     self._last_isc = sc
                     self._remember_internal_structure_event(sc)
                     return sc
-            # iChoCh: close above latest confirmed ITR high (breaks LH)
-            if lh and close > lh.price and self._last_ichoch_level_id != lh.level_id:
-                self._last_ichoch_level_id = lh.level_id
-                sc = self._make_isc(ts, lh, "high", "up", choch=True)
+            elif self._last_isb_level_id != ll.level_id:
+                self._last_isb_level_id = ll.level_id
+                sc = self._make_isc(ts, ll, "low", "down", choch=False)
                 self._last_isc = sc
                 self._remember_internal_structure_event(sc)
                 return sc

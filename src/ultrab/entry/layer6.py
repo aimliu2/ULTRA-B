@@ -43,6 +43,7 @@ class TradeResult:
     trigger_kind: str | None
     trigger_path: str | None
     trigger_event_at: str | None
+    trigger_age_bars: int
     budget_spent: bool
     stale_marked: bool
     skip_reason: str | None
@@ -77,6 +78,7 @@ class TradeResult:
             "trigger_kind": self.trigger_kind,
             "trigger_path": self.trigger_path,
             "trigger_event_at": self.trigger_event_at,
+            "trigger_age_bars": self.trigger_age_bars,
             "budget_spent": self.budget_spent,
             "stale_marked": self.stale_marked,
             "skip_reason": self.skip_reason,
@@ -122,6 +124,7 @@ class TradeAnalyzer:
             trigger_kind=trigger.trigger_kind if trigger else None,
             trigger_path=trigger.trigger_path if trigger else None,
             trigger_event_at=trigger.event_at if trigger else None,
+            trigger_age_bars=intent.trigger_age_bars,
             budget_spent=False,
             stale_marked=intent.stale_marked,
             skip_reason=intent.skip_reason,
@@ -201,6 +204,7 @@ class TradeAnalyzer:
             trigger_kind=intent.trigger.trigger_kind,
             trigger_path=intent.trigger.trigger_path,
             trigger_event_at=intent.trigger.event_at,
+            trigger_age_bars=intent.trigger_age_bars,
             budget_spent=intent.budget_spent,
             stale_marked=False,
             skip_reason=None,

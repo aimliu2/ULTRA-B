@@ -338,11 +338,17 @@ class StructureEngineInternalSCTests(unittest.TestCase):
         self.assertTrue(isc.is_internal)
         self.assertEqual(isc.to_dict()["eventAction"], "structure_isb")
 
-    def test_isb_blocked_when_new_itr_high_is_lh(self):
+    def test_lh_high_break_fires_ichoch_up(self):
         engine = warm_bullish_engine()
-        # PE03@8 is a LH (8 < warmup PE03@10) — iSb must not fire.
+        # PE03@8 is a LH (8 < warmup PE03@10) — high break is iChoCh up, not iSb.
         events = step(engine, 2, 9, 9.5, 7, 8.5, pivots=[pe("PE03", 2, 8)])
         self.assertFalse(any(e.event_code == "SC05" for e in events))
+        isc = next((e for e in events if e.event_code == "SC06"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrIChoCh")
+        self.assertTrue(isc.choch)
+        self.assertEqual(isc.break_direction, "up")
+        self.assertEqual(engine.get_snapshot(8.5)["latest_itr_high"]["level_relation"], "LH")
 
     def test_isb_dedup_same_level_fires_once(self):
         engine = warm_bullish_engine()
@@ -385,6 +391,18 @@ class StructureEngineInternalSCTests(unittest.TestCase):
         step(engine, 2, 11, 12, 4.2, 4.3)          # SC06 fires
         events = step(engine, 3, 4.3, 5, 4.1, 4.4)  # still below PE04@4.5, same level
         self.assertFalse(any(e.event_code == "SC06" for e in events))
+
+    def test_bullish_ll_low_break_fires_isb_down(self):
+        engine = warm_bullish_engine()
+        # PE04@4.2 is a LL vs warmup PE04@4.5. close=4.1 is below PE04 but above
+        # range_low=4, so this is internal SC05 only, not macro SC02.
+        events = step(engine, 2, 11, 12, 4.05, 4.1, pivots=[pe("PE04", 2, 4.2)])
+        isc = next((e for e in events if e.event_code == "SC05"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrISb")
+        self.assertFalse(isc.choch)
+        self.assertEqual(isc.break_direction, "down")
+        self.assertEqual(engine.get_snapshot(4.1)["latest_itr_low"]["level_relation"], "LL")
 
     # ── pure observation ──────────────────────────────────────────────
 
@@ -447,6 +465,30 @@ class StructureEngineInternalSCTests(unittest.TestCase):
         self.assertTrue(isc.choch)
         self.assertEqual(isc.break_direction, "up")
         self.assertEqual(engine.get_snapshot(9)["bias"], "bearish")  # pure observation
+
+    def test_bearish_hl_low_break_fires_ichoch_down(self):
+        engine = warm_bearish_engine()
+        # PE04@6 is an HL vs warmup PE04@5.5. close=5.8 breaks it down,
+        # but remains above range_low=3 so this is internal SC06 only.
+        events = step(engine, 2, 5, 6.5, 5.2, 5.8, pivots=[pe("PE04", 2, 6)])
+        isc = next((e for e in events if e.event_code == "SC06"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrIChoCh")
+        self.assertTrue(isc.choch)
+        self.assertEqual(isc.break_direction, "down")
+        self.assertEqual(engine.get_snapshot(5.8)["latest_itr_low"]["level_relation"], "HL")
+
+    def test_bearish_hh_high_break_fires_isb_up(self):
+        engine = warm_bearish_engine()
+        # PE03@11 is a HH vs warmup PE03@10.5. close=11.2 breaks it up,
+        # but remains below range_high=12 so this is internal SC05 only.
+        events = step(engine, 2, 5, 11.5, 4.5, 11.2, pivots=[pe("PE03", 2, 11)])
+        isc = next((e for e in events if e.event_code == "SC05"), None)
+        self.assertIsNotNone(isc)
+        self.assertEqual(isc.event_name, "itrISb")
+        self.assertFalse(isc.choch)
+        self.assertEqual(isc.break_direction, "up")
+        self.assertEqual(engine.get_snapshot(11.2)["latest_itr_high"]["level_relation"], "HH")
 
     # ── LTR tier → SC07 / SC08 ───────────────────────────────────────
 

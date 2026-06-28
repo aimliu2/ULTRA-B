@@ -1,5 +1,367 @@
 # Project status
 
+## Current state — 2026-06-28 (Phase D + B integrity fixes COMPLETE)
+
+4 issues from `20260628_bugs.md` implemented and audited. All changes confined to
+`layer5.py`, `layer6.py`, `run_layer5_backtest.py`, `tests/test_layer5_phase_b.py`.
+Plan file: `.claude/plans/let-s-formulate-a-plan-compiled-manatee.md`.
+
+### What was fixed
+
+**Issue 4 — Phase B TP formula** (`_phase_b_tp()` helper):
+- Pushed `tp_price` out of `_make_intent()` as explicit param — `_make_intent()` no longer hardcodes TP.
+- Phase D `_try_path_a()` still computes `pd_midpoint` TP (unchanged behavior).
+- Phase B paths now use `min(progress_pips, 2.5 × sl_pips)` toward the 90% HTF objective level.
+  - HTF range keys: `higher_structure["range_low"]` / `["range_high"]` (not `pd_range_*`).
+  - Directional: `max(0.0, (progress_level - entry) / pip_size)` for long, mirrored for short.
+  - 2.5R cap applied; `min_rr` gate still rejects if neither level yields ≥ 1.75 RR.
+- `phase_a_objective_threshold` threaded from `config.yaml → replay.hypothesis.phase_a.objective_progress_threshold` (default 0.90).
+
+**Issue 3 — Phase B episode budget** (`_b_watch_episode_spent`, `_b_watch_pending_trigger`):
+- Dispatch (Phase B block + Phase A transition block): guard-only `if episode in _b_watch_episode_spent: return None`.
+- Path helpers own all state: `_b_watch_trigger_locked()` (pre-`_make_intent()` check) + `_record_b_watch_result()` (post-`_make_intent()` state machine):
+  - Expired (age > max, returns None) → pending lock stays; episode dead, no new trigger accepted.
+  - `runway_too_short` → lock episode to this trigger ID (`_b_watch_pending_trigger`).
+  - `EntryIntent` or stale `SkipIntent` → add to `_b_watch_episode_spent`, pop pending lock.
+
+**Issues 1 + 2 — `trigger_age_bars` output + `max_trigger_age_bars` gate**:
+- `_parse_bar_minutes(tf)` and `_trigger_age_bars(cursor_time, trigger_at, bar_minutes)` added as module-level helpers.
+- Timeframe read from `snapshot["lower_tf"] or snapshot["timeframe"]` (always uppercase, e.g. `"15M"`, `"4H"`).
+- `cursor_time` from `snapshot.get("cursor_time")` (top-level, not `hypothesis.debug_facts`).
+- Gate: `age_bars > max_trigger_age_bars` → return None (silent drop, not stale-marked).
+- `trigger_age_bars: int = 0` field added to `EntryIntent`, `SkipIntent`, `TradeResult`.
+- Propagation: `EntryIntent.trigger_age_bars` → `TradeResult` via `_close()` and `result_from_skip()` → `to_row()["trigger_age_bars"]` → CSV.
+- `"trigger_age_bars"` inserted into `RESULT_COLUMNS` after `"trigger_event_at"`.
+
+### Verification
+
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_layer5_phase_b.py -q` → **30 passed** (12 new tests)
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` → **210 passed / 32 skipped**
+- Baseline was 198 passed / 32 skipped.
+
+### Next session
+
+Phase A and Phase C integrity — to be discussed. Phase D and Phase B are correct.
+
+---
+
+## Current state — 2026-06-27 (Phase D note reset; Phase B samples rerun)
+
+Updated ignored analysis notes under `analysis/trades/`:
+
+- `analysis/trades/sample_phase_d.md` was cleared and rewritten with fresh post-self-relocation Phase D findings only.
+- `analysis/trades/sample_phase_b.md` was created with the three most recent accepted Phase B trades found under current code.
+
+Fresh Phase B chunk reruns:
+
+- `analysis/phase-b-recent-202307`
+- `analysis/phase-b-recent-202009`
+- `analysis/phase-b-recent-202001`
+- `analysis/phase-b-recent-201906`
+
+Three most recent accepted Phase B trades found:
+
+| Entry time | Outcome | Direction | Path | Risk | R result | Source |
+|---|---|---|---|---:|---:|---|
+| 2023-08-30T15:00:00+00:00 | loss | short | B.watch_pathA | 15.2 | -1.0 | `analysis/phase-b-recent-202307/layer5_trade_results.csv` |
+| 2020-10-14T06:30:00+00:00 | loss | long | B.watch_pathA | 15.8 | -1.0 | `analysis/phase-b-recent-202009/layer5_trade_results.csv` |
+| 2020-01-23T09:15:00+00:00 | loss | long | B.watch_pathA | 19.5 | -1.0 | `analysis/phase-b-recent-202001/layer5_trade_results.csv` |
+
+No accepted B.watch_pathB trade was found in the fresh rerun set; recent 2024-2026 chunks mostly produced Phase B geometry skips.
+
+## Current state — 2026-06-27 (Phase D recent chunk sampling rerun)
+
+Archived all top-level `analysis/layer5*` directories into `analysis/archives/`.
+
+Reran fresh-runtime Phase D Layer 5 chunks with overlapping recent starts so each chunk start exercises self-relocation independently. New output dirs use `analysis/phase-d-recent-*` (not `layer5*`).
+
+Most recent 3 unique accepted Phase D trades found:
+
+| Entry time | Outcome | Dir | Path | Entry | SL | TP | Risk pips | Target R | Exit time | R result | Source |
+|---|---|---|---|---:|---:|---:|---:|---:|---|---:|---|
+| 2025-05-22T05:45:00+00:00 | timeout | short | D.watch_pathA | 1.13435 | 1.13635 | 1.121355 | 20.0 | 6.497 | 2025-05-22T13:45:00+00:00 | 2.52 | `analysis/phase-d-recent-202503/layer5_trade_results.csv` |
+| 2024-10-16T07:00:00+00:00 | loss | long | D.watch_pathA | 1.08905 | 1.08755 | 1.09174 | 15.0 | 1.793 | 2024-10-16T10:15:00+00:00 | -1.0 | `analysis/phase-d-recent-202409/layer5_trade_results.csv` |
+| 2024-05-17T03:30:00+00:00 | timeout | short | D.watch_pathA | 1.08607 | 1.08773 | 1.0809 | 16.6 | 3.114 | 2024-05-17T11:30:00+00:00 | 0.7108 | `analysis/phase-d-recent-202403/layer5_trade_results.csv` |
+
+Chunks run: `2026-01`, `2025-11`, `2025-10`, `2025-09`, `2025-07`, `2025-05`, `2025-04`, `2025-03`, `2025-01`, `2024-11`, `2024-09`, `2024-07`, `2024-05`, `2024-03`, `2024-01`, `2023-11`.
+
+## Current state — 2026-06-27 (self-relocation COMPLETE; next: Phase D + B integrity retest)
+
+Self-relocation restart fix is implemented, audited (two codex review passes), and green.
+
+### What was fixed
+
+- `DualSmcRuntime` journal auto-save wired in `_hypothesis_for_payload()` (not `step()`), guarded on `persist_shadow_state`. Saves on phase transition (V1).
+- `save_shadow_state()` writes atomically via temp + replace — corrupt partial journals eliminated.
+- Hidden bootstrap success now validates `active_phase_e_direction` (correct for all phases; `current.direction` is counter for C and `"none"` for D) and `htf_pd_epoch_id` against current terrain. Rejects stale wrong-direction and stale same-direction wrong-epoch bootstrap.
+- After failed bootstrap, only `HypothesisClassifier` is reset before terrain relocation; Layer 3 stays warmed.
+- Terrain relocation: `pullback_confirmed` and `open` both route to `E.seeking` (unified). Old `C.pullback` relocation branch removed. `rejections["D"]` removed.
+- `.gitignore`: `state/` added. `config.yaml` unchanged — `persist_shadow_state` is opt-in for production only.
+- 4 new tests in `tests/test_hypothesis_restart_hierarchy.py`: epoch-flip probe (2023-04-28), same-timestamp D.watch journal restore, auto-save guard, epoch-mismatch fallback.
+- `analysis/restart_self_relocation.md` updated with 2023-04-28 epoch-flip diagnosis.
+
+### Verification
+
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_hypothesis_restart_hierarchy.py -q` → **6 passed / 1 skipped**
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` → **198 passed / 32 skipped**
+
+### Next session
+
+Retest Phase D and Phase B trade integrity now that self-relocation is fixed.
+
+Earlier backtest samples (`analysis/layer5-*`) were collected under broken self-relocation — chunk starts mid-episode misclassified as `C.pullback` or `X.none` instead of the correct `E.seeking → D.watch` path. Sample counts and skip/accept decisions cannot be trusted for null-test baseline until re-run with the fixed restart.
+
+Priority:
+1. **Phase D null-test baseline** — re-run D.watch_pathA chunk sampling with fixed restart. Compare counts vs old `analysis/layer5-tagged-*` runs.
+2. **Phase B integrity recheck** — B.watch_pathA and B.watch_pathB fire rates under fixed restart. The 2023-05-01 and 2023-05-02 D.watch timestamps were confirmed in continuous run; verify they now appear correctly in chunk-start restarts.
+3. **B.watch deduplication bug** (deferred): `runway_too_short` returning `stale=False` re-fires same `pro_ichoch_event_id` on every subsequent B.watch bar — fix before measuring B trade counts.
+
+## Current state — 2026-06-27 (EC/B.watch fixes audited; docs updated; layer5-temp.md deleted)
+
+All three items from `.claude/plans/were-all-of-that-shimmering-hellman.md` are implemented and audited:
+
+- **EC** `_compile_internal_ichoch_isb_sequence()` line 1329: `expected_counter_break` ✓ — EX.entry is counter iChoCh → counter iSB (both counter-HTF).
+- **B.watch_pathA**: ITR gate removed; step 3 temporal check is `pro_ichoch_at > counter_ichoch_at` ✓
+- **B.watch_pathB**: ITR gate removed; added guard `transition_at > counter_ichoch_at` ✓
+- **Docs updated**: `docs/402-hypothesis-phD.html` (4 occurrences of "pro iSB" → "counter iSB / EX.entry"), `docs/501-entry-details.html` D.medium trigger line.
+- **`layer5-temp.md` deleted** — all items resolved.
+- Suite: **194 passed / 32 skipped** (83 focused: test_evidence_compiler + test_layer5_phase_b + test_layer5_layer6).
+
+### Entry pattern summary (settled)
+
+| Pattern | Phase | Step 1 | Step 2 | Step 3 | SL |
+|---|---|---|---|---|---|
+| EX.entry (`D.watch_pathA`) | D.watch | counter SC06 iChoCh | counter SC05 iSB | — | `watch_range_extreme` ± buffer |
+| OTE.entry (`B.watch_pathA`) | B.watch | counter SC06 iChoCh | retracement (any form, not gated) | pro SC06 iChoCh | `commitment_extreme` ± buffer |
+| OTE.entry (`B.watch_pathB`) | A.watch (B→A transition) | counter SC06 iChoCh (during B.watch) | retracement (not gated) | B→A major structure transition | `commitment_extreme` ± buffer |
+
+### Next session
+
+- Run a bounded backtest chunk to observe B.watch_pathA and B.watch_pathB fire rates (expected low; measurement mode).
+- Phase A entry engine (OTE.entry, SL anchor = `phase_a_shadow_pro_extreme_at_weaken`).
+- Phase C trade (regime-conditional, deferred).
+
+## Current state — 2026-06-26 (entry pattern naming resolved; EC bug and OTE gate found)
+
+**Session clarified EX.entry and OTE.entry definitions, found EC direction bug, simplified OTE step 2.**
+
+### Entry pattern definitions (settled this session)
+
+**EX.entry (D.watch_pathA) — counter-HTF trade:**
+- Sequence: counter SC06 iChoCh → **counter SC05 iSB** (BOTH breaks in the counter-HTF direction)
+- “Counter” = counter to HTF bias. D.watch trade direction is counter-HTF.
+- No retracement between steps — two consecutive structural confirmations in the same direction.
+- EC BUG FOUND: `_compile_internal_ichoch_isb_sequence()` checks iSB against `pro_break` (line ~1330 `evidence_compiler.py`). Must be `expected_counter_break`. One-line fix needed.
+
+**OTE.entry (B.watch_pathA) — pro-HTF trade:**
+- Sequence: counter SC06 iChoCh → retracement (any form, not gated) → pro SC06 iChoCh
+- “Pro” = pro to HTF bias. B.watch trade direction is pro-HTF.
+- Step 2 is NOT an explicit ITR pivot gate — accepts any of: ITR low pivot, sideways chop, iSB chain in counter direction, or immediate reversal (sharp turn → step 3 fires quickly). Temporal ordering enforced by `pro_ichoch_at > counter_ichoch_at`.
+- Previous code had `latest_itr_low/high` as an explicit step 2 gate — this is wrong and must be removed from `_try_b_watch_path_a()` and `_try_b_watch_path_b()`.
+
+**Key distinction:**
+
+| Pattern | Step 1 | Step 2 | Final signal | Direction flip? |
+|---|---|---|---|---|
+| EX.entry (D.watch) | counter iChoCh | — | counter iSB | No — both counter-HTF |
+| OTE.entry (B.watch) | counter iChoCh | retracement (not gated) | pro iChoCh | Yes — flip to pro-HTF |
+
+### Next session TODO (ordered)
+
+1. **Fix EC bug**: `_compile_internal_ichoch_isb_sequence()` in `evidence_compiler.py` — change line `and break_direction == pro_break` → `and break_direction == expected_counter_break` for the iSB check. Level validation (lines 1354–1358) is already correct for counter→counter.
+2. **Fix layer5.py `_try_b_watch_path_a()`**: remove `latest_itr_low/high` gate; step 3 `_time_gt(pro_ichoch_at, counter_ichoch_at)` is the only temporal guard.
+3. **Fix layer5.py `_try_b_watch_path_b()`**: remove `itr_confirmed_at` gate from the step 1+2 check.
+4. **Update tests** (`test_layer5_phase_b.py`, `test_evidence_compiler.py`): update fixtures and assertions to match corrected EC iSB direction and removed ITR gate.
+5. **Audit all session-implemented code** against corrected specs: `layer5.py`, `evidence_compiler.py`, `hypothesis.py`, `regime_tags.py`, `run_layer5_backtest.py`. The Codex implementation from the previous session used the wrong iSB direction in EC and the wrong ITR gate in layer5 — all consumers of `ltf_counter_ichoch_isb_sequence_seen` need a post-fix re-check.
+6. Run full suite after fixes. Expect test count changes (ITR gate removal may affect B.watch test fixtures).
+7. After passing: run Layer 5 replayer verification for Phase D and Phase B integrity.
+
+### What was implemented by Codex (previous session) — partially incorrect
+
+- Phase D now has only `D.watch_pathA`: gates on `ltf_counter_ichoch_isb_sequence_seen` from EC. SL = `phase_d_shadow_watch_range_extreme` plus buffer. HTF zone is not an SL anchor — analysis tag only.
+- Removed: `D.watch_pathB`, `D.watch_pathC2`, `D.watch_pathSA`. `htf_zone_context` moved to `regime_tags.py`.
+- EC `_compile_ltf_counter_choch()`: removed `ltf_counter_isb_*`; added `ltf_pro_ichoch_seen/event_at/event_id`.
+- `B.watch_pathA`: counter iChoCh → ITR gate → pro iChoCh (using EC `ltf_pro_ichoch_seen`). **ITR gate is wrong — must be removed next session.**
+- `B.watch_pathB`: one-shot `phase_a_entry_transition_origin_node == "B.watch"` dispatch. ITR gate also present — **must be removed next session.**
+- DAG: `PhaseBShadow.phase_episode_id` added; `phase_a_entry_transition_*` one-shot fields emitted on B→A bar, cleared on A.watch hold bars.
+- EC iSB direction in `_compile_internal_ichoch_isb_sequence()`: uses `pro_break` for iSB. **This is the EC bug — must be fixed to `expected_counter_break` next session.**
+
+### Docs updated this session
+
+- `docs/501-entry-details.html`: TL;DR, OTE.entry step 3, EX.entry iSB direction, B.watch_pathA gate sequence — all corrected to reflect settled definitions.
+- `layer5-temp.md`: EC fix note, corrected EX.entry sequence, OTE.entry step 2 simplified.
+
+### Terminology (settled)
+
+- **counter/pro**: always relative to HTF bias direction. Counter = against HTF; pro = with HTF.
+- **expansion/retracement**: expansion = pro-HTF direction; retracement = counter-HTF direction.
+- **Internal structure**: `internal_structure_sequence` / `last_isc`; events `structure_ichoch` (SC06) and `structure_isb` (SC05).
+- **Major structure**: `last_sc`; events `structure_choch` and `structure_sb`.
+
+Verification:
+
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_evidence_compiler.py tests/test_layer5_phase_b.py tests/test_layer5_layer6.py tests/test_hypothesis_classifier.py::HypothesisPhaseBToATransitionTests -q` → **81 passed**
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_hypothesis_classifier.py -q` → **22 passed / 31 skipped**
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_headless_runtime_reuse.py -q` → **7 passed**
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` → **190 passed / 32 skipped**
+
+Docs follow-up:
+
+- Updated `docs/30*.html`, `docs/40*.html`, and `docs/50*.html` downstream references affected by the EC/Layer 5 changes.
+- Main updated pages: `302-structure-context.html`, `312-EC-context-group.html`, `401-hypothesis-DAG.html`, `402-hypothesis-phA.html`, `402-hypothesis-phB.html`, `402-hypothesis-phC.html`, `402-hypothesis-phD.html`, `501-entry-details.html`, `501-entry-diagram.html`.
+- Removed stale current-behavior references to `D.watch_pathSA`, `D.watch_pathB`, `D.watch_pathC2`, `B.watch_ote`, `_try_b_watch_ote`, and standalone `ltf_counter_isb_*`.
+- Reworded B→A/A recovery/C transitions so `last_sc` is “major structure” and MSS/BoS-style flow stays “orderflow.”
+- Validation: targeted `rg` scans over `docs/30*.html docs/40*.html docs/50*.html` and Python `HTMLParser` parse pass over touched pages completed cleanly.
+
+## Current state — 2026-06-25 (Phase D + B entry path redesign planned)
+
+**Plans documented in `layer5-temp.md`; `docs/501-entry-details.html` updated with boundary/FOMO edge-case notes. No entry code changed for this design shift yet.**
+
+**Safe terminology note:** `OTE.entry` is now documented in `docs/501-entry-details.html` as a reusable Layer 5 regular entry pattern, not a Phase B-only special case.
+
+**Next:** formulate the implementation plan from `layer5-temp.md` before changing code. The plan should sequence Phase D Path A tightening, EC cleanup/additions, B.watch OTE rewiring, B→A one-shot transition metadata, and validation chunks.
+
+### Phase D — path redesign plan
+
+| Path | Trigger | SL | Status |
+|---|---|---|---|
+| **A** (tighten from SA) | counter iChoCh → pro iSB (`ltf_counter_ichoch_isb_sequence_seen`) | `watch_range_extreme`; zone-distal = validity gate + wider cap (deferred) | PLAN |
+| **C2** | MSS transition bar D.watch→C.pullback | Phase C policy decides | MOVE OUT OF PHASE D — Phase C owns this episode |
+| **C1** | removed | — | Phase C owns its own episode |
+
+- SA (iChoCh alone) → tighten to Path A (iChoCh + iSB) now that SC05/SC06 upstream fix is stable.
+- Path B (HTF zone branch) → collapse into Path A: zone context = SL cap selector + analysis tag, not a separate path. Zone validity gate: if `watch_range_extreme` already past zone-distal → reject (price too fast, let other phases handle).
+- C2 is now considered a boundary/FOMO trade. Keep `phase_c_entry_transition_*` provenance, but any transition-bar entry after `D.watch → C.pullback` spends Phase C budget, not Phase D budget.
+- Edge-case rule documented: if the LTF P/D range is too compressed or fast-moving for the current phase to produce a clean MP entry, the early skip is correct because it prevents a FOMO handoff trade and preserves the next phase quota.
+- EC field `ltf_counter_ichoch_isb_sequence_seen` is already produced (observation-only). Needs wiring in `layer5.py`.
+
+### Phase B — entry path design (DEFERRED, plan in layer5-temp.md)
+
+Symmetric to Phase D. Two paths:
+
+| Path | Fires in phase | Trigger | SL |
+|---|---|---|---|
+| **B.watch_pathA** (OTE) | B.watch (holds) | SC06 counter iChoCh → ITR → SC06 pro iChoCh | `commitment_extreme_level` |
+| **B.watch_pathB** | A.watch (at B→A transition) | steps 1+2 confirmed + pro ChoCh/MSS as step 3 | `commitment_extreme_level` |
+
+- Path A: SC06 only at step 3 — pro ChoCh/MSS exit B.watch → A.watch, never reach Path A gate.
+- Path B / transition candidate: fires only on one-shot `phase_a_entry_transition_origin_node == "B.watch"` metadata, not persistent `phase_a_origin_node`. Steps 1+2 (counter iChoCh + ITR) must have confirmed during B.watch hold. Transition itself is step 3. If steps 1+2 were observable, this is still a valid OTE.entry and spends **Phase B budget** even though the snapshot has shifted to A.watch.
+- B→A edge distinction: if the LTF P/D range was tight/fast and there was no observable counter iChoCh + retracement before pro ChoCh/MSS, do not force a B trade; shift to A.watch and let Phase A spend Phase A quota.
+- Step 1 co-firing: counter ChoCh + counter iChoCh → B.watch stays (counter ChoCh has no B.watch exit). Counter MSS + counter iChoCh → B.watch exits to C.pullback, OTE lost.
+- EC additions needed: `ltf_pro_ichoch_seen` + `_event_at` + `_event_id` in `_compile_ltf_counter_choch()`. Remove `ltf_counter_isb_seen`.
+
+### Prerequisites (ordered, from layer5-temp.md)
+1. Phase D Path A tightening (SA→A, B collapsed) — implement + chunk-validate.
+2. Remove `ltf_counter_isb_seen` from EC.
+3. Add `ltf_pro_ichoch_seen` to EC.
+4. Rewire `_try_b_watch_ote()` → `_try_b_watch_path_a()` using EC sequence gate.
+5. Add B-owned transition dispatch: fire only when `phase_a_entry_transition_origin_node == "B.watch"` AND B OTE steps 1+2 were observed during B.watch.
+
+---
+
+## Current state — 2026-06-25 (EC bugs fixed after upstream iSB/iChoCh fix)
+
+**Two EC bugs in `_compile_ltf_counter_choch()` sub-routines are fixed.**
+
+- `_compile_internal_ichoch_isb_sequence()` now ignores intervening pro-direction SC06 iChoCh while waiting for the pro SC05 iSB confirmation; the active counter iChoCh sequence remains alive.
+- `_compile_internal_pullback_pressure()` now treats only pro-direction SC05 iSB as a contradiction. Pro-direction SC06 iChoCh is ignored for contradiction purposes.
+- Tests updated in `tests/test_evidence_compiler.py`, including a short-direction mirror for the iChoCh→iSB sequence and a positive SC05 pro-iSB contradiction test.
+- Verification:
+  - `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_evidence_compiler.py -q` → **54 passed**
+  - `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_hypothesis_classifier.py tests/test_layer5_layer6.py -q` → **38 passed / 31 skipped**
+  - `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` → **196 passed / 32 skipped**
+
+### ltf_counter_choch candidate — undocumented sub-facts
+
+`_compile_ltf_counter_choch()` merges three sub-routine outputs into one candidate's `debug_facts`.
+The 312 doc only showed the top-level `ltf_counter_choch_*` keys. Full set (all inside `ltf_counter_choch` candidate):
+
+```
+ltf_counter_choch_*       — iChoCh(counter) SC06 flags       → 8 keys
+ltf_counter_isb_*         — iSB(pro) SC05 flags               → 4 keys
+ltf_counter_sb_*          — macro SB(counter) fallback        → 5 keys
+ltf_counter_ichoch_isb_sequence_seen  — sequence detection     → from _compile_internal_ichoch_isb_sequence
+ltf_counter_internal_pressure_*       — pullback pressure      → 12 keys from _compile_internal_pullback_pressure
+```
+
+### Consumer map (ltf_counter_choch candidate facts)
+
+| Fact | Phase E | Phase D | Phase C | B / A / X | Layer 5 |
+|---|---|---|---|---|---|
+| `ltf_counter_choch_seen` | ✓ counter-structure latch (`_phase_e_shadow_facts` gate) | — | — | — | pathSA gate (→ pathA after tightening); B.watch_pathA step1, pathB step1 |
+| `ltf_counter_sb_seen` | ✓ `phase_e_context_ltf_counter_sb_seen` | orphaned `_phase_d_setup` (not called) | — | — | — |
+| `ltf_counter_isb_seen` | — | — | — | — | none |
+| `ltf_counter_internal_pressure_*` | — | journaled at D.watch→C.pullback as `phase_c_entry_transition_internal_pressure_*`; invalidation gates C2 in Layer 5 | metadata journaled | none | `_try_path_c()` rejects `phase_c_entry_transition_internal_pressure_invalidated` |
+| `ltf_counter_ichoch_isb_sequence_seen` | — | — | — | — | `run_layer5_backtest.py` `path_a_ready` flag only |
+
+### Docs updated 2026-06-24/25
+
+- `docs/302-structure-context.html` — upstream SC05/SC06 fix issue closed
+- `docs/312-EC-context-group.html` — 2 EC bug issue cards + doc-gap issue archived 2026-06-25; 2 open: "Phase A setup candidate missing" + "_phase_a_setup() EC migration" (reworded from classify() narrowing)
+
+---
+
+## Current state — 2026-06-24 (iSB / iChoCh upstream structure classification fixed)
+
+**Upstream SC05/SC06 internal structure classification is fixed in `structureEngine.py`.**
+
+- `StructureLevel` now stores `level_relation` (`HH`, `LH`, `HL`, `LL`, `seed`) computed causally from prior same-side remembered levels.
+- `_sb_internal()` no longer classifies iSB/iChoCh from macro bullish/bearish bias.
+- Correct internal SC rule:
+  - high break of `HH` or `seed` → SC05 iSB up
+  - high break of `LH` → SC06 iChoCh up
+  - low break of `HL` or `seed` → SC06 iChoCh down
+  - low break of `LL` → SC05 iSB down
+- Existing `relation` from `PivotEvent` is preserved; `level_relation` is the new Structure-owned same-side relation used for SC05/SC06.
+- Tests added/updated in `tests/test_structure_engine.py` for bullish LL, bullish LH, bearish HL, bearish HH mirrors.
+- Docs updated in `docs/302-structure-context.html`; the prior “SC05–SC08 invalid signal” open issue is now marked completed.
+- Verification:
+  - `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_structure_engine.py -q` → **30 passed**
+  - `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q` → **194 passed / 32 skipped**
+- Downstream EC / hypothesis / Layer 5 tests did **not** cascade-fail after the upstream fix.
+
+## Current state — 2026-06-24 (Phase B OTE.entry wired but gate is WRONG — fix needed)
+
+**Phase B OTE.entry (`B.watch_ote`) is implemented in `layer5.py` but fires 0 trades across 7 years.**
+
+Infrastructure (correct — do not change):
+- Dispatch: `phase == "B" and phase_sub_status == "watch"` → `_try_b_watch_ote()`
+- `trade_direction = direction` (pro-HTF — opposite convention from Phase D counter trades)
+- SL = `commitment_extreme_level ± buffer` (fixed floor from C→B entry)
+- No budget gate — infinite budget for measurement
+- `budget.spend("D", ...)` bug fixed → now `budget.spend(effective_phase, ...)`
+- Analysis tags: `b_watch_origin_node`, `b_watch_at_extreme_entry`, `b_watch_htf_sd_zone_tapped` in `regime_tags.py`
+- Contract updated in `.claude/layer5-entry-contract.md`; 15 tests in `tests/test_layer5_phase_b.py` all pass
+- Suite: **191 passed / 32 skipped**
+
+**The bug — wrong freshness gate ordering:**
+
+The CORRECT B.watch OTE sequence (user-confirmed, LONG case):
+```
+1. B.watch holds (bullish HTF)
+2. LTF bearish counter sequence develops:
+   - bearish iChoCh fires (last_isc = down)   ← counter SC06
+   - LTF ITR low forms (latest_itr_low fresh)  ← lower lows in counter sequence
+3. Bearish sequence gets INTERRUPTED before reaching commitment_extreme:
+   - bullish initiation iChoCh fires (last_isc = up)  ← entry signal
+4. Entry LONG. SL = commitment_extreme_level - buffer
+```
+
+Current gate: `last_isc.ts > itr_low.confirmed_at` (iChoCh must post-date ITR confirm)
+Problem: in 7-year full scan (181,328 bars), this gate fires 0 times. Funnel for LONG:
+- 1234 bars: bearish counter isc active + fresh ITR → waiting for UP initiation iChoCh
+- UP initiation iChoCh never appears in `last_isc` while still in B.watch
+- Root cause not fully resolved: the initiation iChoCh may exit B.watch simultaneously,
+  appear in a different field, or the correct signal is not `lower_structure.last_isc`
+
+User will fix the gate/signal source in the next session.
+
+**Do NOT change the unit tests or infrastructure — only the gate inside `_try_b_watch_ote()` needs fixing.**
+
+**Phase A OTE.entry: deferred until Phase B gate is correct.**
+- Phase A rule: same OTE pattern, SL anchor = `phase_a_shadow_pro_extreme_at_weaken` (from `PhaseAShadow`)
+- Phase C entry: regime-conditional, deferred
+
 ## Current state — 2026-06-23 (E.pullback_developing → C.pullback 3-path + ghost C→D disabled)
 
 **E.pullback_developing → C.pullback now has 3 explicit paths (hypothesis.py):**

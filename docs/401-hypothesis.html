@@ -412,11 +412,11 @@ Outputs → EvidenceCandidate:
   first_seen_at · ready_at · expires_at</div>
 <p><strong>Key chains it accumulates:</strong></p>
 <ul>
-  <li><code>b_initiation_watch</code> — three-step chain: source ITR grab → opposite ITR grab → decision zone tap</li>
-  <li><code>phase_d_ready</code> — HTF P/D stopped expanding + opposing SD zone reacted</li>
+  <li><code>ltf_counter_choch</code> — internal counter/pro iChoCh facts consumed by Layer 5 entries</li>
+  <li><code>phase_d_ready</code> — HTF P/D stopped expanding + opposing reaction context</li>
   <li><code>phase_c_ready</code> — phase_d_ready + LTF bias counter to HTF</li>
-  <li><code>phase_b_ready</code> — b_initiation chain ready + LTF half check + SD bounce</li>
-  <li><code>phase_a_ready</code> — LTF aligned + LTF P/D expanding (POI gate in Layer 4)</li>
+  <li><code>htf_b_phase_setup</code> — C.pullback depth and pro-HTF reclaim context for B.watch</li>
+  <li><code>phase_a_ready</code> — LTF aligned + LTF P/D expanding toward objective maturity</li>
 </ul>
 <div class="rule-block">Pattern status: <code>collecting</code> | <code>ready</code> | <code>invalidated</code> | <code>expired</code>. Layer 4 reads only <code>ready</code> candidates when evaluating transitions.</div>
 <div class="rule-block" style="border-left-color: var(--accent2); margin-top: 12px;"><strong>Analogy:</strong> the weather + terrain reporter. It reads the environment bar by bar and reports structured facts — "sun, no wind, trail ahead is clear" or "storm developing, HTF counter zone reacting." It does not tell you where to go.</div>
@@ -484,8 +484,8 @@ Outputs → EvidenceCandidate:
 <p><strong>Why it is necessary despite the DAG:</strong></p>
 <ul>
   <li><strong>Phase-local memory</strong> — Phase E needs to remember whether a clean LTF counter orderflow leg was already consumed, whether it was disrupted, and whether the next pullback should still be soft E-memory or should graduate to a global D/C decision.</li>
-  <li><strong>Suppression</strong> — after a failed Phase B, the EvidenceCandidate for <code>b_initiation_watch</code> may still be <code>ready</code>. Without suppression, the DAG immediately re-enters B, creating an infinite loop. Shadow Thesis blocks re-entry until a new candidate with a later <code>first_seen_at</code> arrives.</li>
-  <li><strong>POI persistence</strong> — one trade idea spans B_init → B_strict → A_cont → A_fin → thesis.over. The DAG advances its node; the Shadow Thesis carries <code>poi_id</code>, <code>entry_policy</code>, and <code>invalidation_ref</code> across all those transitions.</li>
+  <li><strong>Suppression</strong> — after a failed Phase B, B.watch can only reopen from a fresh C.pullback depth event. Shadow Thesis carries the prior B context and failure origin so stale reclaim attempts do not loop as new ideas.</li>
+  <li><strong>Commitment persistence</strong> — one trade idea spans C.pullback → B.watch → A.watch → X.thesis_over. The DAG advances its node; the Shadow Thesis carries <code>commitment_extreme_level</code>, zone/liquidity observations, and failure provenance across those transitions.</li>
   <li><strong>Belief vs. market fact</strong> — Evidence Compiler records what the market did. Shadow Thesis records what Layer 4 believed and staked. Both are necessary and distinct.</li>
 </ul>
 <div class="code-block">Root implementation shape:

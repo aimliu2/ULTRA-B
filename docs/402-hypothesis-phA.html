@@ -366,7 +366,7 @@
     <!-- ── 00 Overview ──────────────────────────────────────────────────── -->
     <h2 id="overview"><span class="sec-num">00</span> Overview</h2>
     <p>Phase A is the final node in the hypothesis DAG chain. It opens when B.watch receives a
-    pro-HTF BoS (Break of Structure in the pro-HTF direction), indicating price has escaped the
+    major pro structure transition (<code>last_sc</code> in the pro-HTF direction), indicating price has escaped the
     B zone and the pro side is attempting to drive toward the HTF P/D objective. Unlike C (which
     tracks the counter pullback) and B (which watches for the pro reclaim initiation), Phase A
     is purely about whether the pro-HTF attempt has enough structural conviction to confirm.</p>
@@ -379,7 +379,7 @@ E.seeking → E.stalling → E.pullback_developing
         depth &lt; 51%: → C.pullback_weaken
         depth ≥ 51%: → B.watch           ← pro-HTF SC; discount zone reached
           → C.pullback   ← counter MSS (reclaim failed)
-          → <span class="hl">A.watch</span>      ← pro-HTF BoS after B; finale
+          → <span class="hl">A.watch</span>      ← major pro structure after B; finale
               → A.watch_weaken  ← counter SC fires within A zone
               → B.watch         ← counter MSS (pro attempt failed)
               → E.seeking       ← new HTF extreme</pre>
@@ -387,21 +387,21 @@ E.seeking → E.stalling → E.pullback_developing
     <div class="rule-block">
       Phase A is not a pullback depth node. The pullback depth gate lives at the C → B boundary
       (≥ 51%). No additional depth condition applies at B → A. The trigger is purely structural:
-      a pro-HTF BoS after B.watch has been active.
+      a major pro structure transition after B.watch has been active.
     </div>
 
     <!-- ── 01 Entry Gate ─────────────────────────────────────────────────── -->
     <h2 id="entry-gate"><span class="sec-num">01</span> Entry Gate — B → A</h2>
     <p>A.watch opens from the B block (<code>previous_phase == "B"</code>,
-    <code>phase_sub_status == "watch"</code>) when a pro-HTF BoS fires on a fresh leg after
+    <code>phase_sub_status == "watch"</code>) when a major pro structure transition fires on a fresh leg after
     B.watch opened. The gate reads from <code>phase_e_context</code> facts — no additional
     EC candidate is required for the DAG transition itself. The <code>htf_pd_objective</code>
     EC candidate is available to Layer 5 for entry permission decisions but is not a DAG gate.</p>
 
     <h3>Gate conditions</h3>
     <pre class="block"><span class="hl">previous_phase == "B"</span>  AND  <span class="hl">phase_sub_status == "watch"</span>
-<span class="hl">last_sc.breakDirection == pro-HTF direction</span>     <span class="cm"># pro BoS (SC01/SC02 or macro level)</span>
-<span class="hl">last_sc.eventTimestamp &gt; b_shadow.entered_at</span>     <span class="cm"># freshness: BoS after B.watch opened</span></pre>
+<span class="hl">last_sc.breakDirection == pro-HTF direction</span>     <span class="cm"># major pro structure transition</span>
+<span class="hl">last_sc.eventTimestamp &gt; b_shadow.entered_at</span>     <span class="cm"># freshness: transition after B.watch opened</span></pre>
 
     <p>There is no depth gate at this boundary. The 51% depth condition was already satisfied
     when C → B fired. B → A is triggered by the structural signal alone — price escaping the B
@@ -409,7 +409,7 @@ E.seeking → E.stalling → E.pullback_developing
 
     <div class="rule-block">
       Unlike C → B (which has an explicit depth gate), B → A has no depth precondition. Depth
-      was already screened at C → B. The pro-HTF BoS freshness check (after <code>b_shadow.entered_at</code>)
+      was already screened at C → B. The major pro structure freshness check (after <code>b_shadow.entered_at</code>)
       is the only gate — preventing a stale BoS that predates B.watch from firing A entry.
     </div>
 
@@ -536,7 +536,7 @@ AND <span class="hl">ltf_counter_orderflow_started_at &gt; a_shadow.entered_at</
 → C.pullback
   c_shadow.origin_node = <span class="hl2">"A.watch_weaken_invalidated"</span>   <span class="cm"># enables 90% ceiling at next C→B</span>
 
-<span class="cm"># Priority 3 — A.watch (recovery: pro-HTF SC BoS + pro extreme advance gate)</span>
+<span class="cm"># Priority 3 — A.watch (recovery: major pro structure + pro extreme advance gate)</span>
 <span class="hl">last_sc.breakDirection == pro-HTF</span>   <span class="cm"># pro structural SC (same gate as B→A entry)</span>
 AND <span class="hl">last_sc.eventTimestamp &gt; a_shadow.pro_attempt_weaken_at</span>   <span class="cm"># freshness floor</span>
 AND <span class="hl">pro-side range extreme advanced past a_shadow.pro_extreme_at_weaken</span>
@@ -571,7 +571,7 @@ AND <span class="hl">pro-side range extreme advanced past a_shadow.pro_extreme_a
     <!-- ── 04 DAG Block ───────────────────────────────────────────────────── -->
     <h2 id="dag-block"><span class="sec-num">04</span> DAG Block — B → A</h2>
     <p>The B block checks for A entry after the HTF extreme check (highest priority) and before
-    the counter MSS exit. If a fresh pro-HTF BoS is detected, shadow is initialized and the A
+    the counter MSS exit. If a fresh major pro structure transition is detected, shadow is initialized and the A
     block takes over from the next bar. The A block mirrors the B block structure exactly.</p>
 
     <details open>
@@ -587,7 +587,7 @@ _, e_ctx_b = _ec_candidate(snapshot, "phase_e_context")
 if bool(debug.get(<span class="hl2">"phase_e_context_new_htf_extreme"</span>) or e_ctx_b.get("new_htf_extreme")):
     return self._commit(self._phase_e(direction, cursor_time, debug, ltf))
 
-<span class="cm"># Exit 2 — A.watch (pro-HTF BoS fires after B opened)</span>
+<span class="cm"># Exit 2 — A.watch (major pro structure fires after B opened)</span>
 pro_break_b  = "up" if direction == "long" else "down"
 last_sc_b    = (ltf.get("last_sc") or {}) if ltf else {}
 last_sc_b_at = last_sc_b.get("eventTimestamp")
@@ -673,7 +673,7 @@ elif current_c_sub_a == "watch_weaken":
             return self._commit(self._phase_c(direction, None, "watching", cursor_time,
                 {**debug, "phase_a_invalidated": True}, phase_sub_status="pullback"))
 
-    <span class="cm"># Recovery: pro-HTF SC BoS + pro extreme advance gate (no recovery if SC fires within same range)</span>
+    <span class="cm"># Recovery: major pro structure + pro extreme advance gate (no recovery if SC fires within same range)</span>
     pro_break_a = "up" if direction == "long" else "down"
     _last_sc_a = (ltf.get("last_sc") or {}) if ltf else {}
     _last_sc_a_at = _last_sc_a.get("eventTimestamp")
@@ -825,7 +825,7 @@ bearish_phase_a_touch_without_close_below_n</pre>
 
       <div class="issue-card">
         <div class="issue-label">Archived · Completed</div>
-        <p><b>B → A trigger replay-validated.</b> Gate (pro-HTF BoS after B.watch, freshness-guarded)
+        <p><b>B → A trigger replay-validated.</b> Gate (major pro structure transition after B.watch, freshness-guarded)
         confirmed on EURUSD 15m/4h: B→A fires 2026-02-03T08:30, A.watch_weaken 11:45,
         weaken→C (B+A invalidated) 12:00. commitment_extreme=1.17756 locked at C→B entry 03:45.</p>
       </div>
@@ -850,7 +850,7 @@ bearish_phase_a_touch_without_close_below_n</pre>
       <div class="issue-card">
         <div class="issue-label">Edge Case</div>
         <p><b>A.watch re-entry after A → B failure.</b> If A.watch → B.watch (failed) and
-        B.watch then fires another pro-HTF BoS, A.watch opens again within the same epoch.
+        B.watch then fires another major pro structure transition, A.watch opens again within the same epoch.
         Shadow is reset only on epoch boundary — <code>pro_attempt_weaken</code> from the prior
         A episode will carry over, keeping Layer 5 on elevated-bar mode for the re-entry.</p>
       </div>
