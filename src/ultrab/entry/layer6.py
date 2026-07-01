@@ -85,6 +85,47 @@ class TradeResult:
         }
 
 
+@dataclass(frozen=True)
+class SampleRecord:
+    anchor_time: str
+    symbol: str
+    combo: str
+    phase: str | None
+    direction: str | None
+    eligible_htf_age_bars: float | None
+    eligible_ltf_age_bars: float | None
+    reconstruction_ok: bool
+    startup_mode: str
+    outcome: str
+    episode_bars: int | None = None
+    trade_result: TradeResult | None = None
+    exclusion_reason: str | None = None
+
+    def to_row(self) -> dict[str, Any]:
+        row = {
+            "anchor_time": self.anchor_time,
+            "symbol": self.symbol,
+            "combo": self.combo,
+            "phase": self.phase,
+            "direction": self.direction,
+            "eligible_htf_age_bars": self.eligible_htf_age_bars,
+            "eligible_ltf_age_bars": self.eligible_ltf_age_bars,
+            "reconstruction_ok": self.reconstruction_ok,
+            "startup_mode": self.startup_mode,
+            "outcome": self.outcome,
+            "episode_bars": self.episode_bars,
+            "exclusion_reason": self.exclusion_reason,
+        }
+        if self.trade_result is not None:
+            row.update(
+                {
+                    f"trade_{key}": value
+                    for key, value in self.trade_result.to_row().items()
+                }
+            )
+        return row
+
+
 class TradeAnalyzer:
     def __init__(self, *, max_hold_bars: int | None = 32) -> None:
         self.max_hold_bars = max_hold_bars
@@ -209,3 +250,106 @@ class TradeAnalyzer:
             stale_marked=False,
             skip_reason=None,
         )
+
+
+class ChunkAnalyzer(TradeAnalyzer):
+    def __init__(self, *, max_forward_bars: int = 200, max_hold_bars: int | None = 32) -> None:
+        super().__init__(max_hold_bars=max_hold_bars)
+        self.max_forward_bars = max_forward_bars
+
+    def analyze(
+        self,
+        runtime: Any,
+        layer5: Any,
+        *,
+        anchor_time: str,
+        eligible_htf_age_bars: float | None = None,
+        eligible_ltf_age_bars: float | None = None,
+        reconstruction_ok: bool = True,
+        startup_mode: str = "right_edge_rebuild",
+    ) -> SampleRecord:
+        active: list[ActiveTrade] = []
+        first_snapshot = runtime.classify_snapshot()
+        first_hypothesis = first_snapshot.get("hypothesis") or {}
+        phase = first_hypothesis.get("phase")
+        direction = first_hypothesis.get("direction")
+        first_episode_id = first_hypothesis.get("debug_facts", {}).get("phase_episode_id")
+        last_bar: dict[str, Any] | None = None
+        first_trade_result: TradeResult | None = None
+        bars = 0
+
+        snapshot = first_snapshot
+        while True:
+            bar = self._bar_from_snapshot(snapshot)
+            if bar is not None:
+                last_bar = bar
+            remaining: list[ActiveTrade] = []
+            for trade in active:
+                if bar is None:
+                    remaining.append(trade)
+                    continue
+                result = self.advance(trade, bar)
+                if result is None:
+                    remaining.append(trade)
+                else:
+                    first_trade_result = first_trade_result or result
+            active = remaining
+
+            decision = layer5.evaluate(snapshot)
+            if isinstance(decision, EntryIntent):
+                active.append(self.open_trade(decision))
+            elif isinstance(decision, SkipIntent):
+                first_trade_result = first_trade_result or self.result_from_skip(decision)
+
+            if first_trade_result is not None:
+                return SampleRecord(
+                    anchor_time=anchor_time,
+                    symbol=str(first_snapshot.get("symbol") or ""),
+                    combo=str(first_snapshot.get("combo") or ""),
+                    phase=phase,
+                    direction=direction,
+                    eligible_htf_age_bars=eligible_htf_age_bars,
+                    eligible_ltf_age_bars=eligible_ltf_age_bars,
+                    reconstruction_ok=reconstruction_ok,
+                    startup_mode=startup_mode,
+                    outcome=first_trade_result.outcome,
+                    episode_bars=bars,
+                    trade_result=first_trade_result,
+                )
+
+            hyp = snapshot.get("hypothesis") or {}
+            episode_id = hyp.get("debug_facts", {}).get("phase_episode_id")
+            if bars > 0 and (hyp.get("phase") == "E" or (first_episode_id and episode_id and episode_id != first_episode_id)):
+                break
+            if bars >= self.max_forward_bars:
+                break
+            step = runtime.step()
+            bars += 1
+            if step.done and getattr(step, "cursor_time", None) is None:
+                break
+            snapshot = runtime.classify_snapshot()
+
+        for trade in active:
+            first_trade_result = first_trade_result or self.close_open_end(trade, last_bar)
+        if first_trade_result is not None:
+            outcome = first_trade_result.outcome
+        else:
+            outcome = "no_trigger"
+        return SampleRecord(
+            anchor_time=anchor_time,
+            symbol=str(first_snapshot.get("symbol") or ""),
+            combo=str(first_snapshot.get("combo") or ""),
+            phase=phase,
+            direction=direction,
+            eligible_htf_age_bars=eligible_htf_age_bars,
+            eligible_ltf_age_bars=eligible_ltf_age_bars,
+            reconstruction_ok=reconstruction_ok,
+            startup_mode=startup_mode,
+            outcome=outcome,
+            episode_bars=bars,
+            trade_result=first_trade_result,
+        )
+
+    def _bar_from_snapshot(self, snapshot: dict[str, Any]) -> dict[str, Any] | None:
+        bars = snapshot.get("lower_bars") or snapshot.get("bars") or []
+        return bars[-1] if bars else None

@@ -192,9 +192,10 @@ class PhaseAShadow:
     """Internal Phase A sub-node memory for A.watch.
 
     Carries commitment pointers only per shadow invariant.
-    Exception: commitment_extreme_level is read from b_shadow (fixed at B entry).
     """
     entered_at: str | None = None
+    commitment_extreme_level: float | None = None
+    watch_range_extreme: float | None = None
     pro_attempt_weaken: bool = False
     pro_attempt_weaken_at: str | None = None
     pro_extreme_at_weaken: float | None = None
@@ -204,6 +205,8 @@ class PhaseAShadow:
 
     def reset(self) -> None:
         self.entered_at = None
+        self.commitment_extreme_level = None
+        self.watch_range_extreme = None
         self.pro_attempt_weaken = False
         self.pro_attempt_weaken_at = None
         self.pro_extreme_at_weaken = None
@@ -635,12 +638,46 @@ class HypothesisClassifier:
                         a_shadow.pro_extreme_at_weaken = (
                             float(_pro_extreme_raw) if _pro_extreme_raw is not None else None
                         )
+                        _watch_extreme_raw = (
+                            ltf.get("range_low") if direction == "long"
+                            else ltf.get("range_high")
+                        ) if ltf else None
+                        a_shadow.watch_range_extreme = (
+                            float(_watch_extreme_raw)
+                            if _watch_extreme_raw is not None
+                            else None
+                        )
+                        debug["phase_a_shadow_pro_attempt_weaken"] = a_shadow.pro_attempt_weaken
+                        debug["phase_a_shadow_pro_attempt_weaken_at"] = a_shadow.pro_attempt_weaken_at
+                        debug["phase_a_shadow_pro_extreme_at_weaken"] = a_shadow.pro_extreme_at_weaken
+                        debug["phase_a_shadow_watch_range_extreme"] = a_shadow.watch_range_extreme
                         hyp = self._phase_a_watch(
                             direction, cursor_time, debug, phase_sub_status="watch_weaken"
                         )
                         return self._commit(hyp)
 
                 elif current_c_sub_a == "watch_weaken":
+                    if ltf:
+                        _watch_extreme_raw = (
+                            ltf.get("range_low") if direction == "long"
+                            else ltf.get("range_high")
+                        )
+                        if _watch_extreme_raw is not None:
+                            try:
+                                _watch_extreme = float(_watch_extreme_raw)
+                                if (
+                                    a_shadow.watch_range_extreme is None
+                                    or (
+                                        _watch_extreme < a_shadow.watch_range_extreme
+                                        if direction == "long"
+                                        else _watch_extreme > a_shadow.watch_range_extreme
+                                    )
+                                ):
+                                    a_shadow.watch_range_extreme = _watch_extreme
+                            except (TypeError, ValueError):
+                                pass
+                    debug["phase_a_shadow_watch_range_extreme"] = a_shadow.watch_range_extreme
+
                     # A.watch_weaken → C.pullback (B commitment extreme breached — B+A invalidated)
                     # current_price lives in candidate["location_context"], NOT in debug_facts
                     if _b_level is not None:
@@ -693,6 +730,18 @@ class HypothesisClassifier:
                         and _pro_extreme_advance_gate
                     ):
                         a_shadow.recover_at = cursor_time
+                        _commitment_extreme_raw = (
+                            ltf.get("range_low") if direction == "long"
+                            else ltf.get("range_high")
+                        ) if ltf else None
+                        a_shadow.commitment_extreme_level = (
+                            float(_commitment_extreme_raw)
+                            if _commitment_extreme_raw is not None
+                            else None
+                        )
+                        a_shadow.watch_range_extreme = None
+                        debug["phase_a_shadow_commitment_extreme_level"] = a_shadow.commitment_extreme_level
+                        debug["phase_a_shadow_watch_range_extreme"] = a_shadow.watch_range_extreme
                         hyp = self._phase_a_watch(
                             direction, cursor_time, debug, phase_sub_status="watch"
                         )
@@ -1145,6 +1194,18 @@ class HypothesisClassifier:
                 ):
                     a_shadow = self.state.shadow_thesis.phase_a
                     a_shadow.entered_at = cursor_time
+                    _commitment_extreme_raw = (
+                        ltf.get("range_low") if direction == "long"
+                        else ltf.get("range_high")
+                    ) if ltf else None
+                    a_shadow.commitment_extreme_level = (
+                        float(_commitment_extreme_raw)
+                        if _commitment_extreme_raw is not None
+                        else None
+                    )
+                    a_shadow.watch_range_extreme = None
+                    debug["phase_a_shadow_commitment_extreme_level"] = a_shadow.commitment_extreme_level
+                    debug["phase_a_shadow_watch_range_extreme"] = a_shadow.watch_range_extreme
                     hyp = self._phase_a_watch(
                         direction, cursor_time,
                         {
@@ -2962,6 +3023,8 @@ class HypothesisClassifier:
         s = self.state.shadow_thesis.phase_a
         return {
             "phase_a_shadow_entered_at": s.entered_at,
+            "phase_a_shadow_commitment_extreme_level": s.commitment_extreme_level,
+            "phase_a_shadow_watch_range_extreme": s.watch_range_extreme,
             "phase_a_shadow_pro_attempt_weaken": s.pro_attempt_weaken,
             "phase_a_shadow_pro_attempt_weaken_at": s.pro_attempt_weaken_at,
             "phase_a_shadow_pro_extreme_at_weaken": s.pro_extreme_at_weaken,
@@ -3077,10 +3140,34 @@ class HypothesisClassifier:
     def _commit(self, hypothesis: Hypothesis) -> Hypothesis:
         if hypothesis.phase != self.state.previous_phase and hypothesis.phase in {"E", "D", "C", "B", "A"}:
             self.state.phase_episode_id = uuid4().hex
+        debug = dict(hypothesis.debug_facts)
+        debug["phase_episode_id"] = self.state.phase_episode_id
+        debug["htf_pd_epoch_start_time"] = debug.get("htf_pd_epoch_start_time") or self._htf_epoch_start_time(debug)
+        debug["ltf_episode_anchor_time"] = debug.get("ltf_episode_anchor_time") or self._ltf_episode_anchor_time(debug)
         hypothesis.debug_facts = {
-            **hypothesis.debug_facts,
-            "phase_episode_id": self.state.phase_episode_id,
+            **debug,
         }
         self.state.previous_phase = hypothesis.phase
         self.state.current_hypothesis = hypothesis
         return hypothesis
+
+    def _htf_epoch_start_time(self, debug: dict[str, Any]) -> str | None:
+        epoch_id = debug.get("htf_pd_epoch_id")
+        if not epoch_id:
+            return None
+        parts = str(epoch_id).split("|")
+        if len(parts) >= 4 and parts[3]:
+            return parts[3]
+        return None
+
+    def _ltf_episode_anchor_time(self, debug: dict[str, Any]) -> str | None:
+        candidates = [
+            debug.get("phase_b_shadow_entered_at"),
+            debug.get("phase_a_shadow_entered_at"),
+            debug.get("phase_c_shadow_entered_at"),
+            debug.get("phase_d_shadow_watch_entered_at"),
+        ]
+        values = [str(value) for value in candidates if value]
+        if values:
+            return min(values)
+        return self._htf_epoch_start_time(debug)

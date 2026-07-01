@@ -395,6 +395,100 @@ class HypothesisPhaseBToATransitionTests(unittest.TestCase):
         self.assertFalse(
             any(key.startswith("phase_a_entry_transition_") for key in held.debug_facts)
         )
+        self.assertEqual(held.debug_facts["phase_a_shadow_commitment_extreme_level"], 1.106)
+        self.assertIsNone(held.debug_facts["phase_a_shadow_watch_range_extreme"])
+
+    def test_phase_a_watch_weaken_tracks_running_range_extreme(self):
+        classifier = HypothesisClassifier()
+        epoch_id = "2024-01-01T00:00:00+00:00|SC01|up|2024-01-01T00:00:00+00:00"
+        classifier.state.htf_pd_epoch_id = epoch_id
+        classifier.state.active_phase_e_direction = "long"
+        a_shadow = classifier.state.shadow_thesis.phase_a
+        a_shadow.entered_at = "2024-01-01T10:00:00+00:00"
+        a_shadow.pro_attempt_weaken = True
+        a_shadow.pro_attempt_weaken_at = "2024-01-01T10:30:00+00:00"
+        a_shadow.pro_extreme_at_weaken = 1.120
+        classifier._commit(  # noqa: SLF001 - focused state-machine hold regression
+            classifier._phase_a_watch(
+                "long",
+                "2024-01-01T10:30:00+00:00",
+                {"cursor_time": "2024-01-01T10:30:00+00:00", "htf_pd_epoch_id": epoch_id},
+                phase_sub_status="watch_weaken",
+            )
+        )
+
+        htf = structure("bullish", "pullback_confirmed", high=1.150, low=1.100)
+        bars = [
+            {"time": "2024-01-01T08:00:00+00:00", "open": 1.110, "high": 1.120, "low": 1.105, "close": 1.118},
+            {"time": "2024-01-01T12:00:00+00:00", "open": 1.118, "high": 1.119, "low": 1.104, "close": 1.116},
+        ]
+
+        first = classifier.classify(
+            dual_snapshot(htf, bars, ltf=structure("bullish", "open", high=1.119, low=1.104))
+        )
+        self.assertEqual(first.phase, "A")
+        self.assertEqual(first.phase_sub_status, "watch_weaken")
+        self.assertEqual(first.debug_facts["phase_a_shadow_watch_range_extreme"], 1.104)
+
+        bars[-1] = {"time": "2024-01-01T12:15:00+00:00", "open": 1.116, "high": 1.118, "low": 1.103, "close": 1.115}
+        second = classifier.classify(
+            dual_snapshot(htf, bars, ltf=structure("bullish", "open", high=1.118, low=1.103))
+        )
+        self.assertEqual(second.phase, "A")
+        self.assertEqual(second.phase_sub_status, "watch_weaken")
+        self.assertEqual(second.debug_facts["phase_a_shadow_watch_range_extreme"], 1.103)
+
+    def test_phase_a_watch_to_weaken_initializes_range_extreme_for_both_directions(self):
+        for direction, bias, htf_high, htf_low, range_low, range_high, expected in [
+            ("long", "bullish", 1.150, 1.100, 1.104, 1.119, 1.104),
+            ("short", "bearish", 1.200, 1.000, 1.101, 1.116, 1.116),
+        ]:
+            with self.subTest(direction=direction):
+                classifier = HypothesisClassifier()
+                break_direction = "up" if direction == "long" else "down"
+                event_code = "SC01" if direction == "long" else "SC02"
+                epoch_id = (
+                    f"2024-01-01T00:00:00+00:00|{event_code}|{break_direction}|"
+                    "2024-01-01T00:00:00+00:00"
+                )
+                classifier.state.htf_pd_epoch_id = epoch_id
+                classifier.state.active_phase_e_direction = direction
+                classifier.state.shadow_thesis.phase_a.entered_at = "2024-01-01T10:00:00+00:00"
+                classifier._commit(  # noqa: SLF001 - focused state-machine transition regression
+                    classifier._phase_a_watch(
+                        direction,
+                        "2024-01-01T10:00:00+00:00",
+                        {"cursor_time": "2024-01-01T10:00:00+00:00", "htf_pd_epoch_id": epoch_id},
+                        phase_sub_status="watch",
+                    )
+                )
+
+                htf = structure(bias, "pullback_confirmed", high=htf_high, low=htf_low)
+                ltf = structure(bias, "open", high=range_high, low=range_low)
+                payload = dual_snapshot(
+                    htf,
+                    [
+                        {"time": "2024-01-01T08:00:00+00:00", "open": 1.110, "high": 1.120, "low": 1.105, "close": 1.118},
+                        {"time": "2024-01-01T12:00:00+00:00", "open": 1.118, "high": range_high, "low": range_low, "close": 1.116},
+                    ],
+                    ltf=ltf,
+                )
+                payload["evidence_candidates"] = [
+                    ec_candidate(
+                        "phase_e_context",
+                        direction=direction,
+                        debug_facts={
+                            "ltf_counter_orderflow_mss_watch": True,
+                            "ltf_counter_orderflow_started_at": "2024-01-01T11:00:00+00:00",
+                        },
+                    )
+                ]
+
+                hyp = classifier.classify(payload)
+
+                self.assertEqual(hyp.phase, "A")
+                self.assertEqual(hyp.phase_sub_status, "watch_weaken")
+                self.assertEqual(hyp.debug_facts["phase_a_shadow_watch_range_extreme"], expected)
 
 
 class HypothesisPathCTransitionTests(unittest.TestCase):

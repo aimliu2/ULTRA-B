@@ -23,7 +23,7 @@ def _d_watch_bar(*, close: float = 1.2000, range_high: float = 1.2018) -> dict:
     SL = watch_range_extreme + 2 pips; max_sl_pips gate rejects fast flush.
     For range_high=1.2018 and close=1.2000: sl=1.2020, risk=20 pips, RR≥1.75.
     For range_high=1.2003: sl=1.2015 (min floor), risk=15 pips.
-    For close=1.1970: risk=50 pips > 25 → SkipIntent (stale).
+    For close=1.1970: risk=50 pips > 25 → SkipIntent (SL_too_wide, non-stale).
     """
     return {
         "symbol": "EURUSD",
@@ -433,17 +433,18 @@ def test_make_intent_no_longer_emits_risk_too_tight_skip():
     assert intent.skip_reason is None
 
 
-def test_phase_d_late_entry_is_skipped_and_marked_stale_once():
+def test_phase_d_sl_too_wide_is_non_stale_and_retryable():
     engine = _engine()
     # close at 1.1970 → SL = 1.2020 (watch_extreme 1.2018 + 2 pips), risk = 50 pips > 25 → skip
     skip = engine.evaluate(_d_watch_bar(close=1.1970))
-    # same opportunity_key (same choch event_id) → stale → None
+    # Same opportunity_key is not stale-marked; it may retry until trigger age-out.
     repeat = engine.evaluate(_d_watch_bar(close=1.1970))
 
     assert isinstance(skip, SkipIntent)
-    assert skip.skip_reason == "late_entry_risk_too_wide"
-    assert skip.stale_marked is True
-    assert repeat is None
+    assert skip.skip_reason == "SL_too_wide"
+    assert skip.stale_marked is False
+    assert isinstance(repeat, SkipIntent)
+    assert repeat.skip_reason == "SL_too_wide"
 
 
 def test_layer6_uses_loss_first_when_bar_hits_stop_and_target():
@@ -516,6 +517,6 @@ def test_epoch_summary_counts_chances_outcomes_and_evidence_frequency():
             "evidence_htf_sd_zone": 0,
             "evidence_watch_extreme": 2,
             "trigger_D_watch_pathA": 2,
-            "late_entry_risk_too_wide": 1,
+            "SL_too_wide": 1,
         }
     ]

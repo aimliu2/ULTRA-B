@@ -1,0 +1,579 @@
+<!-- source: MEMORY.md 2026-06-30 — Phase A SL/TP FINAL
+     source: docs/501-entry-details.html (per-phase TP/SL reference)
+     algo:   src/ultrab/core/smc/hypothesis.py (PhaseAShadow, PhaseBShadow, PhaseDShadow)
+     contract: .claude/layer5-entry-contract.md -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>502 · TP/SL Methods</title>
+
+<link rel="stylesheet" href="../assets/katex/katex.min.css">
+<script defer src="../assets/katex/katex.min.js"></script>
+<script defer src="../assets/katex/contrib/auto-render.min.js"
+        onload="renderMathInElement(document.body, {delimiters:[
+          {left:'$$',right:'$$',display:true},
+          {left:'$',right:'$',display:false}
+        ]})"></script>
+
+<style>
+  :root {
+    --bg:        #FAF9F5;
+    --surface:   #ffffff;
+    --border:    #D1CFC5;
+    --accent:    #D97757;
+    --accent2:   #788C5D;
+    --text:      #3D3D3A;
+    --text-dim:  #87867F;
+    --text-head: #141413;
+    --tag-bg:    #E3DACC;
+    --oat:       #E3DACC;
+    --gray-150:  #F0EEE6;
+    --serif: ui-serif, Georgia, "Times New Roman", serif;
+    --sans:  system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono:  ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+    padding: 56px 24px 120px;
+  }
+  .page {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 52px;
+  }
+  @media (max-width: 920px) { .page { grid-template-columns: 1fr; } nav { display: none; } }
+
+  nav {
+    position: sticky;
+    top: 32px;
+    align-self: start;
+    font-size: 13px;
+  }
+  nav .label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  nav a {
+    display: block;
+    padding: 5px 0 5px 12px;
+    border-left: 2px solid var(--border);
+    color: var(--text);
+    text-decoration: none;
+    transition: color 120ms, border-color 120ms;
+  }
+  nav a:hover { color: var(--text-head); border-color: var(--text-head); }
+  nav a.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  nav a.l2 { padding-left: 24px; font-size: 12.5px; color: var(--text-dim); }
+  nav .files {
+    margin-top: 28px;
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+  }
+  nav .files code {
+    display: block;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 0;
+  }
+
+  header { margin-bottom: 12px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 32px;
+    color: var(--text-head);
+    letter-spacing: -0.01em;
+    margin-bottom: 14px;
+  }
+  .tldr {
+    border: 1.5px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 16px 18px;
+    margin-bottom: 8px;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .tldr b { color: var(--text-head); }
+  .panel-link {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--accent);
+    text-decoration: none;
+    font-family: system-ui, -apple-system, sans-serif;
+    border-bottom: 1px solid transparent;
+  }
+  .panel-link:hover { border-bottom-color: var(--accent); }
+
+  h2 {
+    font-family: var(--serif);
+    font-weight: 500;
+    font-size: 22px;
+    color: var(--text-head);
+    margin: 48px 0 14px;
+    scroll-margin-top: 24px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  h2 .sec-num {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text-dim);
+    font-weight: 400;
+  }
+  h3 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 16px;
+    color: var(--text-head);
+    margin: 28px 0 8px;
+    scroll-margin-top: 24px;
+  }
+  p { margin-bottom: 12px; max-width: 680px; }
+  code {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--gray-150);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+
+  details {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    margin: 14px 0;
+    overflow: hidden;
+    max-width: 700px;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 13px 16px;
+    font-family: var(--serif);
+    font-size: 16px;
+    color: var(--text-head);
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: ">";
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    transition: transform 120ms;
+    flex-shrink: 0;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .where {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  details .body { padding: 4px 16px 16px; }
+  details .body p { font-size: 14px; }
+
+  pre.block {
+    background: var(--gray-150);
+    border: 1.5px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    line-height: 1.65;
+    color: var(--text);
+    overflow-x: auto;
+    white-space: pre;
+    max-width: 700px;
+    margin: 14px 0;
+  }
+
+  .rule-block {
+    margin: 18px 0;
+    padding: 11px 16px;
+    background: var(--gray-150);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.7;
+    font-style: italic;
+    max-width: 660px;
+  }
+  .callout {
+    display: flex;
+    gap: 12px;
+    border: 1.5px solid var(--oat);
+    background: rgba(227,218,204,0.35);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin: 16px 0;
+    font-size: 14px;
+    max-width: 680px;
+  }
+  .callout .ico { color: var(--accent); font-weight: 700; flex-shrink: 0; }
+  .issue-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 700px;
+    margin: 16px 0;
+  }
+  @media (max-width: 640px) { .issue-grid { grid-template-columns: 1fr; } }
+  .issue-card {
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+  .issue-card .issue-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .issue-card p { max-width: 100%; margin: 0; font-size: 13px; line-height: 1.6; }
+  .katex-display { margin: 18px 0; max-width: 680px; overflow-x: auto; }
+  .hl  { color: var(--accent); }
+  .hl2 { color: var(--accent2); }
+  .cm  { color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="page">
+  <nav>
+    <div class="label">On this page</div>
+    <a href="#tldr">TL;DR</a>
+    <a href="#overview">00 SL Method Overview</a>
+    <a href="#ote-sl">01 OTE SL — commitment_extreme_level</a>
+    <a href="#ex-sl">02 EX SL — watch_range_extreme</a>
+    <a href="#sl-apply">03 SL Application</a>
+    <a href="#band">04 Global SL Band Rules</a>
+    <a href="#per-phase">05 Per-Phase TP/SL Reference</a>
+    <a class="l2" href="#phase-d-tpsl">Phase D</a>
+    <a class="l2" href="#phase-b-tpsl">Phase B</a>
+    <a class="l2" href="#phase-a-tpsl">Phase A</a>
+    <a class="l2" href="#phase-c-tpsl">Phase C (pending)</a>
+    <a href="#issues">06 Issues</a>
+    <div class="files">
+      <div class="label">Sources</div>
+      <code>MEMORY.md 2026-06-30</code>
+      <code>core/smc/hypothesis.py</code>
+      <code>docs/501-entry-details.html</code>
+      <code>.claude/layer5-entry-contract.md</code>
+    </div>
+  </nav>
+
+  <main>
+    <header>
+      <div class="eyebrow">Layer 5 · Trade Geometry</div>
+      <h1>502 — Per-Phase TP/SL Methods</h1>
+      <div class="tldr" id="tldr">
+        <b>TL;DR</b> — Two SL families. <b>OTE.entry</b> uses <code>commitment_extreme_level</code> — a Shadow Thesis snap of <code>lower_structure.range_low/high</code> at the watch-phase open; owner is <code>hypothesis.py</code>, not EC. <b>EX.entry</b> uses <code>watch_range_extreme</code> — a Shadow Thesis running extreme tracked bar-by-bar from the watch period open (<code>range_high</code> for short trade / <code>range_low</code> for long trade). Global SL band 15–25 pips (EURUSD): floor widens to 15, cap above 25 rejects without spending budget. <b>TP</b>: Phase D targets <code>pd_midpoint</code> (50% HTF PD range). Phase B and A target the 90% objective-progress level capped at 2.5R. Phase C is pending.
+      </div>
+      <a class="panel-link" href="./501-entry-details.html">→ 501 Entry Details (phases, budgets, triggers)</a>
+    </header>
+
+    <h2 id="overview"><span class="sec-num">00</span> SL Method Overview</h2>
+    <p>
+      Each active entry path reads its SL anchor from a Shadow Thesis field in <code>debug_facts</code>. There are two families: a one-time snap (<code>commitment_extreme_level</code>) used by OTE.entry, and a running extremum (<code>watch_range_extreme</code>) used by EX.entry.
+    </p>
+
+    <pre class="block">Phase          Path              Entry type   SL field                              Shadow owner
+────────────   ───────────────   ──────────   ───────────────────────────────────   ─────────────
+D.watch        D.watch_pathA     EX           phase_d_shadow_watch_range_extreme    PhaseDShadow
+B.watch        B.watch_pathA/B   OTE          phase_b_shadow_commitment_extreme_level PhaseBShadow
+A.watch        A.watch_pathA     OTE          phase_a_shadow_commitment_extreme_level PhaseAShadow
+A.watch_wk     A.watch_weaken_ex EX           phase_a_shadow_watch_range_extreme    PhaseAShadow
+C.pullback     C.pullback_pathA  OTE          phase_c_shadow_commitment_extreme_level (pending)
+C.pullback_wk  C.pullback_wk_ex  EX           — (pending)                           —</pre>
+
+    <div class="rule-block">
+      All SL anchors are Shadow Thesis fields emitted into <code>debug_facts</code>. Layer 5 reads a scalar — it does not scan events or compute extremes itself.
+    </div>
+
+    <h2 id="ote-sl"><span class="sec-num">01</span> OTE SL — commitment_extreme_level (Shadow Thesis snap)</h2>
+    <p>
+      <code>commitment_extreme_level</code> is a snapshot of <code>lower_structure.range_low</code> (long trade) or <code>lower_structure.range_high</code> (short trade) taken at watch-phase open. It is a Shadow Thesis field maintained by <code>hypothesis.py</code> — not an EC scan of internal structure events.
+    </p>
+
+<pre class="block">source:
+  lower_structure.range_low  (long trade  — SL below entry)
+  lower_structure.range_high (short trade — SL above entry)
+
+PhaseBShadow:
+  snap point: C→B transition bar (single snap, never updated during B.watch hold)
+  debug_facts key: phase_b_shadow_commitment_extreme_level
+
+PhaseAShadow:
+  snap point: every A.watch open:
+    1. initial B→A transition
+    2. A.watch_weaken → A.watch recovery
+    3. advance gate re-arm (after pro_extreme_at_weaken advances past last OTE level)
+  debug_facts key: phase_a_shadow_commitment_extreme_level
+  note: LTF ratchet ensures range_low deepens / range_high rises on each episode open
+
+PhaseCshadow (pending):
+  snap point: C.pullback entry bar
+  debug_facts key: phase_c_shadow_commitment_extreme_level</pre>
+
+    <div class="rule-block">
+      This is the same snap mechanism for all three phases — read <code>lower_structure</code> at the phase-open event and lock the value. No window scan, no EC function call, no internal event iteration.
+    </div>
+
+    <details>
+      <summary>Why not an EC scan <span class="where">design note</span></summary>
+      <div class="body">
+        <p>An earlier design computed <code>commitment_extreme_level</code> by scanning <code>internal_structure_sequence</code> events between two timestamps (counter iChoCh → pro iChoCh) looking for the deepest <code>levelPrice</code>. That approach was abandoned because:</p>
+        <ul style="padding-left:18px; font-size:14px; line-height:1.8;">
+          <li>The snap-at-open mechanism is simpler and already used for PhaseBShadow — no new EC function needed.</li>
+          <li><code>lower_structure.range_low/high</code> is a wick-level bar extreme, which gives a more conservative (wider) anchor than a close-through <code>levelPrice</code>.</li>
+          <li>LTF ratchet guarantees the snap deepens on each episode, so re-snapping at every A.watch open is always at least as conservative as a single B→A snap.</li>
+        </ul>
+      </div>
+    </details>
+
+    <h2 id="ex-sl"><span class="sec-num">02</span> EX SL — watch_range_extreme (Shadow Thesis running extreme)</h2>
+    <p>
+      <code>watch_range_extreme</code> is a running extremum tracked bar-by-bar during the watch period. Updated by <code>hypothesis.py</code> on each hold bar; stops tracking when the phase exits. Identical mechanism for Phase D and Phase A.watch_weaken.
+    </p>
+
+<pre class="block">PhaseDShadow.watch_range_extreme:
+  tracked from: D.watch open
+  tracked until: D→C transition
+  long HTF (short trade):  running max of lower_structure.range_high (SL above entry)
+  short HTF (long trade):  running min of lower_structure.range_low  (SL below entry)
+  debug_facts key: phase_d_shadow_watch_range_extreme
+
+PhaseAShadow.watch_range_extreme:
+  tracked from: A.watch_weaken open
+  tracked until: exit from A.watch_weaken (→ C.pullback or → A.watch recovery)
+  long HTF (long trade):   running min of lower_structure.range_low  (SL below entry)
+  short HTF (short trade): running max of lower_structure.range_high (SL above entry)
+  debug_facts key: phase_a_shadow_watch_range_extreme
+
+PhaseCshadow EX (pending):
+  tracked from: C.pullback_weaken open
+  source anchor: D.watch range_extreme tentatively — pending confirmation</pre>
+
+    <div class="rule-block">
+      <code>watch_range_extreme</code> for EX.entry is not clamped against <code>commitment_extreme_level</code>. The two anchors are independent. EX.entry uses only <code>watch_range_extreme</code>.
+    </div>
+
+    <h2 id="sl-apply"><span class="sec-num">03</span> SL Application</h2>
+    <p>Once the anchor is known, the SL price is anchor ± buffer.</p>
+
+    $$
+      SL_{\text{long}}  = \text{anchor} - \text{sl\_buffer\_pips} \times \text{pip\_size}
+      \qquad
+      SL_{\text{short}} = \text{anchor} + \text{sl\_buffer\_pips} \times \text{pip\_size}
+    $$
+
+    <pre class="block">sl_pips = |entry_price - sl_raw| / pip_size</pre>
+
+    <p>After computing <code>sl_raw</code>, the global SL band rules below apply.</p>
+
+    <h2 id="band"><span class="sec-num">04</span> Global SL Band Rules (EURUSD)</h2>
+    <p>
+      These rules apply to every entry slot regardless of phase or entry type. The band is a property of the instrument, configured in <code>config.yaml asset_geometry</code>.
+    </p>
+
+    <details open>
+      <summary>Rule 1 — Floor: sl_pips &lt; 15 → widen to minimum <span class="where">non-stale, no budget spend</span></summary>
+      <div class="body">
+        <p>If the computed SL is closer than 15 pips to entry, automatically widen it outward to exactly 15 pips. The trade proceeds with the floored SL. Does not consume budget on its own — budget is consumed only if the resulting <code>EntryIntent</code> fires.</p>
+        <pre class="block">sl_price = entry ∓ min_sl_pips × pip_size   (long: minus, short: plus)</pre>
+      </div>
+    </details>
+
+    <details open>
+      <summary>Rule 2 — Cap: sl_pips &gt; 25 → reject, do not wind down <span class="where">SL_too_wide, no budget spend</span></summary>
+      <div class="body">
+        <p>If the computed SL exceeds 25 pips, the trade idea is rejected. The SL is <em>not</em> wound down to 25 — the anchor is what it is and the setup is geometrically invalid at this moment.</p>
+        <pre class="block">return SkipIntent(reason="SL_too_wide", stale=False)
+<span class="cm"># budget NOT consumed — geometry failure ≠ trade placed</span></pre>
+        <p>For EX slots, the dedup guard (<code>_a_watch_ex_fired</code>) seals the EX slot after the first stale rejection regardless of budget state. For OTE slots, the engine rechecks geometry on the next valid trigger sequence.</p>
+      </div>
+    </details>
+
+    <details>
+      <summary>Rule 3 — runway_too_short does not consume budget <span class="where">non-stale retry</span></summary>
+      <div class="body">
+        <p>A <code>runway_too_short</code> (rr &lt; 1.75) rejection is non-stale. The trigger event may retry while within <code>max_trigger_age_bars</code>. Budget is only consumed when an <code>EntryIntent</code> actually fires.</p>
+      </div>
+    </details>
+
+    <div class="rule-block">
+      Budget is consumed by trades placed, not by geometry checks. Floor (Rule 1) widens and enters. Cap (Rule 2) rejects without spending budget. Both are non-stale — the DAG and dedup guards own phase termination, not the SL band.
+    </div>
+
+    <h2 id="per-phase"><span class="sec-num">05</span> Per-Phase TP/SL Reference</h2>
+    <p>
+      TP formulas and SL shadow fields for each active path. Phase C is pending implementation; its rows are included for completeness.
+    </p>
+
+    <h3 id="phase-d-tpsl">Phase D</h3>
+
+    <pre class="block">D.watch_pathA (EX.entry):
+  trade_direction = opposite of direction  ← counter-HTF (short in bullish HTF)
+  SL = phase_d_shadow_watch_range_extreme ± sl_buffer_pips
+       ← running max of lower_structure.range_high during D.watch hold (short trade)
+       ← running min of lower_structure.range_low during D.watch hold (long trade)
+       !! floor: sl_pips &lt; 15 → widen outward to 15 pips
+       !! cap:   sl_pips &gt; 25 → SL_too_wide (stale=False); no budget consumed; trigger re-evaluates until age-out
+  TP  = higher_structure.pd_midpoint   ← 50% of active HTF PD range
+  RR gate: rr &lt; 1.75 → runway_too_short (retryable); rr ≥ 1.75 → take
+  evidence_kind = "watch_extreme"</pre>
+
+    <h3 id="phase-b-tpsl">Phase B</h3>
+
+    <pre class="block">B.watch_pathA / B.watch_pathB (OTE.entry):
+  trade_direction = direction  ← pro-HTF (long in bullish HTF)
+  SL = phase_b_shadow_commitment_extreme_level ± sl_buffer_pips
+       ← lower_structure.range_low  snapped at C→B bar (long trade)
+       ← lower_structure.range_high snapped at C→B bar (short trade)
+       ← locked for the entire B.watch episode; never updated during hold
+       !! floor: sl_pips &lt; 15 → widen outward
+       !! cap:   sl_pips &gt; 25 → SL_too_wide (stale=False); episode not consumed; trigger re-evaluates until age-out
+  TP  = min(progress_pips, 2.5 × sl_pips) toward 90% HTF objective level
+        progress_level = pd_low  + 0.90 × span  (long)
+                       = pd_high − 0.90 × span  (short)
+        tp_pips = min(|progress_level − entry|, 2.5 × sl_pips) / pip_size
+  RR gate: rr &lt; 1.75 → runway_too_short (retryable); rr ≥ 1.75 → take
+  evidence_kind = "b_watch_commitment"
+  htf_sd_zone_tapped: analysis tag only — not an entry gate</pre>
+
+    <h3 id="phase-a-tpsl">Phase A</h3>
+
+    <pre class="block">A.watch_pathA (OTE.entry):
+  trade_direction = direction  ← pro-HTF
+  SL = phase_a_shadow_commitment_extreme_level ± sl_buffer_pips
+       ← lower_structure.range_low  snapped at each A.watch open (long trade)
+       ← lower_structure.range_high snapped at each A.watch open (short trade)
+       ← re-snapped: B→A, weaken→watch recovery, advance gate re-arm
+       !! floor: sl_pips &lt; 15 → widen outward
+       !! cap:   sl_pips &gt; 25 → SL_too_wide (stale=False); does not block episode; new sequence re-arms
+  TP  = same formula as Phase B (90% objective, capped at 2.5R)
+  RR gate: same 1.75 floor
+  evidence_kind = "a_watch_commitment"
+  re-arm gate (weaken-recovery path only):
+    OTE re-arms only when pro_extreme_at_weaken advances past _a_watch_last_ote_pro_extreme
+
+A.watch_weaken_ex (EX.entry):
+  trade_direction = direction  ← pro-HTF
+  SL = phase_a_shadow_watch_range_extreme ± sl_buffer_pips
+       ← running min of lower_structure.range_low  from A.watch_weaken open (long trade)
+       ← running max of lower_structure.range_high from A.watch_weaken open (short trade)
+       ← stops tracking on exit from A.watch_weaken
+       ← no clamp against commitment_extreme_level
+       !! floor / cap: same 15–25 pip band
+  TP  = same formula as Phase B
+  RR gate: same 1.75 floor
+  evidence_kind = "a_watch_ex"
+  post-trade: Layer 5 treats Phase A as exhausted (budget forced to 3); no further A entries fire.
+             Immediate DAG X.thesis_over is deferred — DAG transitions via phase_a_thesis_matured
+             (price progress). See V1 note in docs/501-entry-details.html.</pre>
+
+    <h3 id="phase-c-tpsl">Phase C (pending)</h3>
+
+    <div class="callout">
+      <span class="ico">!</span>
+      <span>Phase C implementation is deferred. SL anchor for EX.entry (C.pullback_weaken_ex) and TP formula are pending confirmation. Rows below reflect current design note only.</span>
+    </div>
+
+    <pre class="block">C.pullback_pathA (OTE.entry):
+  trade_direction = opposite of direction  ← counter-HTF
+  SL = phase_c_shadow_commitment_extreme_level ± sl_buffer_pips
+       ← lower_structure.range_high snapped at C.pullback entry bar (counter-HTF short)
+       ← lower_structure.range_low  snapped at C.pullback entry bar (counter-HTF long)
+       !! same 15–25 pip band
+  TP  = HTF SD zone target (2.0 RR → lower if zone is closer); fixed 1.5–1.75 if no zone — pending
+  evidence_kind = "c_pullback_commitment"
+
+C.pullback_weaken_ex (EX.entry):
+  trade_direction = opposite of direction  ← counter-HTF
+  SL = watch_range_extreme (D.watch or C.pullback source) — pending confirmation
+  TP  = same formula as C.pullback_pathA — pending
+  evidence_kind = "c_pullback_ex"
+  post-trade: no X.thesis_over; budget exhaustion = silent wait until new epoch</pre>
+
+    <h2 id="issues"><span class="sec-num">06</span> Issues</h2>
+    <div class="issue-grid">
+      <div class="issue-card">
+        <div class="issue-label">Completed · 2026-06-30</div>
+        <p><b>PhaseAShadow.commitment_extreme_level added.</b> <code>hypothesis.py</code> snaps the A-owned field at each A.watch open (B→A and A.watch_weaken → A.watch recovery). A.watch_pathA reads this Phase A snap, not the B-owned transition field.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Completed · 2026-06-30</div>
+        <p><b>PhaseAShadow.watch_range_extreme tracking added.</b> <code>hypothesis.py</code> tracks the running A.watch_weaken SL anchor bar-by-bar: long tracks minimum <code>range_low</code>; short tracks maximum <code>range_high</code>.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Pending</div>
+        <p><b>Phase C SL/TP formulas.</b> C.pullback_pathA TP (SD zone vs fixed fallback) and C.pullback_weaken_ex SL source (which watch_range_extreme) are pending confirmation. Phase C implementation is deferred until Phase A is verified.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Out of Scope</div>
+        <p><b>Wick-level vs close-through anchor.</b> <code>lower_structure.range_low/high</code> is a wick-level bar extreme. The earlier EC scan approach used <code>levelPrice</code> (close-confirmed structural break price). Current design uses wick-level — it gives a wider, more conservative anchor. Re-evaluating anchor tightness is deferred to post null-case backtest.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Deferred</div>
+        <p><b>Daily ATR shape target.</b> A future Layer 6 extension may replace fixed-formula TP with a Daily ATR fraction target per asset. Current: <code>enabled: false</code> in config. Pending post-backtest review.</p>
+      </div>
+      <div class="issue-card">
+        <div class="issue-label">Archived</div>
+        <p><b>EC scan approach removed.</b> An earlier design computed commitment_extreme by scanning <code>internal_structure_sequence</code> events between two timestamps using a <code>_commitment_extreme_level()</code> helper in <code>evidence_compiler.py</code>. That function and its caller were removed. Shadow Thesis snap is the canonical mechanism.</p>
+      </div>
+    </div>
+  </main>
+</div>
+
+<script>
+const sections = document.querySelectorAll("h2[id], h3[id]");
+const navLinks = document.querySelectorAll("nav a[href^='#']");
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      navLinks.forEach(a => a.classList.remove("active"));
+      const match = document.querySelector(`nav a[href="#${e.target.id}"]`);
+      if (match) match.classList.add("active");
+    }
+  });
+}, { rootMargin: "-20% 0px -70% 0px" });
+sections.forEach(s => observer.observe(s));
+</script>
+</body>
+</html>

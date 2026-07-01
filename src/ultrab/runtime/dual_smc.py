@@ -28,6 +28,7 @@ from ultrab.replayer.data_source import (
     load_full_ohlc,
     timeframe_label,
 )
+from ultrab.replayer.warmup_trace import WarmupTrace
 from ultrab.runtime.environment import RuntimeEnvironment
 
 
@@ -46,6 +47,9 @@ class RuntimeStepResult:
     cursor_time: str | None
     done: bool
     new_events: tuple[RuntimeEmittedEvent, ...] = ()
+
+
+VALID_STARTUP_MODES = {"right_edge_rebuild", "legacy_window_remainder"}
 
 
 def _serialize_bar(bar_index: int, ts: pd.Timestamp, row: pd.Series) -> dict[str, Any]:
@@ -167,6 +171,7 @@ class DualSmcRuntime:
         combo_name: str,
         start_time: str | None = None,
         saved_shadow_state: dict[str, Any] | None = None,
+        startup_mode: str | None = None,
     ) -> None:
         self.session_id = uuid4().hex
         self.config_path = str(config_path)
@@ -187,7 +192,14 @@ class DualSmcRuntime:
             if isinstance(self.replay_config.get("hypothesis"), dict)
             else {}
         )
-        self.hypothesis_bootstrap_bars = self._resolve_hypothesis_bootstrap_bars()
+        self.startup_mode = self._resolve_startup_mode(startup_mode)
+        self.trace_warmup = bool(self.hypothesis_config.get("trace_warmup", False))
+        self.warmup_trace = WarmupTrace() if self.trace_warmup else None
+        self.hypothesis_bootstrap_bars = (
+            self._resolve_hypothesis_bootstrap_bars()
+            if self.startup_mode == "legacy_window_remainder"
+            else 0
+        )
         self._startup_saved_shadow_state = saved_shadow_state
         self._last_saved_phase: str | None = None
         self.restart_diagnostics: dict[str, Any] = {
@@ -200,6 +212,13 @@ class DualSmcRuntime:
             "relocation_attempted": False,
             "relocation_selected_node": None,
             "relocation_candidate_rejections": {},
+            "startup_mode": self.startup_mode,
+            "probe_time": None,
+            "lower_history_start_time": None,
+            "higher_history_start_time": None,
+            "layer4_bootstrap_start_time": None,
+            "layer4_bootstrap_end_time": None,
+            "restored_shadow_state": False,
         }
         self.runtime_environment = RuntimeEnvironment.from_app_config(
             self.app_config,
@@ -212,12 +231,29 @@ class DualSmcRuntime:
 
         self.lower_end_index = len(self.lower_bars) - 1
         lower_window_start_index = max(0, len(self.lower_bars) - self.lower_config.window_bars)
-        self.lower_start_index = self._resolve_index(self.lower_bars, start_time, lower_window_start_index)
-        self.higher_start_index = self._resolve_index(
-            self.higher_bars,
-            self.lower_bars.index[self.lower_start_index].isoformat(),
-            0,
-        )
+        self.probe_lower_index = self._resolve_index(self.lower_bars, start_time, lower_window_start_index)
+        self.lower_start_index = self.probe_lower_index
+        probe_time = self.lower_bars.index[self.probe_lower_index].isoformat()
+        if self.startup_mode == "right_edge_rebuild":
+            self.higher_probe_index = self._resolve_floor_index(self.higher_bars, probe_time, 0)
+            self.higher_history_start_index = max(
+                0,
+                self.higher_probe_index - int(self.higher_config.window_bars) + 1,
+            )
+            self.higher_start_index = self.higher_probe_index
+            lower_window_history_start = max(0, self.probe_lower_index - int(self.lower_config.window_bars) + 1)
+            higher_history_time = self.higher_bars.index[self.higher_history_start_index].isoformat()
+            htf_aligned_lower_start = self._resolve_index(
+                self.lower_bars,
+                higher_history_time,
+                lower_window_history_start,
+            )
+            self.lower_history_start_index = min(lower_window_history_start, htf_aligned_lower_start)
+        else:
+            self.lower_history_start_index = self.lower_start_index
+            self.higher_start_index = self._resolve_index(self.higher_bars, probe_time, 0)
+            self.higher_probe_index = self.higher_start_index
+            self.higher_history_start_index = self.higher_start_index
 
         self.lower_candle = None
         self.higher_candle = None
@@ -250,6 +286,13 @@ class DualSmcRuntime:
             "relocation_attempted": False,
             "relocation_selected_node": None,
             "relocation_candidate_rejections": {},
+            "startup_mode": self.startup_mode,
+            "probe_time": None,
+            "lower_history_start_time": None,
+            "higher_history_start_time": None,
+            "layer4_bootstrap_start_time": None,
+            "layer4_bootstrap_end_time": None,
+            "restored_shadow_state": False,
         }
         self.current_lower_index = self.lower_start_index - 1
         self.current_higher_index = self.higher_start_index - 1
@@ -265,6 +308,7 @@ class DualSmcRuntime:
         self._last_hypothesis_lower_index = None
         self._last_hypothesis_payload = None
         self._last_saved_phase = None
+        self.warmup_trace = WarmupTrace() if self.trace_warmup else None
         self._init_engines()
 
     def step(self) -> RuntimeStepResult:
@@ -302,7 +346,10 @@ class DualSmcRuntime:
         lower_structure = self.lower_structure.get_snapshot(lower_price) if self.lower_structure else None
         higher_structure = self.higher_structure.get_snapshot(higher_price) if self.higher_structure else None
         lower_orderflow = (
-            self.lower_orderflow.snapshot(lower_structure, evaluated_at=self.current_time_iso())
+            self.lower_orderflow.snapshot(
+                lower_structure,
+                evaluated_at=self._current_time_iso(include_hidden=include_hidden),
+            )
             if self.lower_orderflow
             else {}
         )
@@ -408,13 +455,21 @@ class DualSmcRuntime:
         ):
             self._last_hypothesis_payload = self.hypothesis_classifier.classify(payload).to_dict()
             self._last_hypothesis_lower_index = self.current_lower_index
-            if self.hypothesis_config.get("persist_shadow_state"):
-                current = self.hypothesis_classifier.state.current_hypothesis
-                new_phase = current.phase if current is not None else None
-                if new_phase != self._last_saved_phase:
-                    self.save_shadow_state()
-                    self._last_saved_phase = new_phase
+            self._maybe_persist_shadow_state()
+        else:
+            self._maybe_persist_shadow_state()
         return self._last_hypothesis_payload
+
+    def _maybe_persist_shadow_state(self) -> None:
+        if not self.hypothesis_config.get("persist_shadow_state"):
+            return
+        if self.hypothesis_classifier is None:
+            return
+        current = self.hypothesis_classifier.state.current_hypothesis
+        new_phase = current.phase if current is not None else None
+        if new_phase != self._last_saved_phase:
+            self.save_shadow_state()
+            self._last_saved_phase = new_phase
 
     def metadata(self) -> dict[str, Any]:
         return {
@@ -428,6 +483,10 @@ class DualSmcRuntime:
             "data_start_time": self.lower_bars.index[0].isoformat(),
             "data_end_time": self.lower_bars.index[-1].isoformat(),
             "default_start_time": self.lower_bars.index[self.lower_start_index].isoformat(),
+            "startup_mode": self.startup_mode,
+            "probe_time": self.lower_bars.index[self.probe_lower_index].isoformat(),
+            "lower_history_start_time": self.lower_bars.index[self.lower_history_start_index].isoformat(),
+            "higher_history_start_time": self.higher_bars.index[self.higher_history_start_index].isoformat(),
             "warmup_bars": self.warmup_bars,
             "runtime_environment": self.runtime_environment_metadata(),
         }
@@ -439,6 +498,13 @@ class DualSmcRuntime:
         metadata.update(
             {
                 "requested_start_time": self.requested_start_time,
+                "startup_mode": self.startup_mode,
+                "probe_time": self.lower_bars.index[self.probe_lower_index].isoformat(),
+                "lower_history_start_time": self.lower_bars.index[self.lower_history_start_index].isoformat(),
+                "higher_history_start_time": self.higher_bars.index[self.higher_history_start_index].isoformat(),
+                "layer4_bootstrap_start_time": self.restart_diagnostics.get("layer4_bootstrap_start_time"),
+                "layer4_bootstrap_end_time": self.restart_diagnostics.get("layer4_bootstrap_end_time"),
+                "restored_shadow_state": bool(self.restart_diagnostics.get("restored_shadow_state")),
                 "hypothesis_state_start_time": self.lower_bars.index[self.lower_start_index].isoformat(),
                 "hypothesis_bootstrap_bars": self.hypothesis_bootstrap_bars,
                 "hypothesis_bootstrap_start_time": (
@@ -529,14 +595,18 @@ class DualSmcRuntime:
         self.hypothesis_classifier.state = state
         self._last_hypothesis_lower_index = None
         self._last_hypothesis_payload = None
-        self.restart_diagnostics.update(
-            {
-                "recovery_mode": "resume_saved_journal",
-                "restore_reject_reason": None,
-                "bootstrap_success": False,
-                "bootstrap_bars_used": 0,
-            }
-        )
+        update = {
+            "recovery_mode": "resume_saved_journal",
+            "restore_reject_reason": None,
+        }
+        if self.startup_mode != "right_edge_rebuild":
+            update.update(
+                {
+                    "bootstrap_success": False,
+                    "bootstrap_bars_used": 0,
+                }
+            )
+        self.restart_diagnostics.update(update)
         return True
 
     def _restore_reject_reason(self, saved: dict[str, Any]) -> str | None:
@@ -637,10 +707,44 @@ class DualSmcRuntime:
         idx = min(idx, len(bars) - 1)
         return idx
 
+    def _resolve_floor_index(
+        self,
+        bars: pd.DataFrame,
+        target_time: str | None,
+        default_index: int,
+    ) -> int:
+        if not target_time:
+            return default_index
+        target_ts = pd.Timestamp(target_time)
+        if target_ts.tzinfo is None:
+            target_ts = target_ts.tz_localize("UTC")
+        else:
+            target_ts = target_ts.tz_convert("UTC")
+        idx = int(bars.index.searchsorted(target_ts, side="right")) - 1
+        idx = max(0, idx)
+        idx = min(idx, len(bars) - 1)
+        return idx
+
+    def _resolve_startup_mode(self, startup_mode: str | None) -> str:
+        raw = startup_mode
+        if raw is None:
+            raw = self.hypothesis_config.get("startup_mode", "right_edge_rebuild")
+        mode = str(raw or "right_edge_rebuild").strip().lower()
+        if mode not in VALID_STARTUP_MODES:
+            raise ValueError(
+                "replay.hypothesis.startup_mode must be one of "
+                f"{sorted(VALID_STARTUP_MODES)}, got {mode!r}"
+            )
+        return mode
+
     def _init_engines(self) -> None:
         self._build_engines()
         if not self.event_log_enabled:
             self.current_lower_index = self.lower_start_index - 1
+            return
+
+        if self.startup_mode == "right_edge_rebuild":
+            self._init_right_edge_rebuild()
             return
 
         saved = self._startup_saved_shadow_state or self._load_configured_shadow_state()
@@ -665,6 +769,80 @@ class DualSmcRuntime:
                 return
 
         self.restart_diagnostics["recovery_mode"] = "cold_start_no_context"
+
+    def _init_right_edge_rebuild(self) -> None:
+        if self.hypothesis_classifier is None:
+            return
+        self.current_lower_index = self.lower_history_start_index - 1
+        self.current_higher_index = self.higher_history_start_index - 1
+        self._partial_higher = None
+        self._last_lower_ce02_events = []
+        self._last_hypothesis_lower_index = None
+        self._last_hypothesis_payload = None
+        self.restart_diagnostics.update(
+            {
+                "startup_mode": self.startup_mode,
+                "probe_time": self.lower_bars.index[self.probe_lower_index].isoformat(),
+                "lower_history_start_time": self.lower_bars.index[self.lower_history_start_index].isoformat(),
+                "higher_history_start_time": self.higher_bars.index[self.higher_history_start_index].isoformat(),
+                "layer4_bootstrap_start_time": self.lower_bars.index[self.lower_history_start_index].isoformat(),
+                "layer4_bootstrap_end_time": self.lower_bars.index[self.probe_lower_index].isoformat(),
+                "bootstrap_start_time": self.lower_bars.index[self.lower_history_start_index].isoformat(),
+                "bootstrap_end_time": self.lower_bars.index[self.probe_lower_index].isoformat(),
+                "bootstrap_bars_used": 0,
+                "bootstrap_success": False,
+                "restored_shadow_state": False,
+            }
+        )
+
+        while self.current_lower_index < self.probe_lower_index:
+            self.current_lower_index += 1
+            lower_row = self.lower_bars.iloc[self.current_lower_index]
+            self._process_lower_step(lower_row)
+            payload = self.snapshot(classify=False, include_hidden=True)
+            hypothesis = self.hypothesis_classifier.classify(payload).to_dict()
+            if self.warmup_trace is not None:
+                self.warmup_trace.append(
+                    bar_time=payload.get("cursor_time"),
+                    hypothesis=hypothesis,
+                    recovery_mode=self.restart_diagnostics.get("recovery_mode"),
+                )
+            self.restart_diagnostics["bootstrap_bars_used"] += 1
+            if self.current_lower_index == self.probe_lower_index:
+                self._last_hypothesis_lower_index = self.current_lower_index
+                self._last_hypothesis_payload = hypothesis
+
+        success = self._right_edge_rebuild_succeeded()
+        self.restart_diagnostics["bootstrap_success"] = success
+        if success:
+            self.restart_diagnostics["recovery_mode"] = "right_edge_rebuild"
+        else:
+            self.restart_diagnostics["recovery_mode"] = "right_edge_rebuild_unclassified"
+
+        saved = self._startup_saved_shadow_state or self._load_configured_shadow_state()
+        if saved and self._restore_saved_shadow_state(saved):
+            self.restart_diagnostics["restored_shadow_state"] = True
+            payload = self.snapshot(classify=False, include_hidden=False)
+            self._last_hypothesis_payload = self.hypothesis_classifier.classify(payload).to_dict()
+            self._last_hypothesis_lower_index = self.current_lower_index
+        elif not success and self._relocate_hypothesis_from_terrain():
+            self._last_hypothesis_lower_index = None
+            self._last_hypothesis_payload = None
+        elif not success:
+            self.restart_diagnostics["recovery_mode"] = "cold_start_no_context"
+
+    def _right_edge_rebuild_succeeded(self) -> bool:
+        if self.hypothesis_classifier is None:
+            return False
+        current = self.hypothesis_classifier.state.current_hypothesis
+        if not (current and current.phase in {"A", "B", "C", "D", "E"}):
+            return False
+        terrain = self._current_terrain_identity()
+        terrain_epoch = terrain.get("htf_pd_epoch_id")
+        classifier_epoch = self.hypothesis_classifier.state.htf_pd_epoch_id
+        if terrain_epoch and classifier_epoch and terrain_epoch != classifier_epoch:
+            return False
+        return True
 
     def _build_engines(self) -> None:
         self.lower_candle = None

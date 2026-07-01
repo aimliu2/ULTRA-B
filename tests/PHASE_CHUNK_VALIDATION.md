@@ -118,7 +118,7 @@ rg --no-heading "D.watch_pathA|D.watch_pathB|D.watch_pathC1|D.watch_pathC2|risk_
   `C.pullback` from `D.watch_mss`.
 - `risk_too_tight` does not appear.
 - Skips are limited to expected contract reasons, currently:
-  - `late_entry_risk_too_wide`
+  - `SL_too_wide`
   - `runway_too_short`
 - Accepted entries have sane geometry:
   - `risk_pips >= 15`

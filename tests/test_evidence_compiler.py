@@ -806,6 +806,120 @@ class TestHtfCounterReaction:
         assert "ltf_counter_isb_seen" not in choch.debug_facts
         assert "ltf_counter_isb_event_at" not in choch.debug_facts
 
+    @pytest.mark.parametrize(
+        ("htf_bias", "ltf_bias", "direction", "counter_break", "pro_break", "ichoch_level", "isb_level"),
+        [
+            ("bullish", "bearish", "long", "down", "up", 1.1300, 1.1310),
+            ("bearish", "bullish", "short", "up", "down", 1.1310, 1.1300),
+        ],
+    )
+    def test_ltf_pro_ichoch_isb_sequence_accepts_direction_mirrors(
+        self,
+        htf_bias,
+        ltf_bias,
+        direction,
+        counter_break,
+        pro_break,
+        ichoch_level,
+        isb_level,
+    ):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias=htf_bias,
+                ltf_bias=ltf_bias,
+                ltf_last_isc={
+                    "structure_ichoch": True,
+                    "eventAction": "structure_ichoch",
+                    "eventCode": "SC06",
+                    "breakDirection": counter_break,
+                    "eventTimestamp": "2025-01-01T10:30:00",
+                    "levelPrice": 1.1305,
+                },
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": pro_break,
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "high" if direction == "long" else "low",
+                        "levelPrice": ichoch_level,
+                        "event_id": f"pro-ichoch-{direction}",
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": pro_break,
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "high" if direction == "long" else "low",
+                        "levelPrice": isb_level,
+                        "event_id": f"pro-isb-{direction}",
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.status == "ready"
+        assert choch.direction == direction
+        assert choch.debug_facts["ltf_pro_ichoch_isb_sequence_seen"] is True
+        assert choch.debug_facts["ltf_pro_sequence_trade_direction"] == direction
+        assert choch.debug_facts["ltf_pro_sequence_ichoch_event_id"] == f"pro-ichoch-{direction}"
+        assert choch.debug_facts["ltf_pro_sequence_isb_event_id"] == f"pro-isb-{direction}"
+        assert choch.debug_facts["ltf_pro_sequence_invalidated"] is False
+
+    def test_ltf_pro_ichoch_isb_sequence_rejects_invalid_level_shape(self):
+        ec = EvidenceCompiler()
+        candidates = ec.update(
+            _fused(
+                htf_bias="bullish",
+                ltf_bias="bearish",
+                ltf_last_isc={
+                    "structure_ichoch": True,
+                    "eventAction": "structure_ichoch",
+                    "eventCode": "SC06",
+                    "breakDirection": "down",
+                    "eventTimestamp": "2025-01-01T10:30:00",
+                    "levelPrice": 1.1305,
+                },
+                ltf_internal_structure_sequence=[
+                    {
+                        "structure_ichoch": True,
+                        "eventAction": "structure_ichoch",
+                        "eventCode": "SC06",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:00:00",
+                        "levelTimestamp": "2025-01-01T09:45:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.1310,
+                    },
+                    {
+                        "structure_isb": True,
+                        "eventAction": "structure_isb",
+                        "eventCode": "SC05",
+                        "breakDirection": "up",
+                        "eventTimestamp": "2025-01-01T10:15:00",
+                        "levelTimestamp": "2025-01-01T10:00:00",
+                        "levelSide": "high",
+                        "levelPrice": 1.1300,
+                    },
+                ],
+            ),
+            higher_bars=_htf_bars(),
+        )
+        choch = _candidate(candidates, "ltf_counter_choch")
+
+        assert choch is not None
+        assert choch.debug_facts["ltf_pro_ichoch_isb_sequence_seen"] is False
+        assert choch.debug_facts["ltf_pro_sequence_invalidated"] is True
+        assert choch.debug_facts["ltf_pro_sequence_invalid_reason"] == "isb_level_not_beyond_ichoch"
+
     def test_ltf_counter_internal_pressure_classifies_none(self):
         ec = EvidenceCompiler()
         candidates = ec.update(

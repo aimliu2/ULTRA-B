@@ -700,7 +700,7 @@
         <div class="field mode-field">
           <label for="modeSelect">Mode</label>
           <select id="modeSelect" class="mode-select-hidden" aria-label="Mode">
-            <option value="single">Single</option>
+            <option value="single" disabled>Single</option>
             <option value="dual">Dual</option>
           </select>
           <div id="modePicker" class="mode-picker">
@@ -708,7 +708,7 @@
               <img id="currentModeIcon" src="/icons/dual-mode.svg" alt="">
             </button>
             <div id="modeMenu" class="mode-menu" role="menu" aria-label="Mode">
-              <button id="singleModeBtn" class="mode-option" type="button" title="Single mode" aria-label="Single mode" role="menuitemradio" data-mode-value="single">
+              <button id="singleModeBtn" class="mode-option" type="button" title="Single mode" aria-label="Single mode" role="menuitemradio" data-mode-value="single" disabled>
                 <img src="/icons/single-mode.svg" alt="">
               </button>
               <button id="dualModeBtn" class="mode-option" type="button" title="Dual mode" aria-label="Dual mode" role="menuitemradio" data-mode-value="dual">
@@ -963,6 +963,72 @@
       }
       // ─────────────────────────────────────────────────────────────────
 
+      class WarmupTraceRenderer {
+        constructor(primitive) { this._p = primitive; }
+
+        draw(target) {
+          const records = this._p._records;
+          if (!records.length) return;
+          target.useBitmapCoordinateSpace((scope) => {
+            const ctx = scope.context;
+            const hr = scope.horizontalPixelRatio;
+            const H = scope.bitmapSize.height;
+            const colors = {
+              E: "rgba(66,165,245,0.08)",
+              D: "rgba(255,167,38,0.08)",
+              C: "rgba(171,71,188,0.08)",
+              B: "rgba(102,187,106,0.08)",
+              A: "rgba(38,166,154,0.08)",
+              X: "rgba(255,255,255,0.04)",
+            };
+            const coords = records.map((record) => ({
+              x: this._p._chart.timeScale().timeToCoordinate(record.time),
+              phase: record.phase,
+            })).filter((item) => item.x != null);
+            if (!coords.length) return;
+            const defaultWidth = coords.length > 1
+              ? Math.max(2, Math.abs(coords[1].x - coords[0].x))
+              : 8;
+            for (let i = 0; i < coords.length; i += 1) {
+              const prevX = i > 0 ? coords[i - 1].x : coords[i].x - defaultWidth;
+              const nextX = i < coords.length - 1 ? coords[i + 1].x : coords[i].x + defaultWidth;
+              const left = Math.round(((prevX + coords[i].x) / 2) * hr);
+              const right = Math.round(((coords[i].x + nextX) / 2) * hr);
+              const width = Math.max(1, right - left);
+              ctx.fillStyle = colors[String(coords[i].phase || "X").toUpperCase()] || colors.X;
+              ctx.fillRect(left, 0, width, H);
+            }
+          });
+        }
+      }
+
+      class WarmupTracePaneView {
+        constructor(primitive) { this._renderer = new WarmupTraceRenderer(primitive); }
+        renderer() { return this._renderer; }
+        zOrder() { return "bottom"; }
+      }
+
+      class WarmupTracePrimitive {
+        constructor() {
+          this._records = [];
+          this._chart = null;
+          this._view = new WarmupTracePaneView(this);
+        }
+        attached({ chart }) { this._chart = chart; }
+        detached() { this._chart = null; }
+        updateAllViews() {}
+        paneViews() { return [this._view]; }
+        setRecords(records) {
+          this._records = (records || [])
+            .map((record) => ({
+              time: Math.floor(new Date(record.bar_time).getTime() / 1000),
+              phase: record.phase,
+            }))
+            .filter((record) => Number.isFinite(record.time));
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────
+
       const paneStates = {
         top: {
           key: "top",
@@ -973,6 +1039,7 @@
           resizeObserver: null,
           markerPrimitive: null,
           sdZonePrimitive: null,
+          warmupTracePrimitive: null,
           pdLineSeries: null,
           latestBars: [],
           latestHoverUnix: null,
@@ -990,6 +1057,7 @@
           resizeObserver: null,
           markerPrimitive: null,
           sdZonePrimitive: null,
+          warmupTracePrimitive: null,
           pdLineSeries: null,
           latestBars: [],
           latestHoverUnix: null,
@@ -1888,13 +1956,13 @@
       }
       // ─────────────────────────────────────────────────────────────────
 
-      function renderMarkersForPane(paneKey, events, bars) {
+      function renderMarkersForPane(paneKey, events, bars, extraMarkers = []) {
         const pane = paneStates[paneKey];
         if (!pane || !pane.candleSeries) {
           return;
         }
 
-        const markers = buildSeriesMarkers(events, bars);
+        const markers = [...buildSeriesMarkers(events, bars), ...extraMarkers];
 
         if (typeof pane.candleSeries.setMarkers === "function") {
           pane.candleSeries.setMarkers(markers);
@@ -1909,6 +1977,28 @@
         if (typeof LightweightCharts.createSeriesMarkers === "function") {
           pane.markerPrimitive = LightweightCharts.createSeriesMarkers(pane.candleSeries, markers);
         }
+      }
+
+      function warmupAnnotationMarkers(snapshot) {
+        const annotation = snapshot.warmup_trace_annotation;
+        if (!annotation || !annotation.bar_time) return [];
+        return [{
+          time: Math.floor(new Date(annotation.bar_time).getTime() / 1000),
+          position: "aboveBar",
+          color: "#64d8cb",
+          shape: "arrowDown",
+          text: annotation.label || "right edge rebuilt",
+        }];
+      }
+
+      function renderWarmupTraceForPane(paneKey, records) {
+        const pane = paneStates[paneKey];
+        if (!pane || !pane.candleSeries) return;
+        if (!pane.warmupTracePrimitive) {
+          pane.warmupTracePrimitive = new WarmupTracePrimitive();
+          pane.candleSeries.attachPrimitive(pane.warmupTracePrimitive);
+        }
+        pane.warmupTracePrimitive.setRecords(records || []);
       }
 
       function zoomValueForPane(paneKey) {
@@ -2403,7 +2493,8 @@
           const lowerEvents = (snapshot.events || []).filter((event) => event.tf === snapshot.lower_tf);
           const higherEvents = (snapshot.events || []).filter((event) => event.tf === snapshot.higher_tf);
           renderChartPane("top", lowerBars, { preserveViewport, timeframe: snapshot.lower_tf, events: lowerEvents });
-          renderMarkersForPane("top", lowerEvents, lowerBars);
+          renderWarmupTraceForPane("top", snapshot.warmup_trace || []);
+          renderMarkersForPane("top", lowerEvents, lowerBars, warmupAnnotationMarkers(snapshot));
           renderZonesForPane("top", snapshot.zones, cursorUnix, { lowerTf: snapshot.lower_tf, higherTf: snapshot.higher_tf });
           if (snapshot.projected_structure && snapshot.lower_structure) {
             updateStructurePdLines("top", snapshot.lower_structure, { role: "native", lineStyle: 2 });
@@ -2413,6 +2504,7 @@
             clearStructurePdLines("top", "projected");
           }
           renderChartPane("bottom", higherBars, { preserveViewport, timeframe: snapshot.higher_tf, events: higherEvents });
+          renderWarmupTraceForPane("bottom", []);
           renderMarkersForPane("bottom", higherEvents, higherBars);
           renderZonesForPane("bottom", snapshot.zones, cursorUnix, { lowerTf: snapshot.lower_tf, higherTf: snapshot.higher_tf });
           updateStructurePdLines("bottom", snapshot.higher_structure || null, { role: "native" });
@@ -2423,6 +2515,7 @@
             timeframe: snapshot.timeframe,
           });
           renderChartPane("top", snapshot.bars, { preserveViewport, timeframe: snapshot.timeframe, events: snapshot.events });
+          renderWarmupTraceForPane("top", []);
           renderMarkersForPane("top", snapshot.events, snapshot.bars);
           renderZonesForPane("top", snapshot.zones, cursorUnix);
           updateStructurePdLines("top", snapshot.structure || null, { role: "native" });
@@ -2458,8 +2551,10 @@
 
         setChartMode("single", { symbol: bootPayload.symbol, timeframe: bootPayload.timeframe });
         renderChartPane("top", bootPayload.bars, { preserveViewport: false, timeframe: bootPayload.timeframe });
+        renderWarmupTraceForPane("top", []);
         renderMarkersForPane("top", [], bootPayload.bars);
         renderChartPane("bottom", [], { preserveViewport: false });
+        renderWarmupTraceForPane("bottom", []);
         renderMarkersForPane("bottom", [], []);
         renderEvents([]);
         setStatus(
@@ -2581,6 +2676,10 @@
         stopStepHold();
         const response = await fetch(`/api/replay/${replaySessionId}/back`, { method: "POST" });
         const payload = await response.json();
+        if (!response.ok) {
+          setStatus(`${payload.error || "rewind failed"} · history start: ${payload.history_start_time || "unknown"}`);
+          return;
+        }
         applySnapshot(payload.snapshot);
       }
 
@@ -2596,6 +2695,11 @@
           body: JSON.stringify({ target_time: targetTime, step_before: true }),
         });
         const payload = await response.json();
+        if (!response.ok) {
+          setStatus(`${payload.error || "rewind failed"} · history start: ${payload.history_start_time || "unknown"}`);
+          setRewindPickMode(false);
+          return;
+        }
         applySnapshot(payload.snapshot);
         setRewindPickMode(false);
       }

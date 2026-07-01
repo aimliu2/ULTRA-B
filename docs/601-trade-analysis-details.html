@@ -385,7 +385,7 @@
   policy_name            str
   created_at             str
   skip_reason            no_budget | missing_evidence | missing_trigger |
-                         invalid_geometry | late_entry_risk_too_wide
+                         invalid_geometry | SL_too_wide
   budget_spent           false
   stale_marked           bool
   evidence_id            str | None
@@ -510,9 +510,9 @@ If SkipIntent is emitted:
   outcome = skipped
   skip_reason preserved
 
-If skip_reason == late_entry_risk_too_wide:
-  stale_marked = true
-  same phase episode / evidence / trigger is blocked by Layer 5</pre>
+If skip_reason == SL_too_wide:
+  stale_marked = false
+  no budget is consumed; trigger may re-evaluate until age-out</pre>
       </div>
     </details>
 
@@ -673,7 +673,7 @@ def advance_trade(trade, bar):
       </div>
       <div class="issue-card">
         <div class="issue-label">Inspection Finding — 2024-06-06</div>
-        <p><b>EX.entry sequence fired correctly.</b> Replayed from 2024-06-01. Phase D context was intact. Counter iChoCh → counter iSB confirmed at <code>2024-06-06T14:30Z</code>. Skipped as <code>late_entry_risk_too_wide</code> (29.9 pips vs 25-pip cap). Sequence logic is correct; skip is policy, not a bug.</p>
+        <p><b>EX.entry sequence fired correctly.</b> Replayed from 2024-06-01. Phase D context was intact. Counter iChoCh → counter iSB confirmed at <code>2024-06-06T14:30Z</code>. Current policy reports this cap rejection as <code>SL_too_wide</code> (29.9 pips vs 25-pip cap). Sequence logic is correct; skip is policy, not a bug.</p>
       </div>
       <div class="issue-card">
         <div class="issue-label">Blocking — Self-Relocation</div>

@@ -13,7 +13,7 @@ from ultrab.replayer.data_source import (
     replay_data_config,
     timeframe_label,
 )
-from ultrab.replayer.replay_session import DualReplaySession, ReplaySession
+from ultrab.replayer.replay_session import DualReplaySession, ReplaySession, RewindBoundaryError
 from ultrab.replayer.session_store import get_session, save_session
 
 
@@ -126,6 +126,7 @@ def api_replay_session():
     symbol = str(payload.get("symbol", data_cfg.symbol)).upper()
     timeframe = str(payload.get("timeframe", data_cfg.timeframe)).lower()
     start_time = effective_start_time(payload.get("start_time"), data_cfg.start_time)
+    startup_mode = payload.get("startup_mode")
 
     if mode == "dual":
         combo_name = str(payload.get("dual_combo", config.get("data", {}).get("dual_combo", "15m_4h")))
@@ -155,6 +156,7 @@ def api_replay_session():
                 higher_config=higher_cfg,
                 combo_name=combo_name,
                 start_time=start_time,
+                startup_mode=str(startup_mode) if startup_mode else None,
             )
         )
         return jsonify(
@@ -208,8 +210,15 @@ def api_replay_reset(session_id: str):
 @app.post("/api/replay/<session_id>/back")
 def api_replay_back(session_id: str):
     session = get_session(session_id)
-    session.rewind_one()
-    return jsonify({"snapshot": session.snapshot()})
+    try:
+        session.rewind_one()
+    except RewindBoundaryError as exc:
+        return jsonify({"error": "rewind_before_history_start", "history_start_time": exc.history_start_time}), 400
+    response = {"snapshot": session.snapshot()}
+    diagnostic = getattr(session, "last_rewind_diagnostic", None)
+    if diagnostic:
+        response.update(diagnostic)
+    return jsonify(response)
 
 
 @app.post("/api/replay/<session_id>/rewind")
@@ -219,8 +228,15 @@ def api_replay_rewind(session_id: str):
     target_time = payload.get("target_time")
     if not target_time:
         return jsonify({"error": "target_time is required"}), 400
-    session.rewind_to_time(str(target_time), step_before=bool(payload.get("step_before", True)))
-    return jsonify({"snapshot": session.snapshot()})
+    try:
+        session.rewind_to_time(str(target_time), step_before=bool(payload.get("step_before", True)))
+    except RewindBoundaryError as exc:
+        return jsonify({"error": "rewind_before_history_start", "history_start_time": exc.history_start_time}), 400
+    response = {"snapshot": session.snapshot()}
+    diagnostic = getattr(session, "last_rewind_diagnostic", None)
+    if diagnostic:
+        response.update(diagnostic)
+    return jsonify(response)
 
 
 @app.get("/api/replay/<session_id>/snapshot")

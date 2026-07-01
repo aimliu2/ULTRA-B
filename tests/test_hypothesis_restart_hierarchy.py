@@ -37,6 +37,8 @@ def _runtime(lower: ReplayDataConfig, higher: ReplayDataConfig, start_time: str,
 
 def _classify_until(runtime: DualSmcRuntime, target_index: int) -> dict[str, Any]:
     snapshot: dict[str, Any] | None = None
+    if runtime.current_lower_index >= target_index:
+        return runtime.classify_snapshot()
     while runtime.current_lower_index < target_index:
         runtime.step()
         snapshot = runtime.classify_snapshot()
@@ -87,7 +89,7 @@ def _journal_projection(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def test_epoch_flip_wakeup_relocates_to_safe_e_and_reaches_d_watch():
+def test_epoch_flip_wakeup_rebuilds_safe_e_and_reaches_d_watch():
     lower, higher, lower_bars = _configs()
     restart_time = "2023-04-28T00:00:00+00:00"
     _index_at_or_after(lower_bars, restart_time)
@@ -96,20 +98,16 @@ def test_epoch_flip_wakeup_relocates_to_safe_e_and_reaches_d_watch():
     diagnostics = runtime.restart_diagnostics
 
     assert diagnostics["bootstrap_bars_used"] > 0
-    assert diagnostics["bootstrap_success"] is False
-    assert diagnostics["recovery_mode"] == "terrain_relocation"
-    assert diagnostics["relocation_selected_node"] == "E.seeking"
-    assert diagnostics["relocation_candidate_rejections"] == {
-        "A": "a_relocation_requires_reconstructable_b_and_a_anchors",
-        "B": "b_relocation_requires_reconstructable_commitment_extreme",
-    }
+    assert diagnostics["bootstrap_success"] is True
+    assert diagnostics["recovery_mode"] == "right_edge_rebuild"
+    assert diagnostics["relocation_attempted"] is False
 
     first_snapshot = _classify_at_time(runtime, lower_bars, restart_time)
     first_hyp = first_snapshot.get("hypothesis") or {}
     assert first_hyp.get("phase") == "E"
     assert first_hyp.get("direction") == "long"
     first_debug = first_hyp.get("debug_facts") or {}
-    assert first_debug.get("phase_e_shadow_source_orderflow_leg_id") is None
+    assert first_debug.get("phase_e_shadow_source_orderflow_leg_id")
 
     d_snapshot = _classify_at_time(runtime, lower_bars, "2023-04-29T00:00:00+00:00")
     d_hyp = d_snapshot.get("hypothesis") or {}
@@ -163,8 +161,8 @@ def test_random_wakeup_2026_02_02_bootstraps_layer4_before_visible_bar():
     assert diagnostics["bootstrap_bars_used"] > 0
     assert diagnostics["bootstrap_start_time"] is not None
     assert diagnostics["bootstrap_end_time"] is not None
-    assert diagnostics["recovery_mode"] in {"hidden_layer4_bootstrap", "terrain_relocation"}
-    if diagnostics["recovery_mode"] == "hidden_layer4_bootstrap":
+    assert diagnostics["recovery_mode"] in {"right_edge_rebuild", "hidden_layer4_bootstrap", "terrain_relocation"}
+    if diagnostics["recovery_mode"] in {"right_edge_rebuild", "hidden_layer4_bootstrap"}:
         assert diagnostics["bootstrap_success"] is True
         state = runtime.export_shadow_state()["classifier_state"]
         assert state["current_hypothesis"]["phase"] in {"A", "B", "C", "D", "E"}
@@ -251,6 +249,6 @@ def test_journal_epoch_mismatch_falls_back_to_e_terrain():
     restarted = _runtime(lower, higher, restart_time, saved=saved)
 
     assert restarted.restart_diagnostics["restore_reject_reason"] == "epoch_mismatch"
-    assert restarted.restart_diagnostics["bootstrap_success"] is False
-    assert restarted.restart_diagnostics["recovery_mode"] == "terrain_relocation"
-    assert restarted.restart_diagnostics["relocation_selected_node"] == "E.seeking"
+    assert restarted.restart_diagnostics["bootstrap_success"] is True
+    assert restarted.restart_diagnostics["recovery_mode"] == "right_edge_rebuild"
+    assert restarted.restart_diagnostics["relocation_attempted"] is False

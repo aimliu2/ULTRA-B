@@ -30,6 +30,12 @@ class ReplayStepResult:
     done: bool
 
 
+class RewindBoundaryError(ValueError):
+    def __init__(self, *, history_start_time: str) -> None:
+        super().__init__("rewind_before_history_start")
+        self.history_start_time = history_start_time
+
+
 def _serialize_bar(bar_index: int, ts: pd.Timestamp, row: pd.Series) -> dict[str, Any]:
     return {
         "bar_index": int(bar_index),
@@ -547,6 +553,7 @@ class DualReplaySession:
         higher_config: ReplayDataConfig,
         combo_name: str,
         start_time: str | None = None,
+        startup_mode: str | None = None,
     ) -> None:
         self._runtime = DualSmcRuntime(
             config_path,
@@ -555,6 +562,7 @@ class DualReplaySession:
             higher_config=higher_config,
             combo_name=combo_name,
             start_time=start_time,
+            startup_mode=startup_mode,
         )
         self.session_id = self._runtime.session_id
         self.config_path = config_path
@@ -578,12 +586,22 @@ class DualReplaySession:
         self.lower_window_start_index = max(0, len(self.lower_bars) - self.window_bars)
         self.lower_end_index = self._runtime.lower_end_index
         self.lower_start_index = self._runtime.lower_start_index
+        self.startup_mode = self._runtime.startup_mode
+        self.probe_lower_index = self._runtime.probe_lower_index
+        self.history_start_index = self._runtime.lower_history_start_index
+        self.visible_start_index = (
+            self.history_start_index
+            if self._runtime.warmup_trace is not None
+            else self.probe_lower_index
+        )
+        self.seek_start_index = self.probe_lower_index
         self.higher_start_index = self._runtime.higher_start_index
         self._show_fvg_events = _fvg_display_enabled(self.replay_config, "event_log")
         self._show_fvg_markers = _fvg_display_enabled(self.replay_config, "chart_markers")
         self._show_pivot_events = _pivot_display_enabled(self.replay_config, "event_log")
         self._show_pivot_markers = _pivot_display_enabled(self.replay_config, "chart_markers")
         self.visible_events: list[dict[str, Any]] = []
+        self.last_rewind_diagnostic: dict[str, Any] | None = None
         self._sync_from_runtime()
 
     def _sync_from_runtime(self) -> None:
@@ -603,6 +621,7 @@ class DualReplaySession:
     def reset(self) -> None:
         self._runtime.reset()
         self.visible_events = []
+        self.last_rewind_diagnostic = None
         self._sync_from_runtime()
 
     def rewind_one(self) -> None:
@@ -677,10 +696,25 @@ class DualReplaySession:
         payload["lower_bars"] = lower_visible
         payload["higher_bars"] = higher_visible
         payload["events"] = self.visible_events
+        payload["startup_mode"] = self.startup_mode
+        payload["history_start_time"] = self.lower_bars.index[self.history_start_index].isoformat()
+        payload["visible_start_time"] = self.lower_bars.index[self.visible_start_index].isoformat()
+        payload["seek_start_time"] = self.lower_bars.index[self.seek_start_index].isoformat()
+        payload["probe_time"] = self.lower_bars.index[self.probe_lower_index].isoformat()
+        if lower_visible:
+            payload["window_start_time"] = lower_visible[0]["time"]
+            payload["window_end_time"] = lower_visible[-1]["time"]
+        payload["rewind_diagnostic"] = self.last_rewind_diagnostic
+        if self._runtime.warmup_trace is not None:
+            payload["warmup_trace"] = self._runtime.warmup_trace.payload()
+            payload["warmup_trace_annotation"] = self._runtime.warmup_trace.probe_annotation(
+                self._runtime.restart_diagnostics
+            )
         return payload
 
     def metadata(self) -> dict[str, Any]:
-        lower_window = self.lower_bars.iloc[self.lower_window_start_index : self.lower_end_index + 1]
+        visible_end = max(self.visible_start_index, self._lower_visible_end_index())
+        lower_window = self.lower_bars.iloc[self.visible_start_index : visible_end + 1]
         return {
             "session_id": self.session_id,
             "mode": "dual",
@@ -691,9 +725,15 @@ class DualReplaySession:
             "higher_tf": self.higher_label,
             "data_start_time": self.lower_bars.index[0].isoformat(),
             "data_end_time": self.lower_bars.index[-1].isoformat(),
+            "history_start_time": self.lower_bars.index[self.history_start_index].isoformat(),
+            "visible_start_time": self.lower_bars.index[self.visible_start_index].isoformat(),
+            "seek_start_time": self.lower_bars.index[self.seek_start_index].isoformat(),
+            "probe_time": self.lower_bars.index[self.probe_lower_index].isoformat(),
             "window_start_time": lower_window.index[0].isoformat(),
             "window_end_time": lower_window.index[-1].isoformat(),
             "default_start_time": self.lower_bars.index[self.lower_start_index].isoformat(),
+            "startup_mode": self.startup_mode,
+            "warmup_trace_enabled": self._runtime.warmup_trace is not None,
             "window_bars": self.window_bars,
             "warmup_bars": self.warmup_bars,
         }
@@ -723,11 +763,20 @@ class DualReplaySession:
         return idx
 
     def _rebuild_to_lower_index(self, target_index: int) -> None:
+        if target_index < self.history_start_index:
+            raise RewindBoundaryError(
+                history_start_time=self.lower_bars.index[self.history_start_index].isoformat()
+            )
+        diagnostic: dict[str, Any] | None = None
         bounded_index = min(target_index, self.lower_end_index)
+        if bounded_index < self.seek_start_index:
+            bounded_index = self.seek_start_index
+            diagnostic = {
+                "rewind_diagnostic": "clamped_to_seek_start",
+                "seek_start_time": self.lower_bars.index[self.seek_start_index].isoformat(),
+            }
         self.reset()
-        if bounded_index < self.lower_start_index:
-            self._sync_from_runtime()
-            return
+        self.last_rewind_diagnostic = diagnostic
 
         while self._runtime.current_lower_index < bounded_index:
             runtime_step = self._runtime.step()
@@ -739,7 +788,9 @@ class DualReplaySession:
         visible_end = self._lower_visible_end_index()
         if visible_end < 0:
             return []
-        visible_start = max(0, visible_end - self.window_bars + 1)
+        visible_start = max(self.visible_start_index, visible_end - self.window_bars + 1)
+        if visible_start > visible_end:
+            return []
         visible = self.lower_bars.iloc[visible_start : visible_end + 1]
         return [
             _serialize_bar(idx, ts, row)

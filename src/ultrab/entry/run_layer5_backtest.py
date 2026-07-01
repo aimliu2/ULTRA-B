@@ -19,6 +19,7 @@ RESULT_COLUMNS = [
     "intent_id",
     "symbol",
     "timeframe",
+    "startup_mode",
     "epoch_id",
     "phase",
     "phase_sub_status",
@@ -70,7 +71,7 @@ SUMMARY_COLUMNS = [
     "evidence_htf_sd_zone",
     "evidence_watch_extreme",
     "trigger_D_watch_pathA",
-    "late_entry_risk_too_wide",
+    "SL_too_wide",
 ]
 
 OBSERVATION_COLUMNS = [
@@ -225,7 +226,7 @@ def summarize_results(
                 "evidence_htf_sd_zone": evidences["htf_sd_zone"],
                 "evidence_watch_extreme": evidences["watch_extreme"],
                 "trigger_D_watch_pathA": paths["D.watch_pathA"],
-                "late_entry_risk_too_wide": skip_reasons["late_entry_risk_too_wide"],
+                "SL_too_wide": skip_reasons["SL_too_wide"],
             }
         )
     return summary
@@ -244,6 +245,7 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
         higher_config=higher,
         combo_name=args.combo,
         start_time=args.start_time,
+        startup_mode=args.startup_mode,
     )
     raw_cfg = load_app_config(config_path)
     hypothesis_cfg = raw_cfg.get("replay", {}).get("hypothesis", {})
@@ -271,9 +273,8 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
     last_bar: dict[str, Any] | None = None
     steps = 0
 
-    while True:
-        step = runtime.step()
-        snapshot = runtime.classify_snapshot()
+    def process_snapshot(snapshot: dict[str, Any]) -> None:
+        nonlocal active, last_bar
         bar = _bar_from_snapshot(snapshot)
         if bar is not None:
             last_bar = bar
@@ -308,6 +309,14 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
         if observation is not None:
             observations.append(observation)
 
+    if args.startup_mode == "right_edge_rebuild":
+        process_snapshot(runtime.classify_snapshot())
+
+    while True:
+        step = runtime.step()
+        snapshot = runtime.classify_snapshot()
+        process_snapshot(snapshot)
+
         steps += 1
         if step.done or (args.max_steps and steps >= args.max_steps):
             break
@@ -318,6 +327,7 @@ def run_backtest(args: argparse.Namespace) -> tuple[Path, Path, Path, list[dict[
     rows = []
     for result in results:
         row = result.to_row()
+        row["startup_mode"] = args.startup_mode
         row.update(tags_by_intent_id.get(result.intent_id, {}))
         rows.append(row)
     summary = summarize_results(rows, observations)
@@ -481,6 +491,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--symbol", default="EURUSD")
     parser.add_argument("--combo", default="15m_4h")
     parser.add_argument("--start-time", default=None)
+    parser.add_argument(
+        "--startup-mode",
+        choices=["right_edge_rebuild", "legacy_window_remainder"],
+        default="right_edge_rebuild",
+    )
     parser.add_argument("--window-bars", type=int, default=None)
     parser.add_argument("--max-steps", type=int, default=None)
     # SL band is now per-symbol from config.yaml layer5_entry.asset_geometry

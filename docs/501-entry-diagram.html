@@ -516,16 +516,16 @@ Freshness:
 <p>Budget is scoped to <code>htf_pd_epoch_id</code> for Phase D. Phase B additionally uses a per-episode consumption guard so one B.watch episode cannot emit multiple accepted OTE trades.</p>
 <div class="code-block">Default V1 budget:
   D first=1, reentry=0
-  B one accepted entry or stale geometry skip per B.watch episode
+  B one accepted entry per B.watch episode
   C/A first=1, reentry=1
   E/X first=0, reentry=0
 
-Stale reason:
-  late_entry_risk_too_wide
+Non-stale geometry reject:
+  SL_too_wide
 
 Retryable reason:
   runway_too_short  ← same trigger only, bounded by trigger_age_bars</div>
-<div class="rule-block">Spend budget only when an order is actually placed or filled. A skipped late setup saves budget, but a stale Phase B geometry skip consumes the B episode to prevent duplicate firing.</div>
+<div class="rule-block">Spend budget only when an order is actually placed or filled. A skipped late setup saves budget. <code>SL_too_wide</code> is non-stale and does not consume the B episode; <code>runway_too_short</code> retries only the same pending trigger while inside the age cap.</div>
 <a class="panel-link" href="./501-entry-details.html#budget">→ Budget details</a>`
     },
 

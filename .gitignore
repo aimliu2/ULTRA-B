@@ -5,7 +5,12 @@
 ln-notes
 ln-data
 docs/debugging/*
-analysis/*
+analysis/archives/*
+analysis/resample*/*
+CLAUDE.md
+AGENTS.md
+state/*
+tests/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -216,7 +221,3 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-CLAUDE.md
-AGENTS.md
-state/*
-tests/*

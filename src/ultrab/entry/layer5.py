@@ -226,6 +226,9 @@ class EntryPermissionEngine:
         self._d_watch_budget_spent: dict[str, bool] = {}  # True once any path fires and is accepted
         self._b_watch_episode_spent: set[str] = set()
         self._b_watch_pending_trigger: dict[str, str] = {}
+        self._a_watch_total_count: dict[str, int] = {}
+        self._a_watch_ote_last_pro_extreme: dict[str, float] = {}
+        self._a_watch_ex_fired: set[str] = set()
 
     def evaluate(self, snapshot: dict[str, Any]) -> EntryIntent | SkipIntent | None:
         hypothesis = snapshot.get("hypothesis") or {}
@@ -277,6 +280,37 @@ class EntryPermissionEngine:
             choch_facts = choch_cand.get("debug_facts") or {}
             return self._try_b_watch_path_b(
                 snapshot, debug, choch_facts, direction, epoch_id, phase_episode_id,
+                pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
+            )
+
+        # ── Phase A — pro-HTF continuation entries ─────────────────────────
+        if (
+            phase == "A"
+            and phase_sub_status == "watch"
+            and debug.get("phase_a_entry_transition_origin_node") != "B.watch"
+        ):
+            direction = hypothesis.get("direction")
+            epoch_id = debug.get("htf_pd_epoch_id") or snapshot.get("evidence_compiler_epoch_id")
+            phase_episode_id = str(debug.get("phase_episode_id") or hypothesis.get("hypothesis_id") or "")
+            if not direction or not epoch_id or not phase_episode_id:
+                return None
+            choch_cand = _candidate(snapshot, "ltf_counter_choch", direction) or {}
+            choch_facts = choch_cand.get("debug_facts") or {}
+            return self._try_a_watch_path_a(
+                snapshot, debug, choch_facts, direction, epoch_id, phase_episode_id,
+                pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
+            )
+
+        if phase == "A" and phase_sub_status == "watch_weaken":
+            direction = hypothesis.get("direction")
+            epoch_id = debug.get("htf_pd_epoch_id") or snapshot.get("evidence_compiler_epoch_id")
+            phase_episode_id = str(debug.get("phase_episode_id") or hypothesis.get("hypothesis_id") or "")
+            if not direction or not epoch_id or not phase_episode_id:
+                return None
+            choch_cand = _candidate(snapshot, "ltf_counter_choch", direction) or {}
+            choch_facts = choch_cand.get("debug_facts") or {}
+            return self._try_a_watch_weaken_ex(
+                snapshot, debug, choch_cand, choch_facts, direction, epoch_id, phase_episode_id,
                 pip_size, sl_buffer_pips, min_sl_pips, max_sl_pips,
             )
 
@@ -438,7 +472,7 @@ class EntryPermissionEngine:
                         else entry_price_est + min_sl_pips * pip_size)
         else:
             sl_price = sl_raw
-        tp_price = self._phase_b_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
+        tp_price = self._htf_objective_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
         if tp_price is None:
             return None
 
@@ -527,7 +561,7 @@ class EntryPermissionEngine:
                         else entry_price_est + min_sl_pips * pip_size)
         else:
             sl_price = sl_raw
-        tp_price = self._phase_b_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
+        tp_price = self._htf_objective_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
         if tp_price is None:
             return None
 
@@ -563,6 +597,198 @@ class EntryPermissionEngine:
             phase_override="B",
         )
         self._record_b_watch_result(phase_episode_id, trigger.event_id, result)
+        return result
+
+    def _try_a_watch_path_a(
+        self,
+        snapshot: dict[str, Any],
+        debug: dict[str, Any],
+        choch_facts: dict[str, Any],
+        direction: Direction,
+        epoch_id: Any,
+        phase_episode_id: str,
+        pip_size: float,
+        sl_buffer_pips: float,
+        min_sl_pips: float,
+        max_sl_pips: float,
+    ) -> EntryIntent | SkipIntent | None:
+        """A.watch_pathA: counter iChoCh -> pro iChoCh OTE continuation."""
+        entered_at = debug.get("phase_a_shadow_entered_at")
+        commitment_extreme = _float(debug.get("phase_a_shadow_commitment_extreme_level"))
+        if not entered_at or commitment_extreme is None:
+            return None
+
+        budget_key = f"{epoch_id}:{direction}"
+        if self._a_watch_total_count.get(budget_key, 0) >= 3:
+            return None
+
+        counter_break = "down" if direction == "long" else "up"
+        pro_break = "up" if direction == "long" else "down"
+
+        counter_ichoch_at = choch_facts.get("ltf_counter_ichoch_event_at")
+        if (
+            not choch_facts.get("ltf_counter_ichoch_seen")
+            or choch_facts.get("ltf_counter_ichoch_direction") != counter_break
+            or not _time_gt(counter_ichoch_at, entered_at)
+        ):
+            return None
+
+        pro_ichoch_at = choch_facts.get("ltf_pro_ichoch_event_at")
+        if (
+            not choch_facts.get("ltf_pro_ichoch_seen")
+            or choch_facts.get("ltf_pro_ichoch_direction") != pro_break
+            or not _time_gt(pro_ichoch_at, counter_ichoch_at)
+        ):
+            return None
+
+        pro_extreme_at_weaken = _float(debug.get("phase_a_shadow_pro_extreme_at_weaken"))
+        if debug.get("phase_a_shadow_pro_attempt_weaken") and pro_extreme_at_weaken is not None:
+            last_pro_extreme = self._a_watch_ote_last_pro_extreme.get(budget_key)
+            if last_pro_extreme is not None:
+                advanced = (
+                    pro_extreme_at_weaken > last_pro_extreme
+                    if direction == "long"
+                    else pro_extreme_at_weaken < last_pro_extreme
+                )
+                if not advanced:
+                    return None
+
+        buffer = sl_buffer_pips * pip_size
+        sl_raw = commitment_extreme - buffer if direction == "long" else commitment_extreme + buffer
+        entry_price_est = self._entry_price(snapshot) or 0.0
+        computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
+        if computed_pips < min_sl_pips:
+            sl_price = (entry_price_est - min_sl_pips * pip_size if direction == "long"
+                        else entry_price_est + min_sl_pips * pip_size)
+        else:
+            sl_price = sl_raw
+
+        tp_price = self._htf_objective_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
+        if tp_price is None:
+            return None
+
+        pro_ichoch_event_id = choch_facts.get("ltf_pro_ichoch_event_id")
+        pro_ichoch_level = _float(choch_facts.get("ltf_pro_ichoch_level"))
+        trigger = TriggerEvidence(
+            trigger_kind="pro_ichoch",
+            trigger_path="A.watch_pathA",
+            event_at=pro_ichoch_at,
+            event_id=str(pro_ichoch_event_id) if pro_ichoch_event_id is not None else None,
+            level=pro_ichoch_level,
+            source_level_id=choch_facts.get("ltf_pro_ichoch_source_level_id"),
+            source_store=choch_facts.get("ltf_pro_ichoch_source_store")
+            or "internal_structure_sequence",
+        )
+        evidence = CounterEntryEvidence(
+            evidence_kind="a_watch_commitment",
+            evidence_id=str(debug.get("phase_a_shadow_commitment_extreme_event_id") or pro_ichoch_event_id or uuid4().hex),
+            timeframe=str(snapshot.get("lower_tf") or snapshot.get("timeframe") or ""),
+            direction=direction,
+            presented_at=entered_at,
+            source_store="phase_a_shadow",
+            level=commitment_extreme,
+            sl_side="below" if direction == "long" else "above",
+            sl_price_raw=commitment_extreme,
+            sl_buffer_pips=sl_buffer_pips,
+            sl_price=sl_price,
+        )
+        result = self._make_intent(
+            snapshot, epoch_id, phase_episode_id, direction, sl_price,
+            evidence, trigger, pip_size, min_sl_pips, max_sl_pips,
+            tp_price=tp_price,
+            phase_override="A",
+        )
+        if isinstance(result, EntryIntent):
+            self._a_watch_total_count[budget_key] = self._a_watch_total_count.get(budget_key, 0) + 1
+            if debug.get("phase_a_shadow_pro_attempt_weaken") and pro_extreme_at_weaken is not None:
+                self._a_watch_ote_last_pro_extreme[budget_key] = pro_extreme_at_weaken
+        return result
+
+    def _try_a_watch_weaken_ex(
+        self,
+        snapshot: dict[str, Any],
+        debug: dict[str, Any],
+        choch_cand: dict[str, Any],
+        choch_facts: dict[str, Any],
+        direction: Direction,
+        epoch_id: Any,
+        phase_episode_id: str,
+        pip_size: float,
+        sl_buffer_pips: float,
+        min_sl_pips: float,
+        max_sl_pips: float,
+    ) -> EntryIntent | SkipIntent | None:
+        """A.watch_weaken_ex: pro iChoCh -> pro iSB final continuation slot."""
+        weaken_at = debug.get("phase_a_shadow_pro_attempt_weaken_at")
+        watch_extreme = _float(debug.get("phase_a_shadow_watch_range_extreme"))
+        if not weaken_at or watch_extreme is None:
+            return None
+
+        budget_key = f"{epoch_id}:{direction}"
+        if budget_key in self._a_watch_ex_fired or self._a_watch_total_count.get(budget_key, 0) >= 3:
+            return None
+        if choch_cand.get("status") != "ready":
+            return None
+        if (
+            not choch_facts.get("ltf_pro_ichoch_isb_sequence_seen")
+            or choch_facts.get("ltf_pro_sequence_trade_direction") != direction
+        ):
+            return None
+
+        ichoch_at = choch_facts.get("ltf_pro_sequence_ichoch_event_at")
+        isb_at = choch_facts.get("ltf_pro_sequence_isb_event_at")
+        isb_event_id = choch_facts.get("ltf_pro_sequence_isb_event_id")
+        if not ichoch_at or not isb_at or not isb_event_id or not _time_gt(ichoch_at, weaken_at):
+            return None
+
+        buffer = sl_buffer_pips * pip_size
+        sl_raw = watch_extreme - buffer if direction == "long" else watch_extreme + buffer
+        entry_price_est = self._entry_price(snapshot) or 0.0
+        computed_pips = abs(entry_price_est - sl_raw) / pip_size if pip_size else 0.0
+        if computed_pips < min_sl_pips:
+            sl_price = (entry_price_est - min_sl_pips * pip_size if direction == "long"
+                        else entry_price_est + min_sl_pips * pip_size)
+        else:
+            sl_price = sl_raw
+
+        tp_price = self._htf_objective_tp(snapshot, direction, entry_price_est, sl_price, pip_size)
+        if tp_price is None:
+            return None
+
+        trigger = TriggerEvidence(
+            trigger_kind="pro_ichoch_isb_sequence",
+            trigger_path="A.watch_weaken_ex",
+            event_at=isb_at,
+            event_id=str(isb_event_id),
+            level=_float(choch_facts.get("ltf_pro_sequence_isb_level")),
+            source_level_id=choch_facts.get("ltf_pro_sequence_isb_source_level_id"),
+            source_store=choch_facts.get("ltf_pro_sequence_source_store")
+            or "internal_structure_sequence",
+        )
+        evidence = CounterEntryEvidence(
+            evidence_kind="a_watch_weaken_ex",
+            evidence_id=str(isb_event_id),
+            timeframe=str(snapshot.get("lower_tf") or snapshot.get("timeframe") or ""),
+            direction=direction,
+            presented_at=weaken_at,
+            source_store="phase_a_shadow",
+            level=watch_extreme,
+            sl_side="below" if direction == "long" else "above",
+            sl_price_raw=watch_extreme,
+            sl_buffer_pips=sl_buffer_pips,
+            sl_price=sl_price,
+        )
+        result = self._make_intent(
+            snapshot, epoch_id, phase_episode_id, direction, sl_price,
+            evidence, trigger, pip_size, min_sl_pips, max_sl_pips,
+            tp_price=tp_price,
+            phase_override="A",
+        )
+        if isinstance(result, EntryIntent) or (
+            isinstance(result, SkipIntent) and result.stale_marked
+        ):
+            self._a_watch_total_count[budget_key] = 3
+            self._a_watch_ex_fired.add(budget_key)
         return result
 
     def _make_intent(
@@ -607,16 +833,15 @@ class EntryPermissionEngine:
         effective_phase = phase_override or hypothesis.get("phase") or "D"
 
         if sl_pips > max_sl_pips:
-            self._stale_opportunities.add(opportunity_key)
             return self._skip(
                 snapshot,
                 epoch_id=str(epoch_id),
                 phase_episode_id=phase_episode_id,
                 direction=trade_direction,
-                reason="late_entry_risk_too_wide",
+                reason="SL_too_wide",
                 evidence=evidence,
                 trigger=trigger,
-                stale=True,
+                stale=False,
                 risk_pips=sl_pips,
                 trigger_age_bars=age_bars,
                 phase_override=effective_phase,
@@ -697,7 +922,7 @@ class EntryPermissionEngine:
             trigger_age_bars=trigger_age_bars,
         )
 
-    def _phase_b_tp(
+    def _htf_objective_tp(
         self,
         snapshot: dict[str, Any],
         direction: Direction,
@@ -738,7 +963,7 @@ class EntryPermissionEngine:
         if result is None:
             return
         if isinstance(result, SkipIntent) and not result.stale_marked:
-            if trigger_id is not None:
+            if result.skip_reason == "runway_too_short" and trigger_id is not None:
                 self._b_watch_pending_trigger[phase_episode_id] = trigger_id
             return
         self._b_watch_episode_spent.add(phase_episode_id)

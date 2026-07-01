@@ -1409,6 +1409,117 @@ class EvidenceCompiler:
             "ltf_counter_sequence_invalid_reason": last_invalid_reason,
         }
 
+    def _compile_internal_pro_ichoch_isb_sequence(
+        self,
+        sequence: list[dict[str, Any]],
+        direction: Direction,
+    ) -> dict[str, Any]:
+        expected_pro_break = "up" if direction == "long" else "down"
+        trade_direction = direction
+
+        active_ichoch: dict[str, Any] | None = None
+        last_invalidated = False
+        last_invalid_reason: str | None = None
+        last_invalid_ichoch: dict[str, Any] | None = None
+        last_invalid_isb: dict[str, Any] | None = None
+
+        for event in sequence:
+            break_direction = event.get("breakDirection")
+            if _structure_ichoch_seen(event):
+                if break_direction == expected_pro_break:
+                    active_ichoch = event
+                    last_invalidated = False
+                    last_invalid_reason = None
+                    last_invalid_ichoch = None
+                    last_invalid_isb = None
+                continue
+
+            if not (
+                active_ichoch is not None
+                and _structure_isb_seen(event)
+                and break_direction == expected_pro_break
+            ):
+                continue
+
+            ichoch_at = active_ichoch.get("eventTimestamp")
+            isb_at = event.get("eventTimestamp")
+            if not _timestamp_after(isb_at, ichoch_at):
+                last_invalidated = True
+                last_invalid_reason = "isb_not_after_ichoch"
+                last_invalid_ichoch = active_ichoch
+                last_invalid_isb = event
+                active_ichoch = None
+                continue
+
+            ichoch_level = _safe_float(active_ichoch.get("levelPrice"))
+            isb_level = _safe_float(event.get("levelPrice"))
+            if ichoch_level is None or isb_level is None:
+                last_invalidated = True
+                last_invalid_reason = "missing_sequence_level"
+                last_invalid_ichoch = active_ichoch
+                last_invalid_isb = event
+                active_ichoch = None
+                continue
+
+            level_valid = (
+                isb_level >= ichoch_level
+                if trade_direction == "long"
+                else isb_level <= ichoch_level
+            )
+            if not level_valid:
+                last_invalidated = True
+                last_invalid_reason = "isb_level_not_beyond_ichoch"
+                last_invalid_ichoch = active_ichoch
+                last_invalid_isb = event
+                active_ichoch = None
+                continue
+
+            return {
+                "ltf_pro_ichoch_isb_sequence_seen": True,
+                "ltf_pro_sequence_trade_direction": trade_direction,
+                "ltf_pro_sequence_ichoch_event_at": ichoch_at,
+                "ltf_pro_sequence_ichoch_direction": active_ichoch.get("breakDirection"),
+                "ltf_pro_sequence_ichoch_level": ichoch_level,
+                "ltf_pro_sequence_ichoch_event_id": _structure_event_id(active_ichoch),
+                "ltf_pro_sequence_ichoch_source_level_id": _structure_source_level_id(active_ichoch),
+                "ltf_pro_sequence_isb_event_at": isb_at,
+                "ltf_pro_sequence_isb_direction": event.get("breakDirection"),
+                "ltf_pro_sequence_isb_level": isb_level,
+                "ltf_pro_sequence_isb_event_id": _structure_event_id(event),
+                "ltf_pro_sequence_isb_source_level_id": _structure_source_level_id(event),
+                "ltf_pro_sequence_source_store": "internal_structure_sequence",
+                "ltf_pro_sequence_invalidated": False,
+                "ltf_pro_sequence_invalid_reason": None,
+            }
+
+        return {
+            "ltf_pro_ichoch_isb_sequence_seen": False,
+            "ltf_pro_sequence_trade_direction": trade_direction,
+            "ltf_pro_sequence_ichoch_event_at": (
+                last_invalid_ichoch or active_ichoch or {}
+            ).get("eventTimestamp"),
+            "ltf_pro_sequence_ichoch_direction": (
+                last_invalid_ichoch or active_ichoch or {}
+            ).get("breakDirection"),
+            "ltf_pro_sequence_ichoch_level": _safe_float(
+                (last_invalid_ichoch or active_ichoch or {}).get("levelPrice")
+            ),
+            "ltf_pro_sequence_ichoch_event_id": _structure_event_id(
+                last_invalid_ichoch or active_ichoch or {}
+            ),
+            "ltf_pro_sequence_ichoch_source_level_id": _structure_source_level_id(
+                last_invalid_ichoch or active_ichoch or {}
+            ),
+            "ltf_pro_sequence_isb_event_at": (last_invalid_isb or {}).get("eventTimestamp"),
+            "ltf_pro_sequence_isb_direction": (last_invalid_isb or {}).get("breakDirection"),
+            "ltf_pro_sequence_isb_level": _safe_float((last_invalid_isb or {}).get("levelPrice")),
+            "ltf_pro_sequence_isb_event_id": _structure_event_id(last_invalid_isb or {}),
+            "ltf_pro_sequence_isb_source_level_id": _structure_source_level_id(last_invalid_isb or {}),
+            "ltf_pro_sequence_source_store": "internal_structure_sequence" if sequence else None,
+            "ltf_pro_sequence_invalidated": last_invalidated,
+            "ltf_pro_sequence_invalid_reason": last_invalid_reason,
+        }
+
     def _compile_internal_pullback_pressure(
         self,
         sequence: list[dict[str, Any]],
@@ -1522,6 +1633,10 @@ class EvidenceCompiler:
             internal_events,
             direction,
         )
+        pro_sequence_facts = self._compile_internal_pro_ichoch_isb_sequence(
+            internal_events,
+            direction,
+        )
         pressure_facts = self._compile_internal_pullback_pressure(
             internal_events,
             direction,
@@ -1613,6 +1728,7 @@ class EvidenceCompiler:
                 "ltf_counter_sb_source_level_id": sb_source_level_id,
                 "ltf_counter_sb_source_store": "structure_sequence" if sb_seen else None,
                 **sequence_facts,
+                **pro_sequence_facts,
                 **pressure_facts,
             },
         )

@@ -1,5 +1,239 @@
 # Project status
 
+## Current state — 2026-06-30 (Phase A samples collected; integrity testing next)
+
+Phase A from `.claude/plans/witty-riding-alpaca.md` is implemented. Phase C remains deferred.
+
+### Diagnosis — 2025-10-09 Phase A sample vs cold replay start
+
+User-reported mismatch reproduced:
+- Continuous/chunk-like runtime from `2025-09-01T00:00:00+00:00` reaches
+  `2025-10-09T12:30:00+00:00` as `A.watch` long and Layer 5 accepts
+  `A.watch_pathA`.
+- Cold replay/runtime from `2025-10-09T00:00:00Z` reaches the same bar as
+  `C.pullback` long inside a bearish HTF epoch; no Phase A trade fires.
+
+Root cause is below Layer 4/5: HTF Layer 3 structure is anchor-sensitive.
+- Early starts (`2025-07-01`, `2025-08-01`, `2025-09-01`) preserve the 4H
+  `2025-07-31T00:00:00+00:00` low `1.13997`, so `2025-10-09` remains in the
+  bullish epoch `2025-09-16T12:00:00+00:00|SC01|up|...`.
+- Starts from `2025-09-15` or later warm HTF structure from a nearer low
+  (`1.16818` around `2025-09-10`), so the Oct 8 decline becomes a bearish HTF
+  break/epoch (`SC02 down`) and the classifier legitimately follows D/C.
+- Saving the continuous A shadow state at `2025-10-09T00:00Z` and restoring it
+  into the cold midnight runtime is rejected as `epoch_mismatch` because the
+  cold Layer 3 terrain already differs. Persisting Shadow Thesis alone cannot
+  repair this case.
+
+Verification:
+- `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_headless_runtime_reuse.py -q`
+  → **7 passed**. Replayer/session and headless runtime still share the same
+  runtime state; the gap is warmup/terrain reconstruction, not UI drift.
+
+Likely follow-up:
+- Add an explicit regression/probe for anchor-sensitive HTF terrain around
+  `2025-10-09T00:00Z`.
+- Decide whether production replay should persist Layer 3 structure state, use a
+  much larger/separate HTF warmup, or mark Phase A samples as valid only under
+  their generating runtime anchor.
+
+### Next session agenda
+
+1. **Phase A integrity testing** — probe the collected real Phase A sample timestamps.
+   - Verify A.watch_pathA fires only from A-owned `phase_a_shadow_commitment_extreme_level`.
+   - Verify B-owned `B.watch -> A.watch` transition entry still routes through `B.watch_pathB`, not A.watch_pathA.
+   - Verify A.watch_weaken_ex consumes the remaining A budget and no further A entries fire after EX.
+   - Verify `SL_too_wide` is non-stale, consumes no budget, and can retry until trigger age-out.
+2. **Use these Phase A sample timestamps first** (`analysis/trades/sample_phase_a.md`).
+   - OTE.entry / `A.watch_pathA`:
+     - `2025-10-09T12:30:00+00:00` long loss
+     - `2025-09-02T05:30:00+00:00` short win
+     - `2025-09-02T03:15:00+00:00` short win
+   - EX.entry / `A.watch_weaken_ex`:
+     - `2025-10-20T09:15:00+00:00` long loss
+     - `2025-05-08T18:00:00+00:00` long loss
+     - `2023-08-11T13:30:00+00:00` short win
+3. **Cross-phase SL/TP integrity test** — explicitly compare Phase D, B, and A SL/TP formulas on both long/short mirrors.
+   - Phase D: counter-HTF trade, SL from `phase_d_shadow_watch_range_extreme`, TP = `pd_midpoint`.
+   - Phase B: pro-HTF trade, SL from `phase_b_shadow_commitment_extreme_level`, TP = 90% objective capped at 2.5R.
+   - Phase A OTE: pro-HTF trade, SL from `phase_a_shadow_commitment_extreme_level`, TP = same objective formula.
+   - Phase A EX: pro-HTF trade, SL from `phase_a_shadow_watch_range_extreme`, TP = same objective formula.
+   - Symmetric direction audit: long SL below/min range_low vs short SL above/max range_high where applicable.
+
+### Dual Runtime Upgrade — layer analysis complete (2026-07-01)
+
+Architecture review of all layers against `dual_runtime_upgrade.md`. Key decisions:
+
+- **Layer 4**: `hypothesis_bootstrap_bars` / `_run_hidden_layer4_bootstrap` 2-phase split
+  dissolves. Unified 500-bar replay via `_process_lower_step`. `X.warm_up` fully absorbed
+  into warmup — never visible at probe edge.
+- **Layer 5**: `layer5.py` unchanged. `run_layer5_backtest.py` adds `--startup-mode` arg
+  + `startup_mode` column in output. No structural change.
+- **Layer 6**: owns `SampleRecord` schema + `ChunkAnalyzer`. Sampling module is
+  independent — calls Layer 6, not vice versa.
+- **Replayer rewind**: rule "cannot rewind past `start_time`" enforced by existing clamp
+  in `rebuild_to_lower_index`. Upgrade replaces silent no-op with explicit diagnostic.
+  Warmup events must be explicitly discarded from `visible_events`.
+- **WarmupTrace**: lightweight replayer-only helper (NOT Layer 7). Collects
+  `(bar_time, phase, sub_status, direction, recovery_mode)` per warmup bar as a
+  side-channel during `_init_engines()`. Config-gated (`trace_warmup: true`). Replayer
+  renders: dimmed phase band on pre-probe bars, L3/L4 event pre-feed, probe-edge
+  annotation (e.g. "self-relocated → E.seeking"). Core pipeline has zero dependency on it.
+
+### Implementation plan — Right-Edge Rebuild + Sampling (2026-07-01, resequenced after 3rd Codex audit)
+
+Combined plan at `.claude/plans/right-edge-rebuild-and-sampling.md`.
+Dependency order: **Phase 1A (runtime right-edge rebuild) → Phase 1B (replayer
+correctness) → Gate (Oct 9 regression, headless + browser) → Phase 2 (sampling) →
+Phase 3 (WarmupTrace only)**. Replayer correctness (startup_mode threading, rewind
+seek-boundary fix, RewindBoundaryError API shape) was pulled forward from the old
+Phase 3 into 1B because the browser replayer is the primary verification tool — the
+Gate is not considered passed on headless evidence alone.
+Phase 2 requires Phase 1A + 1B + gate to pass before any sampling work starts.
+
+Plan went through three Codex audit rounds plus implementation calibration. 12 traps documented (T1–T12). Key calibrations:
+- **Right-edge LTF replay spans the 500-HTF-bar calendar window**: Oct 9 preserves HTF terrain with 500 HTF bars, but Layer 4 only reconstructs Phase A when LTF replay starts at the HTF-history boundary (not merely 500 LTF bars before probe). This is T12.
+- **Layer 3 persistence deferred with justification**: right-edge rebuild + Shadow Thesis journal + self-relocation covers all live trading downtime scenarios for this combo. Not needed for correctness.
+- **Single mode UI disabled**: `disabled` attribute added to `<option>` and `<button>` in `index.html`. Backend code intact.
+- **Acceptance criteria split by phase**: Phase 1A/1B gate = Oct 9 regression with headless + browser agreement and replayer rewind determinism; Phase 2 gate = sampling failure rate < 1%; Phase 3 gate = WarmupTrace rendering.
+- **Next session**: review plan and begin Phase 1 implementation in `dual_smc.py`.
+
+### Deferred — multi-symbol startup cost (2026-07-01)
+
+10 independent `DualSmcRuntime` instances (one per symbol) each pay the 500-bar unified
+warmup cost at startup. Architecturally fine: each runtime is independent, no shared state.
+Becomes relevant only at deployment. Fix when needed: process-pool parallel warmup at
+launch (one worker per symbol), main process collects ready runtimes. Not a blocker for
+Phase 1 or chunk sampling work.
+
+### Implemented 2026-07-01 — Right-edge rebuild + sampling + WarmupTrace
+
+- Phase 1A/1B runtime and replayer path implemented:
+  `startup_mode=right_edge_rebuild`, 500-HTF-calendar-span LTF rebuild, probe-bar
+  classification, saved Shadow restore after reconstruction, `seek_start_time`/
+  `history_start_time`/`visible_start_time` metadata split, and rewind reject/clamp
+  diagnostics.
+- Phase 2 sampling infrastructure added:
+  `htf_pd_epoch_start_time` and `ltf_episode_anchor_time` debug facts,
+  `SampleRecord`, `ChunkAnalyzer`, `analysis/terrain_survey.py`, and
+  `analysis/sampling/orchestrator.py`.
+- Phase 3 WarmupTrace added:
+  `src/ultrab/replayer/warmup_trace.py`, config gate
+  `replay.hypothesis.trace_warmup`, replayer snapshot payload, dimmed LTF phase bands,
+  and probe-edge annotation rendering.
+- Verification:
+  `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_headless_runtime_reuse.py tests/test_hypothesis_restart_hierarchy.py tests/test_right_edge_regression.py tests/test_layer6_sampling.py -q`
+  → **18 passed / 1 skipped**.
+  Survey smoke:
+  `python3 analysis/terrain_survey.py --max-bars 2 --output-dir /private/tmp/ultrab-terrain-smoke`
+  wrote 2 rows; PyArrow emitted sandbox CPU-info warnings only.
+
+### Next session handoff — Phase A resampling + sampling format
+
+Resume with Phase A trade resampling using the new sampling module. Also verify the
+sampling output convention before collecting a full batch:
+- Folder convention should be `analysis/resample-PHASE-YYYYMM/`.
+- For Phase A, expected example: `analysis/resample-a-202301/sample_records.parquet`.
+- The Parquet file is fine; only the run-folder naming needs to stay aligned with the
+  existing `resample-*` folders.
+- Check `analysis/sampling/orchestrator.py --help` and `analysis/sampling/README.md`
+  first, because the last patch made this phase-parametric with `--phase`,
+  `--run-label`, and `--output-dir`.
+
+### Phase A chunk search — saved 2026-06-30
+
+Fresh chunk outputs are under `analysis/resample-a-*`; accepted rows are summarized in
+`analysis/trades/sample_phase_a.md`.
+
+- Searched anchors: `202301`, `202303`, `202305`, `202307`, `202401`, `202403`,
+  `202405`, `202407`, `202501`, `202503`, `202505`, `202507`, `202509`.
+- Deduped accepted rows found:
+  - `A.watch_pathA`: 9 unique accepted rows.
+  - `A.watch_weaken_ex`: 3 unique accepted rows.
+- Verified the six documented sample rows against generated CSVs:
+  `verified rows 6`, `missing []`.
+
+### Implemented 2026-06-30
+
+**Layer 4 / Shadow Thesis**
+- Added `PhaseAShadow.commitment_extreme_level` and `PhaseAShadow.watch_range_extreme`.
+- B→A and A.watch_weaken→A.watch recovery snap the A-owned commitment extreme from LTF `range_low` (long) / `range_high` (short).
+- A.watch → A.watch_weaken initializes EX `watch_range_extreme` on the transition bar and then tracks it bar-by-bar:
+  - long: running min of `lower_structure.range_low` (SL below)
+  - short: running max of `lower_structure.range_high` (SL above)
+
+**Evidence Compiler**
+- Added `ltf_pro_ichoch_isb_sequence_seen` and `ltf_pro_sequence_*` facts inside the existing `ltf_counter_choch` candidate.
+- Existing counter sequence keys remain unchanged for Phase D / future Phase C EX.
+
+**Layer 5**
+- Implemented `A.watch_pathA`: counter iChoCh → pro iChoCh OTE continuation, A-owned commitment SL, objective TP.
+- Implemented `A.watch_weaken_ex`: pro iChoCh → pro iSB EX continuation, watch-range SL, objective TP, EX exhausts A budget.
+- Added local Phase A budget state keyed by `epoch_id:direction`.
+- Renamed the B TP helper conceptually to shared HTF objective TP and reused it for Phase A.
+- Changed max-SL rejection from `late_entry_risk_too_wide` to `SL_too_wide`.
+  - `SL_too_wide` is non-stale.
+  - No stale ledger mark.
+  - No budget spend.
+  - B episode remains open.
+
+**Docs corrected**
+- Active docs updated for Phase A implemented status and `SL_too_wide` semantics:
+  - `docs/501-entry-details.html`
+  - `docs/501-entry-diagram.html`
+  - `docs/502-TPSL-methods.html`
+  - `docs/601-trade-analysis-details.html`
+  - `tests/PHASE_CHUNK_VALIDATION.md`
+
+### Verification
+
+- Focused suite:
+  `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest tests/test_layer5_phase_b.py tests/test_hypothesis_classifier.py tests/test_evidence_compiler.py tests/test_layer5_layer6.py -q`
+  → **128 passed / 31 skipped / 2 subtests passed**
+- Full suite:
+  `PYTHONPATH=src PYTHONDONTWRITEBYTECODE=1 pytest -q`
+  → **221 passed / 32 skipped / 2 subtests passed**
+
+### Phase A SL/TP design — FINAL (2026-06-30)
+
+**OTE.entry SL (A.watch_pathA)**
+- `PhaseAShadow.commitment_extreme_level` — one-time snap of `lower_structure.range_low`
+  (LONG) / `range_high` (SHORT) at EVERY A.watch open.
+- Re-snapped at: initial B→A · A.watch_weaken→A.watch recovery · A.watch advance gate re-arm.
+- Identical mechanism to `PhaseBShadow.commitment_extreme_level` (snapped at C→B bar).
+- Shadow Thesis ownership — NOT EC. LTF ratchet ensures range_low deepens by each episode open.
+
+**EX.entry SL (A.watch_weaken_ex)**
+- `PhaseAShadow.watch_range_extreme` — running min of `lower_structure.range_low` (LONG — SL below) /
+  max of `range_high` (SHORT — SL above) tracked bar-by-bar from A.watch_weaken open; stops on exit.
+- **OPPOSITE direction to Phase D**: Phase A is pro-HTF (long trade → SL below → min range_low); Phase D is counter-HTF (long HTF → short trade → SL above → max range_high). Do not copy Phase D direction arms.
+- No clamp against commitment_extreme.
+
+**Global SL band rules (EURUSD: 15–25 pip)** — instrument-level, all entry types:
+1. Floor (< 15 pip): widen SL to 15 pip; no budget consumed (non-stale retry → `runway_too_short`).
+2. Cap (> 25 pip): reject trade idea; no budget consumed (non-stale reject → `SL_too_wide`).
+3. `runway_too_short`: re-arms on new trigger event.
+4. `SL_too_wide`: geometry failure ≠ trade placed; no budget consumed.
+
+### Phase A V1 plan (patterns)
+
+- `A.watch_pathA` (OTE.entry): counter iChoCh → retracement → pro iChoCh → enter pro-HTF.
+  Same counter→pro OTE shape as `B.watch_pathA`.
+- `A.watch_weaken_ex` (EX.entry): pro iChoCh + pro iSB → enter pro-HTF. Same as Phase D EX.
+
+### Phase A budget / terminal semantics
+
+- Budget hardcoded 3 for production and null-test. "EX is last slot" is semantic invariant.
+- Layer 5 tracks locally with `_a_watch_total_count`, keyed by `epoch_id:direction`.
+- EX consumption (`EntryIntent` or stale `SkipIntent`) forces count=3.
+- V1: immediate `X.thesis_over` after EX is deferred; DAG reaches it via `phase_a_thesis_matured`.
+
+### Docs / contract status
+
+All doc/contract gaps resolved 2026-06-30. `layer34-contract.md`, `layer5-entry-contract.md`, `docs/501-entry-details.html`, `docs/502-TPSL-methods.html` are aligned with the plan.
+
+---
+
 ## Current state — 2026-06-28 (Phase D + B integrity fixes COMPLETE)
 
 4 issues from `20260628_bugs.md` implemented and audited. All changes confined to
